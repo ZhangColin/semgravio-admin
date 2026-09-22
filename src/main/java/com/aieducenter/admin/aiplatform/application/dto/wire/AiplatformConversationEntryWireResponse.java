@@ -10,10 +10,12 @@ import java.util.Map;
  * 过程明细（解说段/动作卡流水）不在其中。
  *
  * <p>{@code kind} 为 <strong>Integer code</strong>（1=用户发言 2=智能体回复 3=问答卡 4=问答作答
- * 5=收尾卡 6=平台轻引导）+ {@code kindName} 中文名随行（aiplatform#186 已落——2026-09-15 对照
- * provider 源码 f01d984 核实：backoffice 出口已配 *Name，BFF 透传 provider 值、不做本地映射）。
- * {@code question}/{@code closing} 为事件载荷 JSON 原样（{@code Map} 逐字透传、BFF 不解读）；
- * {@code closing} 是版本详情锚定的权威事实（#88 同载荷）。</p>
+ * 5=收尾卡 6=平台轻引导 7=报价卡）+ {@code kindName} 中文名随行（aiplatform#186 已落——2026-09-15 对照
+ * provider 源码 f01d984 核实：backoffice 出口已配 *Name，BFF 透传 provider 值、不做本地映射；
+ * 2026-09-23 对照 provider 800ad9e（#203 报价感知）补 {@code quote} 载荷肢）。
+ * {@code question}/{@code closing}/{@code quote} 为事件载荷 JSON 原样（{@code Map} 逐字透传、
+ * BFF 不解读）；{@code closing} 是版本详情锚定的权威事实（#88 同载荷）；{@code quote} 为
+ * 报价卡载荷（仅事件＋订单引用，不含金额——视镜语义，aiplatform ADR-0017）。</p>
  *
  * @since 0.1.0
  */
@@ -22,7 +24,7 @@ public record AiplatformConversationEntryWireResponse(
         /** 条目标识（Long；provider Long→JSON string 出口，反序列化回 Long） */
         Long id,
 
-        /** 条目类型（1=用户发言 2=智能体回复 3=问答卡 4=问答作答 5=收尾卡 6=平台轻引导） */
+        /** 条目类型（1=用户发言 2=智能体回复 3=问答卡 4=问答作答 5=收尾卡 6=平台轻引导 7=报价卡） */
         Integer kind,
 
         /** 条目类型中文名（provider 出口提供，aiplatform#186） */
@@ -42,6 +44,9 @@ public record AiplatformConversationEntryWireResponse(
 
         /** 用户发言随带的圈注附件 JSON 数组（#97 圈注 B 档；无附件为 null/空） */
         List<Map<String, Object>> attachments,
+
+        /** 报价卡载荷原样（仅事件＋订单引用，不含金额——视镜语义 ADR-0017；非报价卡为 null） */
+        Map<String, Object> quote,
 
         /** 问答卡是否已作答（非问答卡恒 false） */
         boolean answered,

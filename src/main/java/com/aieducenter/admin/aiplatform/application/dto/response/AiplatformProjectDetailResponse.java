@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * AI 平台项目详情——北向出口，逐字镜像 aiplatform {@code BackofficeProjectDetailResponse}
  * （#159 项目域 + #164 成本指针），无增删字段、无换型（spec #62 忠实透传）。
@@ -70,6 +72,9 @@ public record AiplatformProjectDetailResponse(
      * 不折算）＋unpriced 有无标记（true＝成本不完整）。无用量项目＝空 cost + false（明确空态）。
      */
     public record CostSummary(
+            @Schema(description = "总成本按币种分桶直读不折算：键 = ISO 4217 币种码、值 = 金额；"
+                    + "无用量（或全未配价）为空对象",
+                    example = "{\"USD\": 12.34}")
             Map<String, BigDecimal> cost,
             boolean unpriced
     ) {

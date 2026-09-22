@@ -3,6 +3,8 @@ package com.aieducenter.admin.aiplatform.application.dto.response;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 项目成本清单行响应（BFF 北向出口）——逐字镜像 aiplatform {@code BackofficeProjectCostResponse}
  * （issue #67）：窗口内该项目的总量 + 平台成本（币种分桶）+ 全未配价标注。
@@ -22,6 +24,9 @@ public record AiplatformProjectCostResponse(
         AiplatformTokenUsageResponse total,
 
         /** 平台成本（币种分桶；全未配价时空 Map——不伪装 0） */
+        @Schema(description = "平台成本（币种分桶直读不折算：键 = ISO 4217 币种码、值 = 金额；"
+                + "全未配价时为空对象，成本标量缺失不伪装 0——allUnpriced 同行为 true）",
+                example = "{\"USD\": 12.34}")
         Map<String, BigDecimal> cost,
 
         /** 全未配价标注（有用量但无任何已配价分量——true 时成本不完整） */

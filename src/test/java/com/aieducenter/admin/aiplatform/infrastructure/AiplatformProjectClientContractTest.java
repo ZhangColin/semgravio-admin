@@ -153,8 +153,9 @@ class AiplatformProjectClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/projects/{id}/conversation 的真实成功响应形状（data 裸 List）：
-     * 用户发言（带圈注附件）/问答卡（挂起待答）/收尾卡（run-finish 载荷）三条，id 升序＝对话序。
-     * kindName 随行——aiplatform#186 已落（f01d984），BFF 透传 provider 值。
+     * 用户发言（带圈注附件）/问答卡（挂起待答）/收尾卡（run-finish 载荷）/报价卡（quote 载荷，
+     * provider #203 报价感知后新增肢）四条，id 升序＝对话序。kindName 随行——aiplatform#186 已落
+     * （f01d984），BFF 透传 provider 值。
      */
     private static final String CONVERSATION_ENVELOPE = """
             {
@@ -198,6 +199,19 @@ class AiplatformProjectClientContractTest {
                   "attachments": null,
                   "answered": false,
                   "at": "2026-09-12T11:30:00"
+                },
+                {
+                  "id": "90004",
+                  "kind": 7,
+                  "kindName": "报价卡",
+                  "runId": null,
+                  "text": null,
+                  "question": null,
+                  "closing": null,
+                  "attachments": null,
+                  "quote": {"orderId": "3897654321098765432", "event": "quoted"},
+                  "answered": false,
+                  "at": "2026-09-12T12:00:00"
                 }
               ],
               "requestId": "req-7a8b9c",
@@ -568,7 +582,7 @@ class AiplatformProjectClientContractTest {
                 "http://stub-aiplatform/api/backoffice/projects/3829492007654321/conversation");
 
         // 全量同序（id 升序＝对话序）
-        assertThat(entries).hasSize(3);
+        assertThat(entries).hasSize(4);
 
         // 用户发言（kind=1）：kindName 中文名随行（aiplatform#186 已落——provider 出口提供，BFF 透传）；
         // id 为 Long（provider Long→JSON string 出口、反序列化回 Long）；圈注附件数组原样
@@ -604,6 +618,15 @@ class AiplatformProjectClientContractTest {
         assertThat(closing.closing())
                 .containsEntry("runId", "run-abc123")
                 .containsEntry("commitHash", COMMIT_HASH);
+
+        // 报价卡（kind=7，provider #203）：quote 载荷 Map 原样透传（仅事件＋订单引用，
+        // 不含金额——视镜语义 ADR-0017）；orderId 为字符串（防 JS 精度丢失）
+        var quote = entries.get(3);
+        assertThat(quote.kind()).isEqualTo(7);
+        assertThat(quote.kindName()).isEqualTo("报价卡");
+        assertThat(quote.quote())
+                .containsEntry("orderId", "3897654321098765432")
+                .containsEntry("event", "quoted");
     }
 
     // ========== PRD（Instant 秒精度）==========

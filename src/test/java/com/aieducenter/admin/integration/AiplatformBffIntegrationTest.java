@@ -447,17 +447,21 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.getConversation("3829492007654321")).thenReturn(List.of(
                 new AiplatformConversationEntryWireResponse(
                         90001L, 1, "用户发言", null, "首页加一个轮播图",
-                        null, null, List.of(Map.of("type", "circle")), false,
+                        null, null, List.of(Map.of("type", "circle")), null, false,
                         LocalDateTime.of(2026, 9, 12, 10, 0, 0)),
                 new AiplatformConversationEntryWireResponse(
                         90003L, 5, "收尾卡", "run-abc123", null,
-                        null, Map.of("runId", "run-abc123", "commitHash", "abc"), null, false,
-                        LocalDateTime.of(2026, 9, 12, 11, 30, 0))));
+                        null, Map.of("runId", "run-abc123", "commitHash", "abc"), null, null, false,
+                        LocalDateTime.of(2026, 9, 12, 11, 30, 0)),
+                new AiplatformConversationEntryWireResponse(
+                        90004L, 7, "报价卡", null, null,
+                        null, null, null, Map.of("orderId", "3897654321098765432", "event", "quoted"), false,
+                        LocalDateTime.of(2026, 9, 12, 12, 0, 0))));
 
         var entries = projectAppService.getConversation("3829492007654321");
 
         // kind Integer code + kindName 随行（aiplatform#186 provider 出口提供）；载荷 Map/List 原样透传
-        assertThat(entries).hasSize(2);
+        assertThat(entries).hasSize(3);
         var user = entries.get(0);
         assertThat(user.kind()).isEqualTo(1);
         assertThat(user.kindName()).isEqualTo("用户发言");
@@ -465,6 +469,13 @@ class AiplatformBffIntegrationTest {
         var closing = entries.get(1);
         assertThat(closing.kind()).isEqualTo(5);
         assertThat(closing.closing()).containsEntry("commitHash", "abc");
+        // 报价卡（kind=7，provider #203）：quote 载荷原样透传（仅事件＋订单引用，不含金额——视镜 ADR-0017）
+        var quote = entries.get(2);
+        assertThat(quote.kind()).isEqualTo(7);
+        assertThat(quote.kindName()).isEqualTo("报价卡");
+        assertThat(quote.quote())
+                .containsEntry("orderId", "3897654321098765432")
+                .containsEntry("event", "quoted");
     }
 
     @Test

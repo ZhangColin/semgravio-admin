@@ -3,6 +3,8 @@ package com.aieducenter.admin.aiplatform.application.dto.command;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * AI 平台单价行原子改价北向命令——运营人员提交的改价意图，逐字镜像 aiplatform
  * {@code RepricePriceEntryCommand}（#160，spec #62 定稿、issue #68）：单调用原子「关当前行＋
@@ -23,6 +25,9 @@ import java.time.Instant;
 public record AiplatformPriceEntryRepriceCommand(
 
         /** 新每 token 单价（非负；0＝免费档——合法性归 provider 聚合守卫） */
+        @Schema(description = "新每 token 单价（入参侧为 number；非负，0＝免费档。"
+                + "响应侧读回为十进制字符串——两侧类型有意不对称，照实各自呈现）",
+                example = "0.00000132")
         BigDecimal unitPrice,
 
         /** 新币种（ISO 4217 代码，如 USD） */

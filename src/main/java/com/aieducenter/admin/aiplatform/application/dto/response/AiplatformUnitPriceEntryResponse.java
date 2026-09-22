@@ -2,6 +2,8 @@ package com.aieducenter.admin.aiplatform.application.dto.response;
 
 import java.time.Instant;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * AI 平台单价行——北向出口，逐字镜像 aiplatform {@code UnitPriceEntryResponse}
  * （#160，清单行/改价回执/停用回执共形）：匹配键＋单价＋生效区间＋操作者。与订单价目行
@@ -35,6 +37,10 @@ public record AiplatformUnitPriceEntryResponse(
         String tokenKindName,
 
         /** 每 token 单价（精确十进制串） */
+        @Schema(description = "每 token 单价（响应侧为 string——精确十进制串交接，规避 "
+                + "BigDecimal 直出 JSON 落科学计数；改价入参侧为 number，类型照实"
+                + "各自呈现、有意不做统一）",
+                example = "\"0.00000132\"")
         String unitPrice,
 
         /** 币种（ISO 4217） */

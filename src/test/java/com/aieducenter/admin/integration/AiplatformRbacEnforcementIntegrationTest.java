@@ -401,10 +401,10 @@ class AiplatformRbacEnforcementIntegrationTest {
         when(aiplatformClient.getConversation(eq(PROJECT_ID))).thenReturn(List.of(
                 new AiplatformConversationEntryWireResponse(
                         90001L, 1, "用户发言", null, "首页加一个轮播图",
-                        null, null, null, false, LocalDateTime.of(2026, 9, 12, 10, 0, 0)),
+                        null, null, null, null, false, LocalDateTime.of(2026, 9, 12, 10, 0, 0)),
                 new AiplatformConversationEntryWireResponse(
                         90003L, 5, "收尾卡", "run-abc123", null,
-                        null, Map.of("runId", "run-abc123", "commitHash", VERSION_HASH), null, false,
+                        null, Map.of("runId", "run-abc123", "commitHash", VERSION_HASH), null, null, false,
                         LocalDateTime.of(2026, 9, 12, 11, 30, 0))));
         when(aiplatformClient.getPrd(eq(PROJECT_ID))).thenReturn(new AiplatformPrdWireResponse(
                 PROJECT_ID, "# PRD\n\n做一个英语学习助手……", Instant.parse("2026-09-12T08:30:00Z")));

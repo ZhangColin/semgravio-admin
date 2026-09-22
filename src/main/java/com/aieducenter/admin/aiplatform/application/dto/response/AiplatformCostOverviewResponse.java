@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 平台成本全局总览响应（BFF 北向出口）——逐字镜像 aiplatform {@code BackofficeCostOverviewResponse}
  * （issue #67，spec #62 忠实透传）：窗口回显 + 五档总量 + 平台成本（币种分桶）+ 分模型/分智能体两分解。
@@ -27,6 +29,9 @@ public record AiplatformCostOverviewResponse(
         AiplatformTokenUsageResponse total,
 
         /** 平台成本（币种分桶直读不折算，键 = ISO 4217 币种码；全未配价/无事件时空 Map） */
+        @Schema(description = "平台成本（币种分桶直读不折算：键 = ISO 4217 币种码、值 = 金额；"
+                + "无生效单价的分量不进本桶，全未配价/无事件为空对象）",
+                example = "{\"USD\": 12.34}")
         Map<String, BigDecimal> cost,
 
         /** 分模型聚合（provider + model 为单价表匹配键） */

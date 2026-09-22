@@ -176,7 +176,8 @@ public class AiplatformProjectAppService {
             AiplatformConversationEntryWireResponse wire) {
         return new AiplatformConversationEntryResponse(
                 wire.id(), wire.kind(), wire.kindName(), wire.runId(), wire.text(),
-                wire.question(), wire.closing(), wire.attachments(), wire.answered(), wire.at());
+                wire.question(), wire.closing(), wire.attachments(), wire.quote(),
+                wire.answered(), wire.at());
     }
 
     private static AiplatformVersionResponse toVersion(AiplatformVersionWireResponse wire) {
