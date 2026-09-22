@@ -184,7 +184,7 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.listOrders(any(), eq(3), eq(20))).thenReturn(
                 new PageResponse<>(List.of(
                         new AiplatformOrderSummaryWireResponse(
-                                "3829492001234567", "3829492007654321", "英语学习助手", "文野",
+                                "3829492001234567", "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野",
                                 3, "已支付", 1999000L, "CNY",
                                 LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                                 LocalDateTime.of(2026, 9, 11, 9, 0, 0))), 42, 3, 20));
@@ -378,7 +378,7 @@ class AiplatformBffIntegrationTest {
     void given_projectQueryAndPage_when_list_then_wireRequestMappedAndPageEchoedFromProvider() {
         when(aiplatformClient.listProjects(any(), eq(3), eq(20))).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectSummaryWireResponse(
-                        "3829492007654321", "英语学习助手", "文野",
+                        "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野",
                         1, "官网", 3, "已归档", true,
                         LocalDateTime.of(2026, 8, 1, 9, 0, 0),
                         LocalDateTime.of(2026, 9, 1, 12, 0, 0))), 7, 3, 20));
@@ -417,7 +417,7 @@ class AiplatformBffIntegrationTest {
     void given_projectDetailWire_when_getDetail_then_orderRefsAndCostSummaryMapped() {
         when(aiplatformClient.getProject("3829492007654321")).thenReturn(
                 new AiplatformProjectDetailWireResponse(
-                        "3829492007654321", "英语学习助手", "文野", "3829492009999999",
+                        "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野", "3829492009999999",
                         1, "官网", 1, "进行中", false,
                         LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                         LocalDateTime.of(2026, 9, 14, 18, 30, 0),

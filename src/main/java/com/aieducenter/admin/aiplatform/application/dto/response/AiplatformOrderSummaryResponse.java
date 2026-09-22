@@ -22,6 +22,9 @@ public record AiplatformOrderSummaryResponse(
         /** 项目名（软引用缺档为 null） */
         String projectName,
 
+        /** 下单账号对外正身（OIDC sub——账号档案读口的寻址键；下单账号可空/缺档为 null） */
+        String ownerExternalId,
+
         /** 下单用户显示名（下单账号可空或缺档为 null） */
         String ownerDisplayName,
 

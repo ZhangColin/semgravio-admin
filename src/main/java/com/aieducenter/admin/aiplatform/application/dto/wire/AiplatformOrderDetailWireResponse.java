@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * aiplatform 订单详情的 wire 镜像——与 aiplatform {@code BackofficeOrderDetailResponse}
- * （#155 价目留痕已冻结）字段同构（21 字段 + 内嵌价目历史），逐字镜像、无增删。
+ * （#155 价目留痕已冻结）字段同构（22 字段 + 内嵌价目历史），逐字镜像、无增删。
  *
  * <p>报价依据全量事实：PRD 快照正文（下单冻结）、价目历史（append-only 全量，新 → 旧，带操作者）、
  * 全部状态时点。取消/归档操作者两肢为 admin 侧管理员标识（透传头落痕），存量行/无头 NULL。</p>
@@ -22,6 +22,9 @@ public record AiplatformOrderDetailWireResponse(
 
         /** 项目名（软引用缺档为 null） */
         String projectName,
+
+        /** 下单账号对外正身（OIDC sub——账号档案读口的寻址键；下单账号可空/跨 BC 软引用缺档为 null） */
+        String ownerExternalId,
 
         /** 下单用户昵称（下单账号可空/缺档为 null） */
         String ownerDisplayName,

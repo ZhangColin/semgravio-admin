@@ -30,6 +30,8 @@ import com.cartisan.web.response.PageResponse;
  * <ul>
  *   <li>清单/详情均包 {@code ApiResponse<T>} 信封，须按信封反序列化并取 {@code .data()}；
  *       清单 data 为 {@code PageResponse{items,total,page,size}}（page 1-based）。</li>
+ *   <li>owner 摘要两肢（aiplatform #243 起，issue #76）：{@code ownerExternalId}（OIDC sub——
+ *       账号档案读口的寻址键）+ {@code ownerDisplayName}；下单账号可空/跨 BC 软引用缺档为 null。</li>
  *   <li>清单 {@code status} 多选为<strong>逗号分隔单值</strong>（{@code status=1,5}）——aiplatform
  *       签名协议按 query 参数名去重，重复参数只有末值入签（区别于 payment 的重复参数展开）。</li>
  *   <li>金额 {@code Long}（分）、{@code status} Integer code + {@code statusName} 中文名、
@@ -75,6 +77,7 @@ class AiplatformOrderClientContractTest {
                     "id": "3829492001234567",
                     "projectId": "3829492007654321",
                     "projectName": "英语学习助手",
+                    "ownerExternalId": "auth0|65f2c8a1",
                     "ownerDisplayName": "文野",
                     "status": 3,
                     "statusName": "已支付",
@@ -87,6 +90,7 @@ class AiplatformOrderClientContractTest {
                     "id": "3829492005555444",
                     "projectId": "3829492007654321",
                     "projectName": "英语学习助手",
+                    "ownerExternalId": null,
                     "ownerDisplayName": null,
                     "status": 1,
                     "statusName": "待报价",
@@ -114,6 +118,7 @@ class AiplatformOrderClientContractTest {
                 "id": "3829492001234567",
                 "projectId": "3829492007654321",
                 "projectName": "英语学习助手",
+                "ownerExternalId": "auth0|65f2c8a1",
                 "ownerDisplayName": "文野",
                 "status": 2,
                 "statusName": "已报价",
@@ -377,6 +382,8 @@ class AiplatformOrderClientContractTest {
         assertThat(paid.id()).isEqualTo("3829492001234567");
         assertThat(paid.projectId()).isEqualTo("3829492007654321");
         assertThat(paid.projectName()).isEqualTo("英语学习助手");
+        // owner 摘要含 externalId（aiplatform #243 起，issue #76）——账号档案读口的寻址键
+        assertThat(paid.ownerExternalId()).isEqualTo("auth0|65f2c8a1");
         assertThat(paid.ownerDisplayName()).isEqualTo("文野");
         assertThat(paid.status()).isEqualTo(3);
         assertThat(paid.statusName()).isEqualTo("已支付");
@@ -392,6 +399,7 @@ class AiplatformOrderClientContractTest {
         assertThat(pending.amount()).isNull();
         assertThat(pending.currency()).isNull();
         assertThat(pending.quotedAt()).isNull();
+        assertThat(pending.ownerExternalId()).isNull();
         assertThat(pending.ownerDisplayName()).isNull();
     }
 
@@ -427,6 +435,8 @@ class AiplatformOrderClientContractTest {
 
         // 顶层字段：金额 Long（分）、现值取最新价目行、PRD 快照正文
         assertThat(detail.id()).isEqualTo("3829492001234567");
+        // owner 摘要含 externalId（aiplatform #243 起，issue #76）——账号档案读口的寻址键
+        assertThat(detail.ownerExternalId()).isEqualTo("auth0|65f2c8a1");
         assertThat(detail.status()).isEqualTo(2);
         assertThat(detail.statusName()).isEqualTo("已报价");
         assertThat(detail.amount()).isEqualTo(2199000L);

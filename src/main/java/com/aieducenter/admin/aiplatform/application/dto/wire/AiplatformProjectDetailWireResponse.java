@@ -26,6 +26,9 @@ public record AiplatformProjectDetailWireResponse(
         /** 项目名 */
         String name,
 
+        /** 归属账号对外正身（OIDC sub——账号档案读口的寻址键；无主/跨 BC 软引用缺档为 null） */
+        String ownerExternalId,
+
         /** 归属账号显示名（跨 BC 软引用取名；无主/缺档为 null） */
         String ownerDisplayName,
 

@@ -118,14 +118,16 @@ public class AiplatformOrderAppService {
 
     private static AiplatformOrderSummaryResponse toSummary(AiplatformOrderSummaryWireResponse wire) {
         return new AiplatformOrderSummaryResponse(
-                wire.id(), wire.projectId(), wire.projectName(), wire.ownerDisplayName(),
+                wire.id(), wire.projectId(), wire.projectName(),
+                wire.ownerExternalId(), wire.ownerDisplayName(),
                 wire.status(), wire.statusName(), wire.amount(), wire.currency(),
                 wire.createdAt(), wire.quotedAt());
     }
 
     private static AiplatformOrderDetailResponse toDetail(AiplatformOrderDetailWireResponse wire) {
         return new AiplatformOrderDetailResponse(
-                wire.id(), wire.projectId(), wire.projectName(), wire.ownerDisplayName(),
+                wire.id(), wire.projectId(), wire.projectName(),
+                wire.ownerExternalId(), wire.ownerDisplayName(),
                 wire.status(), wire.statusName(), wire.amount(), wire.currency(), wire.note(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()
                         .map(AiplatformOrderAppService::toPriceEntry)

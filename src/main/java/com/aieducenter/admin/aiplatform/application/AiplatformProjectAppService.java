@@ -152,14 +152,16 @@ public class AiplatformProjectAppService {
 
     private static AiplatformProjectSummaryResponse toSummary(AiplatformProjectSummaryWireResponse wire) {
         return new AiplatformProjectSummaryResponse(
-                wire.id(), wire.name(), wire.ownerDisplayName(),
+                wire.id(), wire.name(),
+                wire.ownerExternalId(), wire.ownerDisplayName(),
                 wire.type(), wire.typeName(), wire.status(), wire.statusName(), wire.archived(),
                 wire.createdAt(), wire.updatedAt());
     }
 
     private static AiplatformProjectDetailResponse toDetail(AiplatformProjectDetailWireResponse wire) {
         return new AiplatformProjectDetailResponse(
-                wire.id(), wire.name(), wire.ownerDisplayName(), wire.workspaceId(),
+                wire.id(), wire.name(),
+                wire.ownerExternalId(), wire.ownerDisplayName(), wire.workspaceId(),
                 wire.type(), wire.typeName(), wire.status(), wire.statusName(), wire.archived(),
                 wire.createdAt(), wire.updatedAt(), wire.prdProducedAt(), wire.generatedAt(),
                 wire.activeOrder() == null ? null : toOrderBrief(wire.activeOrder()),

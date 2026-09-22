@@ -33,6 +33,8 @@ import com.cartisan.web.response.PageResponse;
  *       全局 Long→ToStringSerializer），对话史/版本列表 data 为<strong>裸 List</strong>。</li>
  *   <li>清单 {@code status} 为<strong>三档单选</strong>（1=进行中 3=已归档，缺省＝全部）——单值直传，
  *       与订单域多选拼逗号有意不同；精确维度 {@code projectId}。</li>
+ *   <li>owner 摘要两肢（aiplatform #243 起，issue #76）：{@code ownerExternalId}（OIDC sub——
+ *       账号档案读口的寻址键）+ {@code ownerDisplayName}；无主/跨 BC 软引用缺档为 null。</li>
  *   <li>详情嵌套订单引用（activeOrder/latestOrder：id/status Integer+statusName 三字段）与成本指针
  *       （costSummary.cost＝Map&lt;币种码, BigDecimal&gt; JSON 数字、unpriced boolean）。</li>
  *   <li>对话史 {@code kind} Integer code + {@code kindName} 中文名随行——<strong>aiplatform#186
@@ -78,6 +80,7 @@ class AiplatformProjectClientContractTest {
                   {
                     "id": "3829492007654321",
                     "name": "英语学习助手",
+                    "ownerExternalId": "auth0|65f2c8a1",
                     "ownerDisplayName": "文野",
                     "type": 1,
                     "typeName": "官网",
@@ -90,6 +93,7 @@ class AiplatformProjectClientContractTest {
                   {
                     "id": "3829492001111111",
                     "name": "老官网",
+                    "ownerExternalId": null,
                     "ownerDisplayName": null,
                     "type": 1,
                     "typeName": "官网",
@@ -120,6 +124,7 @@ class AiplatformProjectClientContractTest {
               "data": {
                 "id": "3829492007654321",
                 "name": "英语学习助手",
+                "ownerExternalId": "auth0|65f2c8a1",
                 "ownerDisplayName": "文野",
                 "workspaceId": "3829492009999999",
                 "type": 1,
@@ -476,6 +481,8 @@ class AiplatformProjectClientContractTest {
         // 类型口径：id String（TSID 十进制串）、type/status Integer code + *Name 中文名、archived Boolean
         assertThat(active.id()).isEqualTo("3829492007654321");
         assertThat(active.name()).isEqualTo("英语学习助手");
+        // owner 摘要两肢（aiplatform #243 起，issue #76）：externalId＝账号档案读口的寻址键
+        assertThat(active.ownerExternalId()).isEqualTo("auth0|65f2c8a1");
         assertThat(active.ownerDisplayName()).isEqualTo("文野");
         assertThat(active.type()).isEqualTo(1);
         assertThat(active.typeName()).isEqualTo("官网");
@@ -486,11 +493,12 @@ class AiplatformProjectClientContractTest {
         assertThat(active.updatedAt()).isEqualTo(LocalDateTime.of(2026, 9, 14, 18, 30, 0));
 
         // 归档行照读（provider 缺省含归档、BFF 不二次过滤）：派生 status=3 + archived 原始事实位；
-        // 无主项目 ownerDisplayName null
+        // 无主项目 owner 两肢 null
         var archived = page.items().get(1);
         assertThat(archived.status()).isEqualTo(3);
         assertThat(archived.statusName()).isEqualTo("已归档");
         assertThat(archived.archived()).isTrue();
+        assertThat(archived.ownerExternalId()).isNull();
         assertThat(archived.ownerDisplayName()).isNull();
     }
 
@@ -526,8 +534,9 @@ class AiplatformProjectClientContractTest {
         assertThat(wireUrl[0]).isEqualTo(
                 "http://stub-aiplatform/api/backoffice/projects/3829492007654321");
 
-        // 清单字段全量 + 详情独有（workspaceId/时点组）
+        // 清单字段全量 + 详情独有（workspaceId/时点组）；owner 摘要两肢（#76）：externalId 寻址键
         assertThat(detail.id()).isEqualTo("3829492007654321");
+        assertThat(detail.ownerExternalId()).isEqualTo("auth0|65f2c8a1");
         assertThat(detail.workspaceId()).isEqualTo("3829492009999999");
         assertThat(detail.type()).isEqualTo(1);
         assertThat(detail.typeName()).isEqualTo("官网");

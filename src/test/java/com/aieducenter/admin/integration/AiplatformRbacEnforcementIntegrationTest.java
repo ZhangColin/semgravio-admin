@@ -365,12 +365,12 @@ class AiplatformRbacEnforcementIntegrationTest {
                         LocalDateTime.of(2026, 1, 15, 10, 30, 0)));
         when(aiplatformClient.listOrders(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(
                 List.of(new AiplatformOrderSummaryWireResponse(
-                        ORDER_ID, "3829492007654321", "英语学习助手", "文野",
+                        ORDER_ID, "3829492007654321", "英语学习助手", EXTERNAL_ID, "文野",
                         3, "已支付", 1999000L, "CNY",
                         LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                         LocalDateTime.of(2026, 9, 11, 9, 0, 0))), 42, 3, 20));
         when(aiplatformClient.getOrder(eq(ORDER_ID))).thenReturn(new AiplatformOrderDetailWireResponse(
-                ORDER_ID, "3829492007654321", "英语学习助手", "文野",
+                ORDER_ID, "3829492007654321", "英语学习助手", EXTERNAL_ID, "文野",
                 2, "已报价", 2199000L, "CNY", "含加急费用",
                 List.of(new AiplatformPriceEntryWireResponse(
                         "3829492011111111", 2199000L, "CNY", "含加急费用",
@@ -386,12 +386,12 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new byte[] {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00}));
         when(aiplatformClient.listProjects(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectSummaryWireResponse(
-                        PROJECT_ID, "英语学习助手", "文野",
+                        PROJECT_ID, "英语学习助手", EXTERNAL_ID, "文野",
                         1, "官网", 3, "已归档", true,
                         LocalDateTime.of(2026, 8, 1, 9, 0, 0),
                         LocalDateTime.of(2026, 9, 1, 12, 0, 0))), 7, 2, 50));
         when(aiplatformClient.getProject(eq(PROJECT_ID))).thenReturn(new AiplatformProjectDetailWireResponse(
-                PROJECT_ID, "英语学习助手", "文野", "3829492009999999",
+                PROJECT_ID, "英语学习助手", EXTERNAL_ID, "文野", "3829492009999999",
                 1, "官网", 1, "进行中", false,
                 LocalDateTime.of(2026, 9, 10, 14, 20, 0), LocalDateTime.of(2026, 9, 14, 18, 30, 0),
                 LocalDateTime.of(2026, 9, 10, 20, 0, 0), LocalDateTime.of(2026, 9, 11, 8, 0, 0),
@@ -918,6 +918,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(row.path("status").asInt()).isEqualTo(3);
         assertThat(row.path("statusName").asText()).isEqualTo("已归档");
         assertThat(row.path("archived").asBoolean()).isTrue();
+        // owner 摘要两肢（issue #76）：externalId＝账号档案读口的寻址键 + 显示名
+        assertThat(row.path("ownerExternalId").asText()).isEqualTo(EXTERNAL_ID);
         assertThat(row.path("ownerDisplayName").asText()).isEqualTo("文野");
     }
 

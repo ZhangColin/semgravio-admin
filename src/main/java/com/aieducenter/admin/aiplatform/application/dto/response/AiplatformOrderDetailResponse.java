@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * AI 平台订单详情——北向出口，逐字镜像 aiplatform {@code BackofficeOrderDetailResponse}
- * （21 字段 + 内嵌价目历史），无增删字段、无换型（spec #62 忠实透传）。
+ * （22 字段 + 内嵌价目历史），无增删字段、无换型（spec #62 忠实透传）。
  *
  * <p>报价依据全量事实：PRD 快照正文、价目历史（append-only，新 → 旧，带操作者留痕）、
  * 全部状态时点。取消/归档操作者两肢为 admin 侧管理员标识，存量行/无头 NULL。</p>
@@ -22,6 +22,9 @@ public record AiplatformOrderDetailResponse(
 
         /** 项目名（软引用缺档为 null） */
         String projectName,
+
+        /** 下单账号对外正身（OIDC sub——账号档案读口的寻址键；下单账号可空/缺档为 null） */
+        String ownerExternalId,
 
         /** 下单用户昵称（下单账号可空/缺档为 null） */
         String ownerDisplayName,
