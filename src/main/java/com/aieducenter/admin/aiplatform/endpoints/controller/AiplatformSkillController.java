@@ -3,9 +3,11 @@ package com.aieducenter.admin.aiplatform.endpoints.controller;
 import java.util.List;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformSkillAppService;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotAssignmentResponse;
 import com.aieducenter.admin.constants.AdminScopes;
 import com.cartisan.security.annotation.RequireAuth;
 import com.cartisan.security.annotation.RequirePermission;
@@ -17,13 +19,15 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AI 平台技能管理控制器——技能线 T1 读面（issue #80，清单/详情）＋T2 写面（issue #81，
- * 安装/停用⇄启用/卸载），镜像 aiplatform #247/#248 技能线。
+ * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82），镜像 aiplatform #247/#248/#249
+ * 技能线。
  *
  * <p>北向 {@code /api/admin/aiplatform/skills/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/skills/**}（机机签名出站）。技能寻址柄 {@code id} 为 opaque 串
@@ -32,13 +36,17 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code AiplatformUpstreamErrorAdvice} 原样还原。清单不分页不过滤（provider 有界目录、
  * 排序服务端定死——同形不造分页，ADR-0012 分页决议不适用于无分页端点）。</p>
  *
- * <p>权限码（spec #79，技能线 per-verb 11 码）：读 {@code skill:read} 一码挂两端点；本票
- * 四写码 {@code skill:install|disable|enable|uninstall} 各自独立成码逐端点挂载（最小授权
- * ——如只给内容审核员配启停而不给装/卸）。写口操作者经框架 {@code OpenApiClient} 自动透传
- * {@code X-User-Id/X-User-Name} 出站头（identity 同款），provider 落痕（安装＝装者、启停＝
- * 最近动作者）——技能库写操作必留痕，缺头由 provider 域面守卫 400 SKL_009（数字业务码
- * 7009）拦截，admin 不拦。卸载经框架 {@code OpenApiClient.delete}（cartisan-boot#33）
- * 出站——HTTP DELETE 动词，不可被 get/post 替代。</p>
+ * <p>权限码（spec #79，技能线 per-verb 11 码）：读 {@code skill:read} 一码挂清单/详情/
+ * 指派读面三端点；写码 {@code skill:install|disable|enable|uninstall|assign} 各自独立
+ * 成码逐端点挂载（最小授权——如只给内容审核员配启停而不给装/卸、只给装配运营配指派）。
+ * {@code slot} 为职能槽位稳定键（main/executor/subagent）字符串路径参数——透传不预校验，
+ * 未知键由 provider 判 404 SKL_010（数字业务码 7010）。写口操作者经框架
+ * {@code OpenApiClient} 自动透传 {@code X-User-Id/X-User-Name} 出站头（identity 同款），
+ * provider 落痕（安装＝装者、启停＝最近动作者、指派整包替换留最近动作者）——技能库写
+ * 操作必留痕，缺头由 provider 域面守卫 400 SKL_009（数字业务码 7009）拦截，admin 不拦。
+ * 卸载经框架 {@code OpenApiClient.delete}（cartisan-boot#33）出站——HTTP DELETE 动词，
+ * 不可被 get/post 替代；指派整包替换经 {@code OpenApiClient.put} 出站——HTTP PUT 动词
+ * （PUT 全量语义，请求体即终态）。</p>
  *
  * @since 0.1.0
  */
@@ -174,5 +182,47 @@ public class AiplatformSkillController {
                     + "HTTP <strong>DELETE</strong> 动词。")
     public ApiResponse<AiplatformSkillSummaryResponse> uninstall(@PathVariable String id) {
         return ApiResponse.ok(skillAppService.uninstall(id));
+    }
+
+    @GetMapping("/assignments/{slot}")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill:read",
+            name = "AI 平台 / 技能管理查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "槽位指派读面（三职能槽位各自独立）——透传 aiplatform",
+            description = "该职能槽位当前指派的技能清单（与技能清单行共形、含停用行"
+                    + "——启停是可逆开关指派关系随行保留，运营可见「指派了但已停用」"
+                    + "实态；停用行不参与装配合成）。槽位三把：main=主智能体 / "
+                    + "executor=run 执行体 / subagent=子智能体，未知槽位 404 SKL_010"
+                    + "（数字业务码 7010）。装配生效语义（ADR-0021）：装配合成＝内置∪"
+                    + "该槽位已指派且启用，动态查库——指派/启停变更后智能体下一轮自然"
+                    + "生效、进行中 run 不定格不打断。回执与 PUT 同形。")
+    public ApiResponse<AiplatformSlotAssignmentResponse> slotAssignments(@PathVariable String slot) {
+        return ApiResponse.ok(skillAppService.getSlotAssignments(slot));
+    }
+
+    @PutMapping("/assignments/{slot}")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill:assign",
+            name = "AI 平台 / 技能指派",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "槽位指派整包替换（清单即终态）——透传 aiplatform",
+            description = "PUT 全量语义：skillIds 即该槽位终态（未列入即解绑、空清单"
+                    + "＝清空），支持整包批量勾选（admin 侧按来源包勾满后送全量）。"
+                    + "指派目标只收安装库行 TSID 柄：内置 builtin: 柄不可指派（400 "
+                    + "SKL_011＝数字业务码 7011——内置随平台发版，装配按配置挂载）；"
+                    + "未寻址/畸形 TSID 404 SKL_001（7001，先卸载后指派的不变窗口同"
+                    + "语义）。X-User-Id/X-User-Name 透传头落痕（整包替换留最近动作者，"
+                    + "缺头 400 SKL_009＝7009）。槽位寻址同 GET（未知 404 SKL_010＝"
+                    + "7010）。生效语义＝动态查库：变更后下一轮自然生效，不新增智能体"
+                    + "实例（工厂缓存键不含技能集）。回执＝替换后读面（与 GET 同形）。"
+                    + "HTTP <strong>PUT</strong> 动词。")
+    public ApiResponse<AiplatformSlotAssignmentResponse> assignSlot(
+            @PathVariable String slot, @RequestBody AiplatformSkillAssignCommand command) {
+        return ApiResponse.ok(skillAppService.assignSlot(slot, command));
     }
 }

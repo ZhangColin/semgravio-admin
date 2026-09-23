@@ -48,13 +48,13 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * <p><b>为什么跑在独立 Flyway schema 上</b>：常规测试库 {@code flyway.enabled=false} +
  * {@code ddl-auto=create}（空表、无种子），种子可见性在常规环境不可达；本类照
  * {@code RoleAssignmentFlywaySchemaIntegrationTest} 先例在独立 schema
- * {@code aiplatform_seed_flyway} 全量跑 Flyway 链（V1–V17）+ {@code ddl-auto=none}，
+ * {@code aiplatform_seed_flyway} 全量跑 Flyway 链（V1–V18）+ {@code ddl-auto=none}，
  * 复刻生产 schema 后以 HTTP 外部行为断言消费面事实。与「不写种子快照测试」口径
  * （V12 教训）不冲突：不比对种子行快照，断言的是<b>运营登录即可见</b>的行为——
- * {@code /menus/my} 下发 AI 平台目录与七叶子菜单（六域 + 技能管理，Soybean 元数据齐备）、
+ * {@code /menus/my} 下发 AI 平台目录与八叶子菜单（六域 + 技能管理 + 指派配置，Soybean 元数据齐备）、
  * 位于支付管理之后账号管理之前（sort_order=3 与 payment 同序、id 82&gt;80 兜底排其后——spec #62 字面值）；
- * 账号读口不种页面（children 恰七叶——嵌订单/项目详情抽屉用）；非超管经角色分配（只配
- * 叶子 id，目录由祖先补全出现）+ 24 权限码（spec #62 + #79 技能线 T1/T2）既见菜单又汇总权限；禁用角色后
+ * 账号读口不种页面（children 恰八叶——嵌订单/项目详情抽屉用）；非超管经角色分配（只配
+ * 叶子 id，目录由祖先补全出现）+ 25 权限码（spec #62 + #79 技能线 T1/T2/T3）既见菜单又汇总权限；禁用角色后
  * 菜单与权限贡献均剔除（CONTEXT.md「RBAC」既定口径在新种子上不回归）。</p>
  *
  * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220。
@@ -81,16 +81,17 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     /** V2 种子 SUPER_ADMIN 角色 id（code 唯一约束——超管用例挂种子角色而非新建）。 */
     private static final long SEEDED_SUPER_ADMIN_ROLE_ID = 1L;
 
-    /** V15+V17 种子确定性 ID：七叶（订单/项目/沙箱/成本/单价表/知识素材 + 技能管理，sort 1-7；目录 82 由祖先补全）。 */
-    private static final List<Long> AIPLATFORM_LEAF_IDS = List.of(160L, 170L, 180L, 190L, 200L, 210L, 220L);
+    /** V15+V17+V18 种子确定性 ID：八叶（订单/项目/沙箱/成本/单价表/知识素材 + 技能管理 + 指派配置，sort 1-8；目录 82 由祖先补全）。 */
+    private static final List<Long> AIPLATFORM_LEAF_IDS = List.of(160L, 170L, 180L, 190L, 200L, 210L, 220L, 230L);
 
     private static final String AIPLATFORM_ROUTE = "aiplatform";
-    /** 七叶 route_name 顺序 = sortOrder 顺序（spec #62 六域 + #79 技能线 T1 技能管理）。 */
-    private static final List<String> SEVEN_LEAF_ROUTES = List.of(
+    /** 八叶 route_name 顺序 = sortOrder 顺序（spec #62 六域 + #79 技能线 T1 技能管理/T3 指派配置）。 */
+    private static final List<String> EIGHT_LEAF_ROUTES = List.of(
             "aiplatform_order", "aiplatform_project", "aiplatform_workspace",
-            "aiplatform_cost", "aiplatform_price_entry", "aiplatform_material", "aiplatform_skill");
+            "aiplatform_cost", "aiplatform_price_entry", "aiplatform_material", "aiplatform_skill",
+            "aiplatform_skill_assignment");
 
-    /** 权限码清单（24）：八读码（七域 + account）+ 十六写码（spec #62 + #79 技能线 T1 read/T2 四写码）。 */
+    /** 权限码清单（25）：八读码（七域 + account）+ 十七写码（spec #62 + #79 技能线 T1 read/T2 四写码/T3 assign）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -115,7 +116,8 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:skill:install",
             "admin:aiplatform:skill:disable",
             "admin:aiplatform:skill:enable",
-            "admin:aiplatform:skill:uninstall");
+            "admin:aiplatform:skill:uninstall",
+            "admin:aiplatform:skill:assign");
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -157,7 +159,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("超管：/menus/my 见 AI 平台目录 + 七叶（Soybean 元数据齐、七叶有序、无账号页面）")
+    @DisplayName("超管：/menus/my 见 AI 平台目录 + 八叶（Soybean 元数据齐、八叶有序、无账号页面）")
     void given_superAdmin_when_my_then_aiplatformTreeVisibleWithSevenLeaves() {
         // 超管不新建 SUPER_ADMIN code（V2 已种 id=1、code 唯一）——新建运营挂种子超管角色
         String superUsername = "aiplatmenu" + suffix;
@@ -177,11 +179,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         assertThat(directory.path("icon").asText()).isEqualTo("carbon:machine-learning-model");
         assertThat(directory.path("status").asInt()).isEqualTo(1);
 
-        // 七叶：恰好七叶（账号读口不种页面——无第八叶）、顺序 = sortOrder 1-7、Soybean 元数据齐
+        // 八叶：恰好八叶（账号读口不种页面——无第九叶）、顺序 = sortOrder 1-8、Soybean 元数据齐
         JsonNode children = directory.path("children");
         assertThat(stringList(children, "routeName"))
-                .as("七叶子菜单恰七叶且按 sortOrder 排序；账号读口不种页面")
-                .containsExactlyElementsOf(SEVEN_LEAF_ROUTES);
+                .as("八叶子菜单恰八叶且按 sortOrder 排序；账号读口不种页面")
+                .containsExactlyElementsOf(EIGHT_LEAF_ROUTES);
         for (JsonNode leaf : children) {
             assertThat(leaf.path("menuType").asInt()).isEqualTo(2);
             assertThat(leaf.path("routePath").asText()).startsWith("/aiplatform/");
@@ -190,7 +192,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             assertThat(leaf.path("icon").asText()).isNotBlank();
             assertThat(leaf.path("iconType").asInt()).isEqualTo(1);
             assertThat(leaf.path("status").asInt()).isEqualTo(1);
-            assertThat(leaf.path("sortOrder").asInt()).isBetween(1, 7);
+            assertThat(leaf.path("sortOrder").asInt()).isBetween(1, 8);
         }
 
         // 侧边栏位置：应用管理之后、系统管理之前（spec #62 字面 sort_order=3——与 payment 同序，
@@ -206,11 +208,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管：角色配七叶种子（祖先补全出目录）+ 24 码 → 菜单与权限均汇总可见")
+    @DisplayName("非超管：角色配八叶种子（祖先补全出目录）+ 25 码 → 菜单与权限均汇总可见")
     void given_roleWithSeedMenusAndAllPermissions_when_my_then_treeVisibleAndPermissionsAggregated() {
         Long roleId = roleAppService.create(
                 new CreateRoleCommand("AI平台运营_" + suffix, "AIPLAMENU_" + suffix,
-                        "AI 平台七叶菜单 + 全量 24 权限码", 88, null));
+                        "AI 平台八叶菜单 + 全量 25 权限码", 88, null));
         // 只分配叶子 id——目录经祖先链补全出现（MenuTreeAssembler 既定行为在真种子上复证）
         roleAppService.assignMenus(roleId, new AssignMenusCommand(AIPLATFORM_LEAF_IDS));
         roleAppService.assignPermissions(roleId, new AssignPermissionsCommand(ALL_AIPLATFORM_PERMISSIONS));
@@ -220,14 +222,14 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         userAppService.assignRoles(userId, new AssignRolesCommand(List.of(roleId)));
         String token = login(username);
 
-        // 菜单：七叶 + 补全出的目录（消费面下发即运营登录可见）
+        // 菜单：八叶 + 补全出的目录（消费面下发即运营登录可见）
         JsonNode menus = myData(token).path("menus");
         JsonNode directory = findRootByRouteName(menus, AIPLATFORM_ROUTE);
-        assertThat(directory).as("分配七叶后目录应经祖先补全出现").isNotNull();
+        assertThat(directory).as("分配八叶后目录应经祖先补全出现").isNotNull();
         assertThat(stringList(directory.path("children"), "routeName"))
-                .containsExactlyElementsOf(SEVEN_LEAF_ROUTES);
+                .containsExactlyElementsOf(EIGHT_LEAF_ROUTES);
 
-        // 权限汇总：/auth/current permissions = 24 码全集（account:read 有码——配抽屉用，但无页面）
+        // 权限汇总：/auth/current permissions = 25 码全集（account:read 有码——配抽屉用，但无页面）
         JsonNode current = okData(getWithToken("/api/admin/auth/current", token));
         assertThat(plainStringList(current.path("permissions")))
                 .containsExactlyInAnyOrderElementsOf(ALL_AIPLATFORM_PERMISSIONS);

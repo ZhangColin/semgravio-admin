@@ -39,7 +39,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       （builtin:&lt;技能名&gt;／TSID 十进制串）、有界目录不分页、审核面「所见即运行时注入面」、
  *       404 SKL_001＝数字业务码 7001、安装 fail-fast 失败族 SKL_002–SKL_007/009 数字码、
  *       卸载守卫 SKL_008＝7008＋DELETE 动词等关键语义须在 api-docs 在场；北向 schema 的
- *       id/frontmatter/content 与安装命令体 repoUrl/excludeDirs 同步自描述。</li>
+ *       id/frontmatter/content 与安装命令体 repoUrl/excludeDirs 同步自描述；</li>
+ *   <li>槽位指派两端点 @Operation 描述镜像（issue #82 镜像 aiplatform #249 技能线 T3）：
+ *       读面（三职能槽位、含停用行实态、动态查库生效）与写面（PUT 整包替换——清单即终态、
+ *       空清单＝清空）的 summary＋description 逐字镜像 provider——三槽位键
+ *       main/executor/subagent、未知槽位 SKL_010＝7010、内置柄不可指派 SKL_011＝7011 等
+ *       关键语义须在 api-docs 在场；北向 schema 的 slot/skills 与指派命令体 skillIds 同步
+ *       自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -247,6 +253,62 @@ class AiplatformSpringDocContractIntegrationTest {
         JsonNode excludeDirs = property("AiplatformSkillInstallCommand", "excludeDirs");
         assertThat(excludeDirs.path("description").asText("")).contains("任一段命中即不入库");
         assertThat(exampleText(excludeDirs)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("swagger 契约：槽位指派两端点 @Operation 描述镜像 provider（#82，整包替换 + 三槽位 + SKL_010/011 数字码在场）")
+    void given_slotAssignmentEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 读面：三职能槽位语义＋含停用行实态＋动态查库生效＋未知槽位 404 SKL_010 数字码
+        JsonNode read = paths.path("/api/admin/aiplatform/skills/assignments/{slot}").path("get");
+        assertThat(read.isMissingNode()).as("api-docs 应含槽位指派读面端点").isFalse();
+        assertThat(read.path("summary").asText(""))
+                .contains("槽位指派读面").contains("三职能槽位各自独立");
+        assertThat(read.path("description").asText(""))
+                .contains("与技能清单行共形")
+                .contains("含停用行")
+                .contains("main=主智能体")
+                .contains("executor=run 执行体")
+                .contains("subagent=子智能体")
+                .contains("SKL_010").contains("7010")
+                .contains("动态查库")
+                .contains("进行中 run 不定格不打断")
+                .contains("回执与 PUT 同形");
+
+        // 写面：PUT 全量语义（清单即终态）＋内置柄不可指派 SKL_011＋柄/缺头/槽位错误族数字码＋PUT 动词
+        JsonNode put = paths.path("/api/admin/aiplatform/skills/assignments/{slot}").path("put");
+        assertThat(put.isMissingNode()).as("api-docs 应含槽位指派写面端点（PUT 动词）").isFalse();
+        assertThat(put.path("summary").asText(""))
+                .contains("槽位指派整包替换").contains("清单即终态");
+        assertThat(put.path("description").asText(""))
+                .contains("skillIds 即该槽位终态")
+                .contains("未列入即解绑")
+                .contains("空清单＝清空")
+                .contains("SKL_011").contains("7011")
+                .contains("SKL_001").contains("7001")
+                .contains("SKL_009").contains("7009")
+                .contains("SKL_010").contains("7010")
+                .contains("回执＝替换后读面")
+                .contains("PUT");
+
+        // 指派命令 schema 自描述：skillIds 整包替换语义＋空清单清空＋内置柄拒
+        JsonNode skillIds = property("AiplatformSkillAssignCommand", "skillIds");
+        assertThat(skillIds.path("description").asText(""))
+                .contains("整包替换")
+                .contains("清单即终态")
+                .contains("空清单＝清空该槽位")
+                .contains("SKL_011");
+        assertThat(exampleText(skillIds)).isNotBlank();
+
+        // 回执 schema 自描述：slot 三把稳定键＋skills 含停用行实态
+        JsonNode slot = property("AiplatformSlotAssignmentResponse", "slot");
+        assertThat(slot.path("description").asText(""))
+                .contains("main=主智能体")
+                .contains("SKL_010");
+        assertThat(exampleText(slot)).isEqualTo("executor");
+        assertThat(property("AiplatformSlotAssignmentResponse", "skills")
+                .path("description").asText("")).contains("含停用行");
     }
 
     // ---------- 装载 ----------

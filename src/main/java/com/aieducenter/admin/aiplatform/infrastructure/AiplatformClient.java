@@ -22,9 +22,11 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformOrderWire
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryRepriceWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -173,6 +175,11 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSkillSummaryWireResponse>> SKILL_SUMMARY_TYPEREF =
+            new TypeReference<>() {};
+
+    // 槽位指派（#249 技能线 T3）：GET 读面与 PUT 回执同形——{slot, skills[]} 单对象（skills
+    // 与清单行共形、含停用行）
+    private static final TypeReference<ApiResponse<AiplatformSlotAssignmentWireResponse>> SLOT_ASSIGNMENT_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1272,6 +1279,62 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSkillSummaryWireResponse> resp =
                     openApiClient.post(url, null, SKILL_SUMMARY_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询槽位指派读面（透传 aiplatform，技能线 T3 读口）——该职能槽位当前指派的技能清单
+     * （与清单行共形、<strong>含停用行</strong>——启停是可逆开关指派关系随行保留，运营可见
+     * 「指派了但已停用」实态；停用行不参与装配合成）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills/assignments/{slot}}（#249）：返回
+     * {@code ApiResponse<BackofficeSlotAssignmentResponse>}（{@code {slot, skills[]}}）。{@code slot}
+     * 为字符串路径参数（main/executor/subagent 三把稳定键）原样出站——admin 透传不预校验，
+     * 未知槽位由 provider 判 404 SKL_010（数字业务码 7010）原样透传。</p>
+     *
+     * @param slot 职能槽位键（main/executor/subagent，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_010 等，不做映射）
+     */
+    public AiplatformSlotAssignmentWireResponse getSlotAssignments(String slot) {
+        String url = baseUrl + "/api/backoffice/skills/assignments/" + encode(slot);
+        log.debug("AiplatformClient.getSlotAssignments: {}", url);
+        try {
+            ApiResponse<AiplatformSlotAssignmentWireResponse> resp =
+                    openApiClient.get(url, SLOT_ASSIGNMENT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 槽位指派整包替换（透传 aiplatform，技能线 T3 写口）——PUT 全量语义：{@code skillIds}
+     * 即该槽位终态（未列入即解绑、空清单＝清空），支持整包批量勾选（admin 侧按来源包勾满后
+     * 送全量）。指派目标只收安装库行 TSID 柄：内置 {@code builtin:} 柄不可指派（400 SKL_011
+     * ＝7011——内置随平台发版，装配按配置挂载）；未寻址/畸形 TSID 404 SKL_001（7001，先卸载
+     * 后指派的不变窗口同语义）。操作者透传头落痕（整包替换留最近动作者，缺头 400 SKL_009
+     * ＝7009）。回执＝替换后读面（与 GET 同形）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/skills/assignments/{slot}}（#249）：请求体
+     * {@code {skillIds}} 逐字镜像，HTTP <strong>PUT</strong> 动词——经框架
+     * {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径），返回
+     * {@code ApiResponse<BackofficeSlotAssignmentResponse>}。{@code slot} 寻址同 GET（未知
+     * 404 SKL_010＝7010）。生效语义＝动态查库：变更后智能体下一轮自然生效、进行中 run
+     * 不定格。</p>
+     *
+     * @param slot    职能槽位键（main/executor/subagent，admin 不预检）
+     * @param command 指派命令体（由应用层从北向命令映射而来，柄合法性归 provider 指派用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_001/009/010/011 等，不做映射）
+     */
+    public AiplatformSlotAssignmentWireResponse assignSlot(String slot, AiplatformSkillAssignWireRequest command) {
+        String url = baseUrl + "/api/backoffice/skills/assignments/" + encode(slot);
+        log.debug("AiplatformClient.assignSlot: {}", url);
+        try {
+            ApiResponse<AiplatformSlotAssignmentWireResponse> resp =
+                    openApiClient.put(url, command, SLOT_ASSIGNMENT_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

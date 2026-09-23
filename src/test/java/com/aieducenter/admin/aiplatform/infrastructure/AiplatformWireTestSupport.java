@@ -614,6 +614,65 @@ final class AiplatformWireTestSupport {
         return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
+    /**
+     * 技能管理域<strong>槽位指派</strong>版（#249 技能线 T3，issue #82）——读面走 {@code get}、
+     * 整包替换写走 {@code put}（带命令体——{@code OpenApiClient.put} 与 {@code post} 同走
+     * sendWithBody 序列化路径），均按真实 {@code TypeReference} 反序列化；put 把命令体序列化进
+     * wireBodySink（出站 JSON 形状断言——序列化在 OpenApiClient 内部、方法边界替换传输会绕过
+     * 它，故在 stub 里用对齐 mapper 口径补打这一 seam；skillIds 为 List&lt;String&gt;，无
+     * Long/BigDecimal 特殊口径，boot 默认 mapper 即生产口径）。
+     */
+    static AiplatformSkillAppService skillAssignAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域槽位指派版 {@link #skillAppServiceWithErrorTransport}——{@code get} 与
+     * {@code put} 都始终抛 {@code OpenApiClientException}（框架对 ≥400 的行为复刻：未知槽位
+     * SKL_010、内置柄不可指派 SKL_011、操作者缺头 SKL_009 与读口错误信封同形）。
+     */
+    static AiplatformSkillAppService skillAssignAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
     private static ObjectMapper bootDefaultMapper() {
         return new ObjectMapper()
                 .registerModule(new JavaTimeModule())

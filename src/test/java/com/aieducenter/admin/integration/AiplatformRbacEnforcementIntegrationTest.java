@@ -47,9 +47,11 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformOrderWire
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryRepriceWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -86,7 +88,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
- * 安装/停用⇄启用/卸载写口）
+ * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -94,8 +96,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code order:quote|cancel|retry-archive}）+ 沙箱四独立写码
  * （{@code workspace:wake|hibernate|rebuild|seal}）+ 单价表两独立写码
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
- * （{@code material:disable|enable|delete}）+ 技能四独立写码
- * （{@code skill:install|disable|enable|uninstall}）对未登录（401）/ 无权者（403）/ 有权者（200）的行为，
+ * （{@code material:disable|enable|delete}）+ 技能五独立写码
+ * （{@code skill:install|disable|enable|uninstall|assign}——指派读面复用 read、写面独立 assign）对未登录（401）/
+ * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
  *
@@ -105,7 +108,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  *
  * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域、#81 技能域同款必带）：订单三写
  * 操作（报价落痕价目行、取消/归档落痕订单行）、沙箱四干预动作、
- * 单价表改价/停用、素材停用/启用、技能四写口从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
+ * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
  * 身份——框架 cartisan-openapi 自动从 {@code RequestContext} 带 {@code X-User-Id/X-User-Name}
  * 出站 header。本测试在 mocked {@link AiplatformClient} 边界用 {@code doAnswer} 在调用瞬间抓取
  * {@link RequestContext#getUserId()} / {@link RequestContext#getUserName()}，断言其 == 登录治理
@@ -207,6 +210,12 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SKILL_UNINSTALL_ENDPOINT = SKILL_DETAIL_ENDPOINT;
     private static final String SKILL_INSTALL_BODY =
             "{\"repoUrl\":\"https://github.com/acme/agent-skills\",\"excludeDirs\":[\"deprecated\"]}";
+    private static final String SKILL_ASSIGN_PERMISSION = "admin:aiplatform:skill:assign";
+    /** 职能槽位键（SkillSlot 三把稳定键之一）：字符串路径参数透传，admin 不预校验。 */
+    private static final String SLOT_KEY = "executor";
+    private static final String SLOT_ASSIGNMENTS_ENDPOINT = SKILLS_ENDPOINT + "/assignments/" + SLOT_KEY;
+    private static final String SLOT_ASSIGN_BODY =
+            "{\"skillIds\":[\"3852300001111111\",\"3852300003333333\"]}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -229,6 +238,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithQuoteOnly;
     private String usernameWithSkillWrite;
     private String usernameWithSkillDisableOnly;
+    private String usernameWithSkillAssign;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -244,6 +254,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String orderWriteUserNickname;
     private Long skillWriteUserId;
     private String skillWriteUserNickname;
+    private Long skillAssignUserId;
+    private String skillAssignUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -277,6 +289,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithQuoteOnly = "aiplaqpon" + suffix;
         usernameWithSkillWrite = "aiplaswpr" + suffix;
         usernameWithSkillDisableOnly = "aiplasdon" + suffix;
+        usernameWithSkillAssign = "aiplasaan" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -409,6 +422,19 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithSkillDisableOnly, PASSWORD,
                         "技能停用专员_" + suffix, null, null, null));
         userAppService.assignRoles(skillDisableOnlyUserId, new AssignRolesCommand(List.of(skillDisableOnlyRoleId)));
+
+        // 仅 assign 单写码（无读码）——钉死指派读面复用 read、写面独立 assign（issue #82）；
+        // 操作者透传断言用其 id/昵称（provider 整包替换留最近动作者）
+        Long skillAssignRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台槽位指派_" + suffix, "AIPLASAAN_" + suffix,
+                        "AI 平台技能槽位指派权限", 102, null));
+        roleAppService.assignPermissions(skillAssignRoleId,
+                new AssignPermissionsCommand(List.of(SKILL_ASSIGN_PERMISSION)));
+        skillAssignUserNickname = "装配运营_" + suffix;
+        skillAssignUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSkillAssign, PASSWORD,
+                        skillAssignUserNickname, null, null, null));
+        userAppService.assignRoles(skillAssignUserId, new AssignRolesCommand(List.of(skillAssignRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -684,6 +710,14 @@ class AiplatformRbacEnforcementIntegrationTest {
             // 卸载回执＝删除前终态（启用态行——确认移除了什么）；无行可留不留痕
             return skillActionReceiptWire(SKILL_ID, 1, "启用");
         }).when(aiplatformClient).uninstallSkill(eq(SKILL_ID));
+        // 槽位指派两端点 mock（issue #82，aiplatform #249 技能线 T3）：读面/回执同形——
+        // {slot, skills[]}（含停用行实态）；PUT 抓取 RequestContext（操作者透传契约证据，
+        // provider 整包替换留最近动作者、缺头必拦 SKL_009，断言必带）
+        when(aiplatformClient.getSlotAssignments(eq(SLOT_KEY))).thenReturn(slotAssignmentWire());
+        doAnswer(inv -> {
+            capture.run();
+            return slotAssignmentWire();
+        }).when(aiplatformClient).assignSlot(eq(SLOT_KEY), any(AiplatformSkillAssignWireRequest.class));
     }
 
     /**
@@ -717,6 +751,27 @@ class AiplatformRbacEnforcementIntegrationTest {
                 "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
                 status, statusName,
                 String.valueOf(skillWriteUserId), skillWriteUserNickname, null);
+    }
+
+    /**
+     * 槽位指派读面/回执共用的 wire 载荷工厂（issue #82）：{@code {slot, skills[]}}——指派行集
+     * 与清单行共形且含停用行（「指派了但已停用」实态的代表面：次行停用态）。操作者两肢取
+     * 装配运营（provider 落痕口径：整包替换留最近动作者）。
+     */
+    private AiplatformSlotAssignmentWireResponse slotAssignmentWire() {
+        return new AiplatformSlotAssignmentWireResponse(SLOT_KEY, List.of(
+                new AiplatformSkillSummaryWireResponse(
+                        SKILL_ID, "web-research", "联网检索与网页抓取整理",
+                        2, "安装", "https://github.com/acme/agent-skills",
+                        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                        1, "启用",
+                        String.valueOf(skillAssignUserId), skillAssignUserNickname, false),
+                new AiplatformSkillSummaryWireResponse(
+                        "3852300003333333", "prd-writing", "撰写或修订 PRD 时使用",
+                        2, "安装", "https://github.com/acme/agent-skills",
+                        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                        2, "停用",
+                        String.valueOf(skillAssignUserId), skillAssignUserNickname, null)));
     }
 
     /**
@@ -2034,6 +2089,132 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("data").isNull()).isTrue();
     }
 
+    // ========== 槽位指派（skill:read 读面 / skill:assign 写面，技能线 T3）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 skill:read → 指派读面 200，{slot, skills[]} 含停用行实态（指派关系随行保留）")
+    void given_nonSuperAdminWithSkillRead_when_getSlotAssignments_then_200AssignmentShapeMirrorsProvider()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SLOT_ASSIGNMENTS_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // data 为 {slot, skills[]} 单对象：slot 键原样回显（字符串路径参数透传）
+        assertThat(data.path("slot").asText()).isEqualTo(SLOT_KEY);
+        assertThat(data.path("skills").isArray()).isTrue();
+        assertThat(data.path("skills").size()).isEqualTo(2);
+
+        // 首行启用行——指派行集正常面（与清单行共形）
+        JsonNode enabled = data.path("skills").get(0);
+        assertThat(enabled.path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(enabled.path("source").asInt()).isEqualTo(2);
+        assertThat(enabled.path("status").asInt()).isEqualTo(1);
+        assertThat(enabled.path("statusName").asText()).isEqualTo("启用");
+        assertThat(enabled.path("operatorId").asText()).isEqualTo(String.valueOf(skillAssignUserId));
+
+        // 次行停用行——「指派了但已停用」实态如实出 JSON（启停是可逆开关、指派关系随行保留；
+        // 停用行不参与装配合成的裁决在 provider，admin 不过滤）；新版标记 null 如实在场
+        JsonNode disabled = data.path("skills").get(1);
+        assertThat(disabled.path("status").asInt()).isEqualTo(2);
+        assertThat(disabled.path("statusName").asText()).isEqualTo("停用");
+        assertThat(disabled.path("updateAvailable").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 skill:assign → 指派整包替换 200，回执与 GET 同形且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithSkillAssign_when_assignSlot_then_200ReceiptSameShapeAsGet_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSkillAssign);
+
+        ResponseEntity<String> response = putWithToken(SLOT_ASSIGNMENTS_ENDPOINT, SLOT_ASSIGN_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 回执＝替换后读面（与 GET 同形）：slot 键＋指派行集（PUT 全量语义——skillIds 即终态）
+        assertThat(data.path("slot").asText()).isEqualTo(SLOT_KEY);
+        assertThat(data.path("skills").size()).isEqualTo(2);
+        assertThat(data.path("skills").get(1).path("statusName").asText()).isEqualTo("停用");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 整包替换留最近动作者、缺头必拦 SKL_009
+        // ——issue #82 断言必带）：== 登录装配运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(skillAssignUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(skillAssignUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 skill:read（无 assign）→ 指派写 403；仅有 skill:assign（无 read）→ 指派读面 403（读写两码不串）")
+    void given_readOrAssignOnly_when_slotAssignmentEndpoints_then_403OnTheOtherSide() {
+        // 读面复用 skill:read（issue #82 验收）：read ≠ assign，写面拒
+        String reader = login(usernameWithReadPermission);
+        assertThat(putWithToken(SLOT_ASSIGNMENTS_ENDPOINT, SLOT_ASSIGN_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // assign 不带读面：GET 走 skill:read 拒
+        String assigner = login(usernameWithSkillAssign);
+        assertThat(getWithToken(SLOT_ASSIGNMENTS_ENDPOINT, assigner).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 指派两端点 403")
+    void given_nonSuperAdminWithoutPermission_when_slotAssignmentEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(SLOT_ASSIGNMENTS_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(SLOT_ASSIGNMENTS_ENDPOINT, SLOT_ASSIGN_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问指派两端点返回 401（含 PUT 整包替换）")
+    void given_unauthenticated_when_slotAssignmentEndpoints_then_401() {
+        assertThat(getWithToken(SLOT_ASSIGNMENTS_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(SLOT_ASSIGNMENTS_ENDPOINT, SLOT_ASSIGN_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("指派读面下游 SKL_010（未知槽位）→ 北向 HTTP 404 + 信封 code=7010 + message 原文（不映射）")
+    void given_skl010FromDownstream_when_getSlotAssignments_then_errorEnvelopePassedThrough() throws Exception {
+        // 未知槽位由 provider 裁决（admin 不预检 slot 字符串路径参数）
+        when(aiplatformClient.getSlotAssignments(eq("unknown-slot"))).thenThrow(
+                AiplatformUpstreamException.from(
+                        new OpenApiClientException(404, "{\"code\":7010,\"message\":\"职能槽位不存在\",\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(
+                SKILLS_ENDPOINT + "/assignments/unknown-slot", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7010（SKL_010＝域码 7×1000＋10），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7010);
+        assertThat(root.path("message").asText()).isEqualTo("职能槽位不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("指派写下游 SKL_011（内置柄不可指派）→ 北向 HTTP 400 + 信封 code=7011 + message 原文（不映射）")
+    void given_skl011FromDownstream_when_assignSlot_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.assignSlot(eq(SLOT_KEY), any(AiplatformSkillAssignWireRequest.class))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":7011,\"message\":\"内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithSkillAssign);
+        ResponseEntity<String> response = putWithToken(SLOT_ASSIGNMENTS_ENDPOINT, SLOT_ASSIGN_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7011（SKL_011＝域码 7×1000＋11），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7011);
+        assertThat(root.path("message").asText())
+                .isEqualTo("内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
     // ========== 错误信封透传（忠实透传，不做映射） ==========
 
     @Test
@@ -2094,6 +2275,12 @@ class AiplatformRbacEnforcementIntegrationTest {
     private ResponseEntity<String> deleteWithToken(String path, String token) {
         return restTemplate.exchange(url(path), HttpMethod.DELETE,
                 new HttpEntity<>(null, jsonHeadersWithToken(token)), String.class);
+    }
+
+    /** JSON 请求体 PUT（槽位指派整包替换同形——PUT 全量语义，请求体 {skillIds} 即终态）。 */
+    private ResponseEntity<String> putWithToken(String path, String body, String token) {
+        return restTemplate.exchange(url(path), HttpMethod.PUT,
+                new HttpEntity<>(body, jsonHeadersWithToken(token)), String.class);
     }
 
     /** JSON 请求头 + Sa-Token 头（前缀按框架配置拼装；token null 则只带内容类型）。 */

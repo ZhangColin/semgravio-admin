@@ -2,19 +2,23 @@ package com.aieducenter.admin.aiplatform.application;
 
 import java.util.List;
 
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotAssignmentResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.infrastructure.AiplatformClient;
 import org.springframework.stereotype.Service;
 
 /**
  * aiplatform 技能管理域 BFF 应用服务——T1 读面（清单/详情，issue #80）＋T2 写面（安装/停用⇄
- * 启用/卸载，issue #81），aiplatform 技能线 #247/#248。技能库归 aiplatform base.skills
- * 上下文——admin 不持业务逻辑、不持技能数据。
+ * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82），aiplatform 技能线 #247/#248/#249。
+ * 技能库归 aiplatform base.skills 上下文——admin 不持业务逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
  * 技能库是有界目录，排序服务端定死：内置在前名称序、安装在后按来源包＋名称序，admin 不造
@@ -97,6 +101,30 @@ public class AiplatformSkillAppService {
         return toSummary(aiplatformClient.uninstallSkill(id));
     }
 
+    /**
+     * 查询槽位指派读面（透传 aiplatform，技能线 T3 读口）——该职能槽位当前指派的技能清单
+     * （与清单行共形、含停用行——启停是可逆开关指派关系随行保留，运营可见「指派了但已停用」
+     * 实态；停用行不参与装配合成）。{@code slot} 为字符串路径参数原样出站（main/executor/
+     * subagent 三把稳定键，spec #79 不解析不预校验），未知槽位由 provider 判 404 SKL_010
+     * （数字业务码 7010）。
+     */
+    public AiplatformSlotAssignmentResponse getSlotAssignments(String slot) {
+        return toSlotAssignment(aiplatformClient.getSlotAssignments(slot));
+    }
+
+    /**
+     * 槽位指派整包替换（透传 aiplatform，技能线 T3 写口）——PUT 全量语义：{@code skillIds}
+     * 即该槽位终态（未列入即解绑、空清单＝清空），支持按来源包勾满后送全量。指派目标只收
+     * 安装库行 TSID 柄（内置柄 SKL_011、未寻址/畸形 TSID SKL_001 均由 provider 裁决，admin
+     * 不预检）；操作者经框架透传头落痕（整包替换留最近动作者，缺头由 provider 域面守卫
+     * SKL_009 拦，admin 不拦）。回执＝替换后读面（与 GET 同形）——变更后智能体下一轮自然
+     * 生效、进行中 run 不定格。
+     */
+    public AiplatformSlotAssignmentResponse assignSlot(String slot, AiplatformSkillAssignCommand command) {
+        return toSlotAssignment(aiplatformClient.assignSlot(
+                slot, new AiplatformSkillAssignWireRequest(command.skillIds())));
+    }
+
     private static AiplatformSkillSummaryResponse toSummary(AiplatformSkillSummaryWireResponse wire) {
         return new AiplatformSkillSummaryResponse(
                 wire.id(), wire.name(), wire.description(),
@@ -112,5 +140,11 @@ public class AiplatformSkillAppService {
                 wire.status(), wire.statusName(),
                 wire.frontmatter(), wire.content(),
                 wire.operatorId(), wire.operatorName(), wire.updateAvailable());
+    }
+
+    private static AiplatformSlotAssignmentResponse toSlotAssignment(AiplatformSlotAssignmentWireResponse wire) {
+        return new AiplatformSlotAssignmentResponse(
+                wire.slot(),
+                wire.skills().stream().map(AiplatformSkillAppService::toSummary).toList());
     }
 }

@@ -151,10 +151,10 @@ ID：directory=80；leaves=100/110/120/130/140（支付/退款详情不种）。
 | 单价表 | `aiplatform_price_entry` | `/aiplatform/price-entry` | `view.aiplatform_price_entry` | `carbon:currency` | `route.aiplatform_price_entry` | menu(2) | 5 | 82 |
 | 知识素材 | `aiplatform_material` | `/aiplatform/material` | `view.aiplatform_material` | `carbon:knowledge-base` | `route.aiplatform_material` | menu(2) | 6 | 82 |
 | 技能管理 | `aiplatform_skill` | `/aiplatform/skill` | `view.aiplatform_skill` | `carbon:tools` | `route.aiplatform_skill` | menu(2) | 7 | 82 |
-| 指派配置 | `aiplatform_skill_assignment` | `/aiplatform/skill-assignment` | `view.aiplatform_skill_assignment` | （iconify 核对后定） | `route.aiplatform_skill_assignment` | menu(2) | 8 | 82 |
+| 指派配置 | `aiplatform_skill_assignment` | `/aiplatform/skill-assignment` | `view.aiplatform_skill_assignment` | `carbon:list-checked` | `route.aiplatform_skill_assignment` | menu(2) | 8 | 82 |
 | 智能体配置 | `aiplatform_agent_config` | `/aiplatform/agent-config` | `view.aiplatform_agent_config` | （iconify 核对后定） | `route.aiplatform_agent_config` | menu(2) | 9 | 82 |
 
-ID：directory=82；leaves=160/170/180/190/200/210（账号读口不种）＋220/230/240（技能线三叶，issue #78 grill 定稿 2026-09-23）。技能线**随票逐叶种**：T1 票带 skill 叶、T3 票带 assignment 叶、T5 票带 agent-config 叶；**工具面并入智能体配置页区块**（不单独种页）；安装向导 excludeDirs v1 手输目录段（provider 无仓库结构预览端点，联调确认需要后向 aiplatform 提票）。route_name/component 为提案，admin-web UI issue 对齐。（2026-09-16 issue #72 落地，spec #62 定稿）
+ID：directory=82；leaves=160/170/180/190/200/210（账号读口不种）＋220/230/240（技能线三叶，issue #78 grill 定稿 2026-09-23）。技能线**随票逐叶种**：T1 票带 skill 叶（V17）、T3 票带 assignment 叶（V18，icon `carbon:list-checked` 已对照 admin-web 锁定 @iconify/json 离线集核实——`carbon:task-assignments` 不存在于锁定集勿用）、T5 票带 agent-config 叶；**工具面并入智能体配置页区块**（不单独种页）；安装向导 excludeDirs v1 手输目录段（provider 无仓库结构预览端点，联调确认需要后向 aiplatform 提票）。route_name/component 为提案，admin-web UI issue 对齐。（2026-09-16 issue #72 落地，spec #62 定稿）
 
 ## 稳定不变式（来自平台架构，本项目务必遵守）
 
