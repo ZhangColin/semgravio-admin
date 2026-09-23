@@ -47,6 +47,8 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformOrderWire
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryRepriceWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -82,11 +84,11 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * aiplatform BFF 端点 RBAC 强制执行集成测试（issue #63 T1 账号 + #64 订单读路径 + #65 项目核心读路径 +
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
- * 文件树/文件内容/文件包）
+ * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
- * {@code admin:aiplatform:material:read} + 订单三独立写码
+ * {@code admin:aiplatform:material:read} / {@code admin:aiplatform:skill:read} + 订单三独立写码
  * （{@code order:quote|cancel|retry-archive}）+ 沙箱四独立写码
  * （{@code workspace:wake|hibernate|rebuild|seal}）+ 单价表两独立写码
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
@@ -185,6 +187,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String MATERIAL_DISABLE_ENDPOINT = MATERIAL_DETAIL_ENDPOINT + "/disable";
     private static final String MATERIAL_ENABLE_ENDPOINT = MATERIAL_DETAIL_ENDPOINT + "/enable";
     private static final String MATERIAL_DELETE_ENDPOINT = MATERIAL_DETAIL_ENDPOINT;
+    private static final String SKILL_READ_PERMISSION = "admin:aiplatform:skill:read";
+    private static final String SKILLS_ENDPOINT = "/api/admin/aiplatform/skills";
+    /** 安装技能 TSID 十进制串柄（opaque 两形制之一）。 */
+    private static final String SKILL_ID = "3852300001111111";
+    /** 内置技能柄（opaque 两形制之二）——清单行原值原样回传作详情寻址。 */
+    private static final String BUILTIN_SKILL_HANDLE = "builtin:prd-writing";
+    private static final String SKILL_DETAIL_ENDPOINT = SKILLS_ENDPOINT + "/" + SKILL_ID;
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -256,7 +265,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         roleAppService.assignPermissions(readRoleId,
                 new AssignPermissionsCommand(List.of(READ_PERMISSION, ORDER_READ_PERMISSION,
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
-                        PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION)));
+                        PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -590,6 +599,26 @@ class AiplatformRbacEnforcementIntegrationTest {
                     2, "停用", Instant.parse("2026-09-01T08:30:00Z"),
                     String.valueOf(materialWriteUserId), materialWriteUserNickname);
         }).when(aiplatformClient).deleteMaterial(eq(MATERIAL_ID));
+        // 技能管理域 mock（issue #80，aiplatform #247 技能线 T1）：清单两行（内置 builtin: 柄 +
+        // 安装 TSID 柄——opaque 两形制代表面）/ 详情（frontmatter 自由键值 + 正文全文，审核面）
+        when(aiplatformClient.listSkills()).thenReturn(List.of(
+                new AiplatformSkillSummaryWireResponse(
+                        BUILTIN_SKILL_HANDLE, "prd-writing", "撰写或修订 PRD 时使用",
+                        1, "内置", null, null,
+                        1, "启用", null, null, null),
+                new AiplatformSkillSummaryWireResponse(
+                        SKILL_ID, "web-research", "联网检索与网页抓取整理",
+                        2, "安装", "https://github.com/acme/agent-skills",
+                        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                        2, "停用", "700200", "运营·技能管理员", true)));
+        when(aiplatformClient.getSkill(eq(SKILL_ID))).thenReturn(new AiplatformSkillDetailWireResponse(
+                SKILL_ID, "web-research", "联网检索与网页抓取整理",
+                2, "安装", "https://github.com/acme/agent-skills",
+                "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                1, "启用",
+                Map.of("name", "web-research", "description", "联网检索与网页抓取整理", "license", "MIT"),
+                "# Web Research\n\n先检索后作答……\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源",
+                "700200", "运营·技能管理员", false));
     }
 
     /**
@@ -1677,6 +1706,103 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 2005（KNW_005＝域码 2×1000＋5），而非映射后的 404——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(2005);
         assertThat(root.path("message").asText()).isEqualTo("知识素材不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 技能管理（admin:aiplatform:skill:read，技能线 T1 读面）· 权限三态 + 北向出口形状 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 admin:aiplatform:skill:read → 清单 200，裸 List（不分页）+ opaque 两形制柄 + 内置/安装行镜像 provider")
+    void given_nonSuperAdminWithSkillRead_when_listSkills_then_200AndBareListMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILLS_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // data 为裸 List（有界目录不分页——无 PageResponse 信封，排序服务端定死）
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(2);
+
+        // 首行：内置行——builtin: 柄原样（opaque 串两形制之一）、source/sourceName 1/内置、
+        // 来源包/版本/操作者/新版标记如实出 JSON null（全局 Jackson 含 null）
+        JsonNode builtin = data.get(0);
+        assertThat(builtin.path("id").asText()).isEqualTo(BUILTIN_SKILL_HANDLE);
+        assertThat(builtin.path("name").asText()).isEqualTo("prd-writing");
+        assertThat(builtin.path("source").asInt()).isEqualTo(1);
+        assertThat(builtin.path("sourceName").asText()).isEqualTo("内置");
+        assertThat(builtin.path("status").asInt()).isEqualTo(1);
+        assertThat(builtin.path("statusName").asText()).isEqualTo("启用");
+        assertThat(builtin.path("sourcePackage").isNull()).isTrue();
+        assertThat(builtin.path("version").isNull()).isTrue();
+        assertThat(builtin.path("operatorId").isNull()).isTrue();
+        assertThat(builtin.path("updateAvailable").isNull()).isTrue();
+
+        // 次行：安装行——TSID 十进制串柄（两形制之二）、source/status Integer + *Name 随行、
+        // 来源包＋装时 commit＋治理留痕两肢＋新版标记 true
+        JsonNode installed = data.get(1);
+        assertThat(installed.path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(installed.path("source").asInt()).isEqualTo(2);
+        assertThat(installed.path("sourceName").asText()).isEqualTo("安装");
+        assertThat(installed.path("sourcePackage").asText()).isEqualTo("https://github.com/acme/agent-skills");
+        assertThat(installed.path("version").asText()).isEqualTo("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+        assertThat(installed.path("status").asInt()).isEqualTo(2);
+        assertThat(installed.path("statusName").asText()).isEqualTo("停用");
+        assertThat(installed.path("operatorId").asText()).isEqualTo("700200");
+        assertThat(installed.path("operatorName").asText()).isEqualTo("运营·技能管理员");
+        assertThat(installed.path("updateAvailable").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 skill:read → 详情 200，元数据 + frontmatter 自由键值 + 正文全文（审核面）镜像 provider")
+    void given_nonSuperAdminWithSkillRead_when_getSkillDetail_then_200WithFrontmatterAndContent() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILL_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(data.path("source").asInt()).isEqualTo(2);
+        assertThat(data.path("sourceName").asText()).isEqualTo("安装");
+        // frontmatter 自由键值对象逐字透传：name/description 之外的键（license）原样在场
+        assertThat(data.path("frontmatter").path("name").asText()).isEqualTo("web-research");
+        assertThat(data.path("frontmatter").path("license").asText()).isEqualTo("MIT");
+        // 正文全文（frontmatter 剥离后）原样到达——安装审核承载面
+        assertThat(data.path("content").asText()).startsWith("# Web Research");
+        assertThat(data.path("content").asText()).contains("\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源");
+        assertThat(data.path("updateAvailable").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 技能两端点 403（独立权限码 skill:read，技能线 per-verb 11 码之首）")
+    void given_nonSuperAdminWithoutPermission_when_skillEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(SKILLS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SKILL_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问技能两端点返回 401")
+    void given_unauthenticated_when_skillEndpoints_then_401() {
+        assertThat(getWithToken(SKILLS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(SKILL_DETAIL_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("技能详情下游 SKL_001（未寻址/畸形柄）→ 北向 HTTP 404 + 信封 code=7001 + message 原文（不映射）")
+    void given_skl001FromDownstream_when_getSkillDetail_then_errorEnvelopePassedThrough() throws Exception {
+        // 畸形/未寻址柄由 provider 裁决（admin 不预检）——mock 任一未寻址柄触发透传路径
+        when(aiplatformClient.getSkill(eq("builtin:no-such-skill"))).thenThrow(
+                AiplatformUpstreamException.from(
+                        new OpenApiClientException(404, "{\"code\":7001,\"message\":\"技能不存在\",\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILLS_ENDPOINT + "/builtin:no-such-skill", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7001（SKL_001＝域码 7×1000＋1），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7001);
+        assertThat(root.path("message").asText()).isEqualTo("技能不存在");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

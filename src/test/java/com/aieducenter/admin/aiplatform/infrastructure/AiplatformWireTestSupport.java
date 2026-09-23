@@ -6,6 +6,7 @@ import com.aieducenter.admin.aiplatform.application.AiplatformMaterialAppService
 import com.aieducenter.admin.aiplatform.application.AiplatformOrderAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformProjectAppService;
+import com.aieducenter.admin.aiplatform.application.AiplatformSkillAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.cartisan.openapi.client.BinaryResponse;
 import com.cartisan.openapi.client.OpenApiClient;
@@ -31,8 +32,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * <p>供 {@code AiplatformAccountClientContractTest} / {@code AiplatformOrderClientContractTest} /
  * {@code AiplatformProjectClientContractTest} / {@code AiplatformWorkspaceClientContractTest} /
  * {@code AiplatformCostClientContractTest} / {@code AiplatformPriceEntryClientContractTest} /
- * {@code AiplatformMaterialClientContractTest} 复用；后续域 {@code *ContractTest} 沿用本脚手架
- * 扩展（各域 AppService 重载）。</p>
+ * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} 复用；
+ * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
  */
@@ -467,6 +468,42 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformMaterialAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域版 {@link #accountAppServiceWithStubTransport}（#247 技能线 T1）——清单/详情
+     * 两读口全走 {@code get}，按真实 {@code TypeReference} 反序列化。
+     */
+    static AiplatformSkillAppService skillAppServiceWithStubTransport(String envelopeBody, String[] wireUrlSink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域版 {@link #accountAppServiceWithErrorTransport}——{@code get} 始终抛
+     * {@link OpenApiClientException}（框架对 ≥400 的行为复刻：详情 404 SKL_001 与读口同形）。
+     */
+    static AiplatformSkillAppService skillAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {

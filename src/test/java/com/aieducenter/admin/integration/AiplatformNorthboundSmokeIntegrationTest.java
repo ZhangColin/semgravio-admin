@@ -28,23 +28,24 @@ import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformMaterialC
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformOrderController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformPriceEntryController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformProjectController;
+import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformSkillController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformWorkspaceController;
 import com.cartisan.security.annotation.RequirePermission;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * aiplatform BFF 北向全量冒烟复核（issue #72 T10 收口、#61 冒烟四项之「域内全端点」就绪态）。
+ * aiplatform BFF 北向全量冒烟复核（issue #72 T10 收口、#80 技能线 T1、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>六域 34 端点合入后的收口审计，两条腿：</p>
+ * <p>七域 36 端点合入后的收口审计，两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
- *       七个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
+ *       八个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
  *       下既不缺端点也不多端点，方法逐一路径一致）——admin-web 按 api-docs 对接（spec #62
- *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 34 显式断言。</li>
+ *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 36 显式断言。</li>
  *   <li><b>权限注解与权限码清单一致</b>：每个北向映射方法恰一个 {@code @RequirePermission}；
- *       distinct 权限码集合 == spec #62 权限码清单（七读码含 {@code account:read} + 十二写码）。
- *       注解计数 == 34（一端点一码，无裸奔端点）。与
+ *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线 {@code skill:read}，
+ *       共二十码）。注解计数 == 36（一端点一码，无裸奔端点）。与
  *       {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）互补——此处钉
  *       静态清单完整性，防后续增删端点时清单漂移。</li>
  * </ul>
@@ -59,8 +60,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62：六域 34 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 账号 1。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 34;
+    /** spec #62 + #79 技能线 T1：七域 36 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 2 + 账号 1。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 36;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -71,9 +72,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
             AiplatformCostController.class,
             AiplatformPriceEntryController.class,
             AiplatformMaterialController.class,
+            AiplatformSkillController.class,
             AiplatformAccountController.class);
 
-    /** spec #62 权限码清单（19）：七读码（六域 + account）+ 十二写码（逐写操作）。 */
+    /** 权限码清单（20）：八读码（七域 + account）+ 十二写码（spec #62 + #79 技能线 T1 skill:read）。 */
     private static final Set<String> EXPECTED_PERMISSION_CODES = Set.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -82,6 +84,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
             "admin:aiplatform:price-entry:read",
             "admin:aiplatform:material:read",
             "admin:aiplatform:account:read",
+            "admin:aiplatform:skill:read",
             "admin:aiplatform:order:quote",
             "admin:aiplatform:order:cancel",
             "admin:aiplatform:order:retry-archive",
@@ -108,18 +111,18 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 34 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all34AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 36 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all36AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
                 .isEqualTo(HttpStatus.OK);
 
-        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 34
+        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 36
         // （materials/{id} 同路径 get+delete 双方法——按「路径×方法」对计数，非路径数）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("七 controller 映射（路径×方法）对应为 34（spec #62）")
+        assertThat(endpointPairCount).as("八 controller 映射（路径×方法）对应为 36（spec #62 + #79 技能线 T1）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -147,7 +150,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、19 码清单精确一致（含 account:read）、注解计数=34")
+    @DisplayName("权限注解复核：每映射方法恰一码、20 码清单精确一致（含 account:read/skill:read）、注解计数=36")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -168,17 +171,17 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 34（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 36（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
-                .as("distinct 权限码集合应与 spec #62 清单精确一致（七读 + 十二写，不缺不多）")
+                .as("distinct 权限码集合应与权限码清单精确一致（八读 + 十二写，不缺不多）")
                 .isEqualTo(EXPECTED_PERMISSION_CODES);
         // 显式点名（spec #72 验收）：account:read 有码（嵌抽屉用、无页面）
         assertThat(codes).contains("admin:aiplatform:account:read");
     }
 
     /**
-     * 反射扫描七个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
+     * 反射扫描八个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
      * （类级 + 方法级 {@code @RequestMapping} 合并；路径取首个值——本包约定每方法单路径）。
      */
     private static Map<String, Set<String>> deriveFromControllers() {

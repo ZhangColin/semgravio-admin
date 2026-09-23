@@ -32,7 +32,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       （quote 须注明不含金额——视镜语义，aiplatform ADR-0017）；</li>
  *   <li>unitPrice 出入参：响应侧 string（精确十进制串交接，规避 BigDecimal 直出 JSON 落
  *       科学计数）、改价入参侧 number——两侧类型有意不对称、照实各自显式呈现
- *       （provider #160 定稿口径，BFF 忠实透传不做类型统一）。</li>
+ *       （provider #160 定稿口径，BFF 忠实透传不做类型统一）；</li>
+ *   <li>技能管理两端点 @Operation 描述镜像（issue #80，镜像 aiplatform #247 技能线 T1）：
+ *       清单/详情的 summary＋description 逐字镜像 provider——opaque 串两形制柄
+ *       （builtin:&lt;技能名&gt;／TSID 十进制串）、有界目录不分页、审核面「所见即运行时注入面」、
+ *       404 SKL_001＝数字业务码 7001 等关键语义须在 api-docs 在场；北向 schema 的
+ *       id/frontmatter/content 同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -132,16 +137,64 @@ class AiplatformSpringDocContractIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("swagger 契约：技能清单/详情 @Operation 描述镜像 provider（#80，opaque 两形制柄 + 审核面语义在场）")
+    void given_skillEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：summary 与 description 逐字镜像 provider（#247）——同权呈现、字段语义、
+        // 服务端定死排序、有界目录不分页不过滤、opaque 串两形制柄
+        JsonNode list = paths.path("/api/admin/aiplatform/skills").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含技能清单端点").isFalse();
+        assertThat(list.path("summary").asText(""))
+                .contains("内置＋安装同权").contains("不分页");
+        assertThat(list.path("description").asText(""))
+                .contains("空库时仍呈现内置技能")
+                .contains("来源 code（1=内置 2=安装）")
+                .contains("内置在前").contains("来源包、名称序")
+                .contains("有界目录")
+                .contains("不分页不过滤")
+                .contains("opaque 串两形制")
+                .contains("builtin:<技能名>").contains("TSID 十进制串");
+
+        // 详情：审核面语义（所见即运行时注入面）＋ frontmatter/正文分面＋ 404 SKL_001 数字码
+        JsonNode detail = paths.path("/api/admin/aiplatform/skills/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含技能详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("元数据＋frontmatter＋正文").contains("审核面");
+        assertThat(detail.path("description").asText(""))
+                .contains("所见即运行时注入面")
+                .contains("frontmatter 全量")
+                .contains("SKL_001").contains("7001");
+
+        // 北向行 schema 自描述：id 柄 opaque 两形制（前端勿做数值假设——#75 自描述先例同款）
+        JsonNode skillId = property("AiplatformSkillSummaryResponse", "id");
+        assertThat(skillId.path("description").asText(""))
+                .contains("opaque 串两形制")
+                .contains("builtin:<技能名>").contains("TSID 十进制串");
+        assertThat(exampleText(skillId)).isEqualTo("builtin:prd-writing");
+
+        // 详情 schema 自描述：frontmatter 自由键值（逐字透传、不做形状断言）＋正文审核承载面
+        JsonNode frontmatter = property("AiplatformSkillDetailResponse", "frontmatter");
+        assertThat(frontmatter.path("description").asText("")).contains("frontmatter 全量");
+        assertThat(exampleText(frontmatter)).isNotBlank();
+        assertThat(property("AiplatformSkillDetailResponse", "content")
+                .path("description").asText("")).contains("审核承载面");
+    }
+
     // ---------- 装载 ----------
 
-    private JsonNode schemas() throws Exception {
+    private JsonNode apiDocs() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
                 .isEqualTo(HttpStatus.OK);
-        JsonNode schemas = objectMapper.readTree(response.getBody())
-                .path("components").path("schemas");
-        assertThat(schemas.isObject()).as("api-docs 应含 components.schemas：%s", response.getBody()).isTrue();
+        return objectMapper.readTree(response.getBody());
+    }
+
+    private JsonNode schemas() throws Exception {
+        JsonNode schemas = apiDocs().path("components").path("schemas");
+        assertThat(schemas.isObject()).as("api-docs 应含 components.schemas").isTrue();
         return schemas;
     }
 

@@ -22,6 +22,8 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformOrderWire
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryRepriceWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -58,8 +60,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>为 infrastructure 包内裸 {@code @Component}（BFF 出站客户端，不走 {@code @Port/@Adapter}，
  * 详见 ADR-0007，与 {@code PaymentClient} / {@code AccountClient} / {@code AppRegistryClient} 同款）。
- * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口共用本客户端——同一 downstream、
- * 同一签名身份，各域只加方法。</p>
+ * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口与技能管理域（#78 第七域）共用本
+ * 客户端——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -158,6 +160,14 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformMaterialSummaryWireResponse>> MATERIAL_SUMMARY_TYPEREF =
+            new TypeReference<>() {};
+
+    // 技能管理域（#247 技能线 T1）同为 ApiResponse<T> 信封；清单 data 为裸 List（有界目录不分页
+    // ——对话史 List 直出同形），详情含 frontmatter 全量＋正文全文（审核承载面）
+    private static final TypeReference<ApiResponse<List<AiplatformSkillSummaryWireResponse>>> SKILL_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformSkillDetailWireResponse>> SKILL_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1096,6 +1106,55 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformMaterialSummaryWireResponse> resp =
                     openApiClient.post(url, null, MATERIAL_SUMMARY_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 技能清单（透传 aiplatform，技能线 T1 读面）——内置（classpath 合成）与安装技能同权呈现，
+     * 空库时仍呈现内置技能；<strong>零查询参数</strong>（有界目录不分页不过滤，排序服务端定死：
+     * 内置在前名称序、安装在后按来源包＋名称序）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills}（#247 技能库）：返回
+     * {@code ApiResponse<List<BackofficeSkillSummaryResponse>>}——data 为裸 List（非分页载体，
+     * 对话史 List 直出同形）。行 {@code id} 为 opaque 串两形制（内置 {@code builtin:<技能名>}／
+     * 安装 TSID 十进制串），admin 按字符串透传（spec #79：不解析不预校验）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformSkillSummaryWireResponse> listSkills() {
+        String url = baseUrl + "/api/backoffice/skills";
+        log.debug("AiplatformClient.listSkills: {}", url);
+        try {
+            ApiResponse<List<AiplatformSkillSummaryWireResponse>> resp =
+                    openApiClient.get(url, SKILL_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询技能详情（透传 aiplatform）——清单行同形元数据＋frontmatter 全量（解析态键值）＋
+     * 正文全文（frontmatter 剥离后），安装审核承载面（所见即运行时注入面）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills/{id}}（#247）：返回
+     * {@code ApiResponse<BackofficeSkillDetailResponse>}；技能不存在（含未寻址内置名/TSID、
+     * 畸形柄——provider 侧两形制柄单点分解）时 HTTP 404 + 数字业务码 7001（SKL_001）原样透传。
+     * {@code id} 取清单行原值原样出站（opaque 串，URL 编码仅传输层——{@code builtin:}
+     * 冒号与技能名整体入路径）。</p>
+     *
+     * @param id 技能柄（opaque 串两形制：builtin:&lt;技能名&gt;／TSID 十进制串，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_001 等，不做映射）
+     */
+    public AiplatformSkillDetailWireResponse getSkill(String id) {
+        String url = baseUrl + "/api/backoffice/skills/" + encode(id);
+        log.debug("AiplatformClient.getSkill: {}", url);
+        try {
+            ApiResponse<AiplatformSkillDetailWireResponse> resp =
+                    openApiClient.get(url, SKILL_DETAIL_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
