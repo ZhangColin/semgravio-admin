@@ -23,6 +23,7 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryRepriceWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
@@ -162,12 +163,16 @@ public class AiplatformClient {
     private static final TypeReference<ApiResponse<AiplatformMaterialSummaryWireResponse>> MATERIAL_SUMMARY_TYPEREF =
             new TypeReference<>() {};
 
-    // 技能管理域（#247 技能线 T1）同为 ApiResponse<T> 信封；清单 data 为裸 List（有界目录不分页
-    // ——对话史 List 直出同形），详情含 frontmatter 全量＋正文全文（审核承载面）
+    // 技能管理域（#247 技能线 T1/T2）同为 ApiResponse<T> 信封；清单 data 为裸 List（有界目录不分页
+    // ——对话史 List 直出同形），详情含 frontmatter 全量＋正文全文（审核承载面）。安装回执与清单
+    // 裸 List 共形（#248——本次装入的条目清单），启停/卸载回执为清单行单行
     private static final TypeReference<ApiResponse<List<AiplatformSkillSummaryWireResponse>>> SKILL_LIST_TYPEREF =
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSkillDetailWireResponse>> SKILL_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformSkillSummaryWireResponse>> SKILL_SUMMARY_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1155,6 +1160,118 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSkillDetailWireResponse> resp =
                     openApiClient.get(url, SKILL_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 安装技能包（透传 aiplatform，技能线 T2 写口）——git 仓库地址装时快照固化（clone 解析
+     * 全部 SKILL.md 入库，版本＝装时 HEAD commit，ADR-0021 快照安装不订阅远端）；
+     * {@code excludeDirs} 任一段命中技能仓库相对路径即整支不入库（段名精确匹配）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/install}（#248）：请求体
+     * {@code {repoUrl, excludeDirs}} 逐字镜像（excludeDirs 可缺省），返回
+     * {@code ApiResponse<List<BackofficeSkillSummaryResponse>>}——data 为裸 List，与清单行
+     * 共形（本次装入的条目清单）。操作者身份经框架 {@code OpenApiClient} 自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕装者）——<strong>缺头
+     * 400 SKL_009</strong>（数字业务码 7009，技能库写操作必留痕）。失败 fail-fast 整体不入库：
+     * 地址空 400 SKL_002（7002）、同源重复安装 409 SKL_003（7003）、克隆失败/超时 502
+     * SKL_004（7004）、未解析到技能 400 SKL_005（7005）、SKILL.md 不合格 400 SKL_006
+     * （7006）、包内重名 400 SKL_007（7007）——均原样透传。</p>
+     *
+     * @param command 安装命令体（由应用层从北向命令映射而来，字段合法性归 provider 安装用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_002–SKL_009 等，不做映射）
+     */
+    public List<AiplatformSkillSummaryWireResponse> installSkills(AiplatformSkillInstallWireRequest command) {
+        String url = baseUrl + "/api/backoffice/skills/install";
+        log.debug("AiplatformClient.installSkills: {}", url);
+        try {
+            // 回执与清单裸 List 共形（SKILL_LIST_TYPEREF 复用——同 TypeReference 同形）
+            ApiResponse<List<AiplatformSkillSummaryWireResponse>> resp =
+                    openApiClient.post(url, command, SKILL_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 停用技能（透传 aiplatform，技能线 T2 写口）——可逆开关：退出装配候选（装配合成只收
+     * 启用行）、不丢库行，误伤可经 enable 恢复；重复停用幂等（操作者留最近一次）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/{id}/disable}（#248）：<strong>无
+     * 请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，provider 端只读
+     * 路径参数——同素材停用先例），返回 {@code ApiResponse<BackofficeSkillSummaryResponse>}
+     * （翻转后清单行）。操作者透传头自动落痕（最近管理动作操作者），缺头 400 SKL_009（7009）。
+     * 寻址 TSID 柄；内置技能非库行无状态迁移——builtin: 柄/畸形柄/未寻址 TSID 同语义 404
+     * SKL_001（7001）——均原样透传。</p>
+     *
+     * @param id 技能柄（opaque 串原样出站；状态迁移仅对安装库行有意义，裁决归 provider）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_001、400 SKL_009 等，不做映射）
+     */
+    public AiplatformSkillSummaryWireResponse disableSkill(String id) {
+        return postSkillAction(id, "disable");
+    }
+
+    /**
+     * 启用技能（透传 aiplatform，技能线 T2 写口）——停用的可逆侧：恢复参与装配合成；
+     * 重复启用幂等。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/{id}/enable}（#248）：无请求体，
+     * 回执＝翻转后清单行。操作者透传头落痕口径同 disable（缺头 400 SKL_009＝7009）；
+     * 寻址与 404 语义同 disable（TSID 柄；内置柄 404 SKL_001＝7001）——均原样透传。</p>
+     *
+     * @param id 技能柄（opaque 串原样出站；裁决归 provider）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_001、400 SKL_009 等，不做映射）
+     */
+    public AiplatformSkillSummaryWireResponse enableSkill(String id) {
+        return postSkillAction(id, "enable");
+    }
+
+    /**
+     * 卸载技能（透传 aiplatform，技能线 T2 写口）——库行删除即彻底出库（不可逆），清单/详情/
+     * 装配均不可见。卸载守卫：有指派在身（任一职能槽位）的技能拒绝卸载（409 SKL_008，先解绑
+     * 再卸）。回执＝<strong>删除前终态</strong>清单行（provider 契约如此，逐字镜像——确认移除了
+     * 什么）。无行可留不留痕（admin 侧自有操作日志）。
+     *
+     * <p>对接 aiplatform {@code DELETE /api/backoffice/skills/{id}}（#248）：HTTP <strong>DELETE</strong>
+     * 动词——经框架 {@link OpenApiClient#delete}（cartisan-boot#33：空 body digest + query 入签
+     * + RequestContext 透传，与 {@code get()} 同形——DELETE 动词不可被 get/post 替代，契约测试
+     * 钉死），返回 {@code ApiResponse<BackofficeSkillSummaryResponse>}。寻址 TSID 柄；内置技能
+     * 不可卸——builtin: 柄/畸形柄/未寻址 TSID 同语义 404 SKL_001（7001）、重复卸载 404
+     * ——均原样透传。</p>
+     *
+     * @param id 技能柄（opaque 串原样出站；可卸性裁决归 provider）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_001、409 SKL_008 等，不做映射）
+     */
+    public AiplatformSkillSummaryWireResponse uninstallSkill(String id) {
+        String url = baseUrl + "/api/backoffice/skills/" + encode(id);
+        log.debug("AiplatformClient.uninstallSkill: {}", url);
+        try {
+            ApiResponse<AiplatformSkillSummaryWireResponse> resp =
+                    openApiClient.delete(url, SKILL_SUMMARY_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 停用/启用两治理动作共用的出站形状（技能线 T2，#248）：
+     * {@code POST /api/backoffice/skills/{id}/{action}}——无请求体（框架
+     * {@code OpenApiClient.post} 对 null body 发空 body，provider 端只读路径参数），返回
+     * {@code ApiResponse<BackofficeSkillSummaryResponse>} 信封取 {@code .data()}（翻转后
+     * 清单行）；操作者身份由框架经 {@code RequestContext}→{@code X-User-Id/X-User-Name}
+     * 自动透传（缺头会被 provider 域面守卫 SKL_009 拦截——技能库写操作必留痕）。
+     */
+    private AiplatformSkillSummaryWireResponse postSkillAction(String id, String action) {
+        String url = baseUrl + "/api/backoffice/skills/" + encode(id) + "/" + action;
+        log.debug("AiplatformClient.skillAction[{}]: {}", action, url);
+        try {
+            ApiResponse<AiplatformSkillSummaryWireResponse> resp =
+                    openApiClient.post(url, null, SKILL_SUMMARY_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

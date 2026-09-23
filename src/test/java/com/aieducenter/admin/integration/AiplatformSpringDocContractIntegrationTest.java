@@ -33,11 +33,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *   <li>unitPrice 出入参：响应侧 string（精确十进制串交接，规避 BigDecimal 直出 JSON 落
  *       科学计数）、改价入参侧 number——两侧类型有意不对称、照实各自显式呈现
  *       （provider #160 定稿口径，BFF 忠实透传不做类型统一）；</li>
- *   <li>技能管理两端点 @Operation 描述镜像（issue #80，镜像 aiplatform #247 技能线 T1）：
- *       清单/详情的 summary＋description 逐字镜像 provider——opaque 串两形制柄
+ *   <li>技能管理六端点 @Operation 描述镜像（issue #80 读面镜像 aiplatform #247 技能线 T1；
+ *       issue #81 写面镜像 #248 技能线 T2）：清单/详情/安装/停用⇄启用/卸载的 summary＋
+ *       description 逐字镜像 provider——opaque 串两形制柄
  *       （builtin:&lt;技能名&gt;／TSID 十进制串）、有界目录不分页、审核面「所见即运行时注入面」、
- *       404 SKL_001＝数字业务码 7001 等关键语义须在 api-docs 在场；北向 schema 的
- *       id/frontmatter/content 同步自描述。</li>
+ *       404 SKL_001＝数字业务码 7001、安装 fail-fast 失败族 SKL_002–SKL_007/009 数字码、
+ *       卸载守卫 SKL_008＝7008＋DELETE 动词等关键语义须在 api-docs 在场；北向 schema 的
+ *       id/frontmatter/content 与安装命令体 repoUrl/excludeDirs 同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -180,6 +182,71 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(exampleText(frontmatter)).isNotBlank();
         assertThat(property("AiplatformSkillDetailResponse", "content")
                 .path("description").asText("")).contains("审核承载面");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：技能四写端点 @Operation 描述镜像 provider（#81，失败族数字码 + DELETE 动词在场）")
+    void given_skillWriteEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 安装：快照固化语义＋excludeDirs 排除＋SKL_002–SKL_007/009 失败族数字码＋回执共形
+        JsonNode install = paths.path("/api/admin/aiplatform/skills/install").path("post");
+        assertThat(install.isMissingNode()).as("api-docs 应含技能安装端点").isFalse();
+        assertThat(install.path("summary").asText(""))
+                .contains("安装技能包").contains("快照固化");
+        assertThat(install.path("description").asText(""))
+                .contains("ADR-0021")
+                .contains("excludeDirs")
+                .contains("段名精确匹配")
+                .contains("fail-fast")
+                .contains("SKL_002").contains("7002")
+                .contains("SKL_003").contains("7003")
+                .contains("SKL_004").contains("7004")
+                .contains("SKL_005").contains("7005")
+                .contains("SKL_006").contains("7006")
+                .contains("SKL_007").contains("7007")
+                .contains("SKL_009").contains("7009")
+                .contains("回执＝本次装入的条目清单");
+
+        // 停用：可逆开关＋幂等＋缺头守卫数字码＋404 SKL_001
+        JsonNode disable = paths.path("/api/admin/aiplatform/skills/{id}/disable").path("post");
+        assertThat(disable.isMissingNode()).as("api-docs 应含技能停用端点").isFalse();
+        assertThat(disable.path("summary").asText("")).contains("停用技能").contains("可逆开关");
+        assertThat(disable.path("description").asText(""))
+                .contains("退出装配候选")
+                .contains("重复停用幂等")
+                .contains("SKL_009").contains("7009")
+                .contains("SKL_001").contains("7001")
+                .contains("回执＝翻转后清单行");
+
+        // 启用：停用的可逆侧＋口径同停用
+        JsonNode enable = paths.path("/api/admin/aiplatform/skills/{id}/enable").path("post");
+        assertThat(enable.isMissingNode()).as("api-docs 应含技能启用端点").isFalse();
+        assertThat(enable.path("summary").asText("")).contains("启用技能").contains("恢复装配候选");
+        assertThat(enable.path("description").asText(""))
+                .contains("重复启用幂等")
+                .contains("SKL_009").contains("7009")
+                .contains("SKL_001").contains("7001");
+
+        // 卸载：不可逆＋指派守卫 SKL_008 数字码＋删除前终态回执＋DELETE 动词
+        JsonNode uninstall = paths.path("/api/admin/aiplatform/skills/{id}").path("delete");
+        assertThat(uninstall.isMissingNode()).as("api-docs 应含技能卸载端点（DELETE 动词）").isFalse();
+        assertThat(uninstall.path("summary").asText("")).contains("卸载技能").contains("不可逆");
+        assertThat(uninstall.path("description").asText(""))
+                .contains("SKL_008").contains("7008")
+                .contains("先解绑再卸")
+                .contains("回执＝删除前终态")
+                .contains("内置技能不可卸")
+                .contains("SKL_001").contains("7001")
+                .contains("DELETE");
+
+        // 安装命令 schema 自描述：repoUrl 装时固化快照语义＋excludeDirs 任一段命中即不入库
+        JsonNode repoUrl = property("AiplatformSkillInstallCommand", "repoUrl");
+        assertThat(repoUrl.path("description").asText("")).contains("git 地址");
+        assertThat(exampleText(repoUrl)).isNotBlank();
+        JsonNode excludeDirs = property("AiplatformSkillInstallCommand", "excludeDirs");
+        assertThat(excludeDirs.path("description").asText("")).contains("任一段命中即不入库");
+        assertThat(exampleText(excludeDirs)).isNotBlank();
     }
 
     // ---------- 装载 ----------

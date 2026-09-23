@@ -506,6 +506,114 @@ final class AiplatformWireTestSupport {
         return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
+    /**
+     * 技能管理域<strong>写路径</strong>版（#248 技能线 T2，issue #81）——安装走 {@code post}
+     * （带命令体）、停用/启用走 {@code post}（null body）、卸载走 {@code delete}（无 body 参数
+     * ——DELETE 动词唯一出口），均按真实 {@code TypeReference} 反序列化；post 把命令体序列化进
+     * wireBodySink（null body 原样记 null——钉死两启停动作无请求体契约）、delete 入口把
+     * wireBodySink 记 null（DELETE 无 body——出站动词形状断言的对照面）。
+     */
+    static AiplatformSkillAppService skillWriteAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T delete(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                wireBodySink[0] = null;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域<strong>卸载动词钉死</strong>版（issue #81 验收：DELETE 动词不可替代）——
+     * {@code delete} 正常反序列化，{@code get}/{@code post} 直接抛 {@link AssertionError}
+     * （Error 不经 {@code AiplatformClient} 的 OpenApiClientException catch，测试即失败）：
+     * 卸载若误用 get/post 出站，本 stub 即刻失败钉死动词契约。
+     */
+    static AiplatformSkillAppService skillDeleteOnlyAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                throw new AssertionError("卸载必须走 DELETE 动词（openApiClient.delete），误用了 GET: " + url);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                throw new AssertionError("卸载必须走 DELETE 动词（openApiClient.delete），误用了 POST: " + url);
+            }
+
+            @Override
+            public <T> T delete(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域写路径版 {@link #skillAppServiceWithErrorTransport}——{@code get}/{@code post}/
+     * {@code delete} 都始终抛 {@code OpenApiClientException}（框架对 ≥400 的行为复刻：安装
+     * fail-fast 失败族 SKL_002–SKL_009 与读口错误信封同形）。
+     */
+    static AiplatformSkillAppService skillWriteAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T delete(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
     private static ObjectMapper bootDefaultMapper() {
         return new ObjectMapper()
                 .registerModule(new JavaTimeModule())

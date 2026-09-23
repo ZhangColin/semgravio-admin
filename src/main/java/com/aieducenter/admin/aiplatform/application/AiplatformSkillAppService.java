@@ -2,24 +2,27 @@ package com.aieducenter.admin.aiplatform.application;
 
 import java.util.List;
 
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.infrastructure.AiplatformClient;
 import org.springframework.stereotype.Service;
 
 /**
- * aiplatform 技能管理域 BFF 应用服务——T1 读面：清单（内置＋安装同权，不分页）＋详情
- * （元数据＋frontmatter 全量＋正文全文，安装审核承载面），issue #80（aiplatform #247 技能线）。
- * 技能库归 aiplatform base.skills 上下文——admin 不持业务逻辑、不持技能数据。
+ * aiplatform 技能管理域 BFF 应用服务——T1 读面（清单/详情，issue #80）＋T2 写面（安装/停用⇄
+ * 启用/卸载，issue #81），aiplatform 技能线 #247/#248。技能库归 aiplatform base.skills
+ * 上下文——admin 不持业务逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
  * 技能库是有界目录，排序服务端定死：内置在前名称序、安装在后按来源包＋名称序，admin 不造
- * 分页）；详情寻址柄 {@code id} 为 opaque 串两形制（内置 {@code builtin:<技能名>}／安装 TSID
+ * 分页）；寻址柄 {@code id} 为 opaque 串两形制（内置 {@code builtin:<技能名>}／安装 TSID
  * 十进制串）——字符串透传不解析不预校验，畸形/未寻址柄由 provider 判 404 SKL_001（数字业务码
- * 7001）。frontmatter 为自由键值对象逐字透传（不做形状断言）。读口无操作者语义（操作者留痕
- * 只在写口——T2+/T4 票），错误经 {@link AiplatformClient} 统一翻译为
+ * 7001）。frontmatter 为自由键值对象逐字透传（不做形状断言）。写口操作者经框架
+ * {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传落痕（缺头由 provider 域面
+ * 守卫 SKL_009 拦，admin 不拦）；错误经 {@link AiplatformClient} 统一翻译为
  * {@link AiplatformUpstreamException} 原样透传，本层不 try/catch。</p>
  *
  * @since 0.1.0
@@ -50,6 +53,48 @@ public class AiplatformSkillAppService {
      */
     public AiplatformSkillDetailResponse getDetail(String id) {
         return toDetail(aiplatformClient.getSkill(id));
+    }
+
+    /**
+     * 安装技能包（透传 aiplatform）——git 仓库地址装时快照固化（版本＝装时 HEAD commit），
+     * excludeDirs 任一段命中即整支不入库（v1 手输目录段，provider 无仓库结构预览端点——
+     * spec #79）。回执＝本次装入的条目清单（与清单行共形）。失败族（地址空 SKL_002、同源
+     * 重复安装 SKL_003、克隆失败 SKL_004、未解析到技能 SKL_005、SKILL.md 不合格 SKL_006、
+     * 包内重名 SKL_007、操作者缺头 SKL_009）以 provider 数字业务码透传，admin 不拦截
+     * 不翻译。操作者经框架透传头落痕（装者）。
+     */
+    public List<AiplatformSkillSummaryResponse> install(AiplatformSkillInstallCommand command) {
+        return aiplatformClient.installSkills(
+                        new AiplatformSkillInstallWireRequest(command.repoUrl(), command.excludeDirs()))
+                .stream()
+                .map(AiplatformSkillAppService::toSummary)
+                .toList();
+    }
+
+    /**
+     * 停用技能（透传 aiplatform）——可逆开关：退出装配候选、不丢库行；重复停用幂等（操作者
+     * 留最近一次）。回执＝翻转后清单行。id 取清单行原值原样出站（状态迁移仅对安装库行有
+     * 意义——builtin: 柄/畸形柄由 provider 判 404 SKL_001，admin 不预检）。
+     */
+    public AiplatformSkillSummaryResponse disable(String id) {
+        return toSummary(aiplatformClient.disableSkill(id));
+    }
+
+    /**
+     * 启用技能（透传 aiplatform）——停用的可逆侧：恢复参与装配合成；重复启用幂等。回执＝
+     * 翻转后清单行。寻址与 404 语义同 {@link #disable(String)}（裁决归 provider）。
+     */
+    public AiplatformSkillSummaryResponse enable(String id) {
+        return toSummary(aiplatformClient.enableSkill(id));
+    }
+
+    /**
+     * 卸载技能（透传 aiplatform）——库行删除即彻底出库（不可逆）；有指派在身被 409 SKL_008
+     * 拒绝（先解绑再卸），回执＝删除前终态清单行。内置技能不可卸（builtin: 柄 404 SKL_001
+     * 同语义）。无行可留不留痕（admin 侧自有操作日志）。
+     */
+    public AiplatformSkillSummaryResponse uninstall(String id) {
+        return toSummary(aiplatformClient.uninstallSkill(id));
     }
 
     private static AiplatformSkillSummaryResponse toSummary(AiplatformSkillSummaryWireResponse wire) {

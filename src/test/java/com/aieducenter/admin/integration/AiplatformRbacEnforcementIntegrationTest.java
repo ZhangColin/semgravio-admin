@@ -48,6 +48,7 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
@@ -84,7 +85,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * aiplatform BFF 端点 RBAC 强制执行集成测试（issue #63 T1 账号 + #64 订单读路径 + #65 项目核心读路径 +
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
- * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情）
+ * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
+ * 安装/停用⇄启用/卸载写口）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -92,7 +94,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code order:quote|cancel|retry-archive}）+ 沙箱四独立写码
  * （{@code workspace:wake|hibernate|rebuild|seal}）+ 单价表两独立写码
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
- * （{@code material:disable|enable|delete}）对未登录（401）/ 无权者（403）/ 有权者（200）的行为，
+ * （{@code material:disable|enable|delete}）+ 技能四独立写码
+ * （{@code skill:install|disable|enable|uninstall}）对未登录（401）/ 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
  *
@@ -100,9 +103,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * {@code RbacEnforcementIntegrationTest}）。200 用例 mock {@link AiplatformClient}，证明权限放行后
  * 整条 controller→appservice→client 通路接通。超管 bypass 由框架级测试钉住，此处不重复。</p>
  *
- * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域同款必带）：订单三写
+ * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域、#81 技能域同款必带）：订单三写
  * 操作（报价落痕价目行、取消/归档落痕订单行）、沙箱四干预动作、
- * 单价表改价/停用、素材停用/启用从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
+ * 单价表改价/停用、素材停用/启用、技能四写口从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
  * 身份——框架 cartisan-openapi 自动从 {@code RequestContext} 带 {@code X-User-Id/X-User-Name}
  * 出站 header。本测试在 mocked {@link AiplatformClient} 边界用 {@code doAnswer} 在调用瞬间抓取
  * {@link RequestContext#getUserId()} / {@link RequestContext#getUserName()}，断言其 == 登录治理
@@ -188,12 +191,22 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String MATERIAL_ENABLE_ENDPOINT = MATERIAL_DETAIL_ENDPOINT + "/enable";
     private static final String MATERIAL_DELETE_ENDPOINT = MATERIAL_DETAIL_ENDPOINT;
     private static final String SKILL_READ_PERMISSION = "admin:aiplatform:skill:read";
+    private static final String SKILL_INSTALL_PERMISSION = "admin:aiplatform:skill:install";
+    private static final String SKILL_DISABLE_PERMISSION = "admin:aiplatform:skill:disable";
+    private static final String SKILL_ENABLE_PERMISSION = "admin:aiplatform:skill:enable";
+    private static final String SKILL_UNINSTALL_PERMISSION = "admin:aiplatform:skill:uninstall";
     private static final String SKILLS_ENDPOINT = "/api/admin/aiplatform/skills";
     /** 安装技能 TSID 十进制串柄（opaque 两形制之一）。 */
     private static final String SKILL_ID = "3852300001111111";
     /** 内置技能柄（opaque 两形制之二）——清单行原值原样回传作详情寻址。 */
     private static final String BUILTIN_SKILL_HANDLE = "builtin:prd-writing";
     private static final String SKILL_DETAIL_ENDPOINT = SKILLS_ENDPOINT + "/" + SKILL_ID;
+    private static final String SKILL_INSTALL_ENDPOINT = SKILLS_ENDPOINT + "/install";
+    private static final String SKILL_DISABLE_ENDPOINT = SKILL_DETAIL_ENDPOINT + "/disable";
+    private static final String SKILL_ENABLE_ENDPOINT = SKILL_DETAIL_ENDPOINT + "/enable";
+    private static final String SKILL_UNINSTALL_ENDPOINT = SKILL_DETAIL_ENDPOINT;
+    private static final String SKILL_INSTALL_BODY =
+            "{\"repoUrl\":\"https://github.com/acme/agent-skills\",\"excludeDirs\":[\"deprecated\"]}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -214,6 +227,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithDisableOnly;
     private String usernameWithOrderWrite;
     private String usernameWithQuoteOnly;
+    private String usernameWithSkillWrite;
+    private String usernameWithSkillDisableOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -227,6 +242,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String materialWriteUserNickname;
     private Long orderWriteUserId;
     private String orderWriteUserNickname;
+    private Long skillWriteUserId;
+    private String skillWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -258,6 +275,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithDisableOnly = "aipladson" + suffix;
         usernameWithOrderWrite = "aiplaowpr" + suffix;
         usernameWithQuoteOnly = "aiplaqpon" + suffix;
+        usernameWithSkillWrite = "aiplaswpr" + suffix;
+        usernameWithSkillDisableOnly = "aiplasdon" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -366,6 +385,30 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithQuoteOnly, PASSWORD,
                         "定价专员_" + suffix, null, null, null));
         userAppService.assignRoles(quoteOnlyUserId, new AssignRolesCommand(List.of(quoteOnlyRoleId)));
+
+        // 技能四写码专用运营（install+disable+enable+uninstall，无读码）——操作者透传断言用其 id/昵称
+        Long skillWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台技能写操作_" + suffix, "AIPLASWPR_" + suffix,
+                        "AI 平台技能安装 + 停用 + 启用 + 卸载权限", 100, null));
+        roleAppService.assignPermissions(skillWriteRoleId, new AssignPermissionsCommand(List.of(
+                SKILL_INSTALL_PERMISSION, SKILL_DISABLE_PERMISSION,
+                SKILL_ENABLE_PERMISSION, SKILL_UNINSTALL_PERMISSION)));
+        skillWriteUserNickname = "技能治理运营_" + suffix;
+        skillWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSkillWrite, PASSWORD,
+                        skillWriteUserNickname, null, null, null));
+        userAppService.assignRoles(skillWriteUserId, new AssignRolesCommand(List.of(skillWriteRoleId)));
+
+        // 仅 disable 单写码——钉死四写码彼此独立（spec #79 最小授权：可逆治理与装/卸分权）
+        Long skillDisableOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台技能停用_" + suffix, "AIPLASDON_" + suffix,
+                        "AI 平台技能仅停用权限", 101, null));
+        roleAppService.assignPermissions(skillDisableOnlyRoleId,
+                new AssignPermissionsCommand(List.of(SKILL_DISABLE_PERMISSION)));
+        Long skillDisableOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSkillDisableOnly, PASSWORD,
+                        "技能停用专员_" + suffix, null, null, null));
+        userAppService.assignRoles(skillDisableOnlyUserId, new AssignRolesCommand(List.of(skillDisableOnlyRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -619,6 +662,28 @@ class AiplatformRbacEnforcementIntegrationTest {
                 Map.of("name", "web-research", "description", "联网检索与网页抓取整理", "license", "MIT"),
                 "# Web Research\n\n先检索后作答……\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源",
                 "700200", "运营·技能管理员", false));
+        // 技能四写口 mock（issue #81，aiplatform #248 技能线 T2）：安装回执＝本次装入条目清单
+        // （裸 List，装者留痕）/ 启停回执＝翻转后清单行 / 卸载回执＝删除前终态——均抓取
+        // RequestContext（操作者透传契约证据，provider 缺头必拦 SKL_009，断言必带）
+        doAnswer(inv -> {
+            capture.run();
+            return List.of(
+                    skillActionReceiptWire("3852300002222222", 1, "启用"),
+                    skillActionReceiptWire("3852300003333333", 1, "启用"));
+        }).when(aiplatformClient).installSkills(any(AiplatformSkillInstallWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return skillActionReceiptWire(SKILL_ID, 2, "停用");
+        }).when(aiplatformClient).disableSkill(eq(SKILL_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return skillActionReceiptWire(SKILL_ID, 1, "启用");
+        }).when(aiplatformClient).enableSkill(eq(SKILL_ID));
+        doAnswer(inv -> {
+            capture.run();
+            // 卸载回执＝删除前终态（启用态行——确认移除了什么）；无行可留不留痕
+            return skillActionReceiptWire(SKILL_ID, 1, "启用");
+        }).when(aiplatformClient).uninstallSkill(eq(SKILL_ID));
     }
 
     /**
@@ -638,6 +703,20 @@ class AiplatformRbacEnforcementIntegrationTest {
                         LocalDateTime.of(2026, 9, 12, 10, 0, 0))),
                 LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);
+    }
+
+    /**
+     * 技能写口回执共用的 wire 载荷工厂（清单行单行）：按动作后的状态（启停＝翻转后、卸载＝删除
+     * 前终态）参数化，操作者两肢＝登录治理运营（provider 落痕口径——安装＝装者、启停＝最近动作者）；
+     * 新版标记 null＝未检查过（装时快照刚落，provider 恒 null 如实出 JSON null）。
+     */
+    private AiplatformSkillSummaryWireResponse skillActionReceiptWire(String id, Integer status, String statusName) {
+        return new AiplatformSkillSummaryWireResponse(
+                id, "web-research", "联网检索与网页抓取整理",
+                2, "安装", "https://github.com/acme/agent-skills",
+                "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                status, statusName,
+                String.valueOf(skillWriteUserId), skillWriteUserNickname, null);
     }
 
     /**
@@ -1803,6 +1882,155 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 7001（SKL_001＝域码 7×1000＋1），而非映射后的 404——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(7001);
         assertThat(root.path("message").asText()).isEqualTo("技能不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 技能四写操作（install/disable/enable/uninstall 四独立写码）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有四写码 → 安装/停用/启用/卸载 200，回执共形清单行且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithFourWriteCodes_when_skillActions_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSkillWrite);
+
+        // 安装（带命令体 repoUrl＋excludeDirs）：回执＝本次装入的条目清单（裸 List，与清单行共形），
+        // 装者留痕两肢＝登录技能治理运营
+        ResponseEntity<String> install = postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, token);
+        assertThat(install.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode installed = objectMapper.readTree(install.getBody()).path("data");
+        assertThat(installed.isArray()).isTrue();
+        assertThat(installed.size()).isEqualTo(2);
+        JsonNode firstInstalled = installed.get(0);
+        assertThat(firstInstalled.path("id").asText()).isEqualTo("3852300002222222");
+        assertThat(firstInstalled.path("source").asInt()).isEqualTo(2);
+        assertThat(firstInstalled.path("sourceName").asText()).isEqualTo("安装");
+        assertThat(firstInstalled.path("sourcePackage").asText()).isEqualTo("https://github.com/acme/agent-skills");
+        assertThat(firstInstalled.path("status").asInt()).isEqualTo(1);
+        assertThat(firstInstalled.path("statusName").asText()).isEqualTo("启用");
+        assertThat(firstInstalled.path("operatorId").asText()).isEqualTo(String.valueOf(skillWriteUserId));
+        assertThat(firstInstalled.path("operatorName").asText()).isEqualTo(skillWriteUserNickname);
+        // 装时快照刚落，新版标记未检查过＝JSON null 如实在场（全局 Jackson 含 null）
+        assertThat(firstInstalled.path("updateAvailable").isNull()).isTrue();
+
+        // 停用（无请求体）：回执＝翻转后清单行——停用态＋最近动作者
+        ResponseEntity<String> disable = postWithToken(SKILL_DISABLE_ENDPOINT, token);
+        assertThat(disable.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode disabled = objectMapper.readTree(disable.getBody()).path("data");
+        assertThat(disabled.path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(disabled.path("status").asInt()).isEqualTo(2);
+        assertThat(disabled.path("statusName").asText()).isEqualTo("停用");
+        assertThat(disabled.path("operatorId").asText()).isEqualTo(String.valueOf(skillWriteUserId));
+
+        // 启用：可逆开关另一侧——恢复启用
+        ResponseEntity<String> enable = postWithToken(SKILL_ENABLE_ENDPOINT, token);
+        assertThat(enable.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(enable.getBody()).path("data").path("statusName").asText())
+                .isEqualTo("启用");
+
+        // 卸载（DELETE 动词）：回执＝删除前终态（确认移除了什么）
+        ResponseEntity<String> uninstall = deleteWithToken(SKILL_UNINSTALL_ENDPOINT, token);
+        assertThat(uninstall.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode removed = objectMapper.readTree(uninstall.getBody()).path("data");
+        assertThat(removed.path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(removed.path("status").asInt()).isEqualTo(1);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 缺头必拦 SKL_009——issue #81 断言必带）：
+        // == 登录技能治理运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(skillWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(skillWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 skill:read（无写码）→ 四写操作 403（read ≠ 四写码）")
+    void given_nonSuperAdminWithReadOnly_when_skillWriteActions_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_DISABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_ENABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(SKILL_UNINSTALL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅有 skill:disable 单写码 → 停用 200、安装/启用/卸载 403（四写码彼此独立，可逆与装/卸分权）")
+    void given_nonSuperAdminWithDisableOnly_when_skillActions_then_disable200Others403() {
+        String token = login(usernameWithSkillDisableOnly);
+        assertThat(postWithToken(SKILL_DISABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_ENABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(SKILL_UNINSTALL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 技能四写端点 403")
+    void given_nonSuperAdminWithoutPermission_when_skillWriteEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_DISABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_ENABLE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(SKILL_UNINSTALL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问技能四写端点返回 401（含 DELETE 卸载）")
+    void given_unauthenticated_when_skillWriteEndpoints_then_401() {
+        assertThat(postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SKILL_DISABLE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SKILL_ENABLE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(deleteWithToken(SKILL_UNINSTALL_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("安装下游 SKL_003（同源重复安装）→ 北向 HTTP 409 + 信封 code=7003 + message 原文（不映射）")
+    void given_skl003FromDownstream_when_install_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.installSkills(any(AiplatformSkillInstallWireRequest.class))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":7003,\"message\":\"该技能仓库已安装过，不能重复安装（同源去重，更新走显式更新）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithSkillWrite);
+        ResponseEntity<String> response = postWithToken(SKILL_INSTALL_ENDPOINT, SKILL_INSTALL_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7003（SKL_003＝域码 7×1000＋3），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7003);
+        assertThat(root.path("message").asText())
+                .isEqualTo("该技能仓库已安装过，不能重复安装（同源去重，更新走显式更新）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("卸载下游 SKL_008（有指派在身拒卸）→ 北向 HTTP 409 + 信封 code=7008 + message 原文（不映射）")
+    void given_skl008FromDownstream_when_uninstall_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.uninstallSkill(eq(SKILL_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":7008,\"message\":\"技能有指派在身，先解绑再卸载\",\"data\":null}")));
+
+        String token = login(usernameWithSkillWrite);
+        ResponseEntity<String> response = deleteWithToken(SKILL_UNINSTALL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7008（SKL_008＝域码 7×1000＋8），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7008);
+        assertThat(root.path("message").asText()).isEqualTo("技能有指派在身，先解绑再卸载");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

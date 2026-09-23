@@ -54,7 +54,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * {@code /menus/my} 下发 AI 平台目录与七叶子菜单（六域 + 技能管理，Soybean 元数据齐备）、
  * 位于支付管理之后账号管理之前（sort_order=3 与 payment 同序、id 82&gt;80 兜底排其后——spec #62 字面值）；
  * 账号读口不种页面（children 恰七叶——嵌订单/项目详情抽屉用）；非超管经角色分配（只配
- * 叶子 id，目录由祖先补全出现）+ 20 权限码（spec #62 + #79 技能线 T1）既见菜单又汇总权限；禁用角色后
+ * 叶子 id，目录由祖先补全出现）+ 24 权限码（spec #62 + #79 技能线 T1/T2）既见菜单又汇总权限；禁用角色后
  * 菜单与权限贡献均剔除（CONTEXT.md「RBAC」既定口径在新种子上不回归）。</p>
  *
  * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220。
@@ -90,7 +90,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "aiplatform_order", "aiplatform_project", "aiplatform_workspace",
             "aiplatform_cost", "aiplatform_price_entry", "aiplatform_material", "aiplatform_skill");
 
-    /** 权限码清单（20）：八读码（七域 + account）+ 十二写码（spec #62 + #79 技能线 T1 skill:read）。 */
+    /** 权限码清单（24）：八读码（七域 + account）+ 十六写码（spec #62 + #79 技能线 T1 read/T2 四写码）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -111,7 +111,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:material:enable",
             "admin:aiplatform:material:delete",
             "admin:aiplatform:price-entry:reprice",
-            "admin:aiplatform:price-entry:deactivate");
+            "admin:aiplatform:price-entry:deactivate",
+            "admin:aiplatform:skill:install",
+            "admin:aiplatform:skill:disable",
+            "admin:aiplatform:skill:enable",
+            "admin:aiplatform:skill:uninstall");
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -202,11 +206,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管：角色配七叶种子（祖先补全出目录）+ 20 码 → 菜单与权限均汇总可见")
+    @DisplayName("非超管：角色配七叶种子（祖先补全出目录）+ 24 码 → 菜单与权限均汇总可见")
     void given_roleWithSeedMenusAndAllPermissions_when_my_then_treeVisibleAndPermissionsAggregated() {
         Long roleId = roleAppService.create(
                 new CreateRoleCommand("AI平台运营_" + suffix, "AIPLAMENU_" + suffix,
-                        "AI 平台七叶菜单 + 全量 20 权限码", 88, null));
+                        "AI 平台七叶菜单 + 全量 24 权限码", 88, null));
         // 只分配叶子 id——目录经祖先链补全出现（MenuTreeAssembler 既定行为在真种子上复证）
         roleAppService.assignMenus(roleId, new AssignMenusCommand(AIPLATFORM_LEAF_IDS));
         roleAppService.assignPermissions(roleId, new AssignPermissionsCommand(ALL_AIPLATFORM_PERMISSIONS));
@@ -223,7 +227,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         assertThat(stringList(directory.path("children"), "routeName"))
                 .containsExactlyElementsOf(SEVEN_LEAF_ROUTES);
 
-        // 权限汇总：/auth/current permissions = 20 码全集（account:read 有码——配抽屉用，但无页面）
+        // 权限汇总：/auth/current permissions = 24 码全集（account:read 有码——配抽屉用，但无页面）
         JsonNode current = okData(getWithToken("/api/admin/auth/current", token));
         assertThat(plainStringList(current.path("permissions")))
                 .containsExactlyInAnyOrderElementsOf(ALL_AIPLATFORM_PERMISSIONS);

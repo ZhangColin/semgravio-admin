@@ -8,19 +8,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformUpstreamException;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * aiplatform 技能管理域（清单/详情）的 wire 契约测试（对接 aiplatform #247 技能线 T1，
- * issue #80）。
+ * aiplatform 技能管理域（清单/详情＋安装/停用⇄启用/卸载）的 wire 契约测试（对接 aiplatform
+ * #247 技能线 T1、#248 技能线 T2，issue #80/#81）。
  *
  * <p>契约事实（2026-09-23 对照 aiplatform 源码 {@code BackofficeSkillController} /
  * {@code BackofficeSkillAppService} / {@code BackofficeSkillSummaryResponse} /
- * {@code BackofficeSkillDetailResponse} / {@code SkillSource} / {@code SkillStatus} /
- * {@code SkillMessage} / {@code ErrorCodePrefix} 核实）：</p>
+ * {@code BackofficeSkillDetailResponse} / {@code SkillInstallCommand} / {@code SkillSource} /
+ * {@code SkillStatus} / {@code SkillMessage} / {@code ErrorCodePrefix} 核实）：</p>
  * <ul>
- *   <li>两端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}；清单 data 为
+ *   <li>各端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}；清单 data 为
  *       <strong>裸 List</strong>（有界目录不分页不过滤——对话史 List 直出同形；排序服务端定死：
  *       内置在前名称序、安装在后按来源包＋名称序），详情 data 为单对象。</li>
  *   <li>行字段：{@code id} String——<strong>opaque 串两形制</strong>（内置
@@ -32,8 +34,18 @@ import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkill
  *   <li>详情多 {@code frontmatter}（自由键值对象逐字透传——不做形状断言）＋{@code content}
  *       （frontmatter 剥离后正文全文，审核承载面）两字段，位于 statusName 与 operator 两肢之间
  *       （provider 字段序逐字镜像）。</li>
+ *   <li>写口四端点（T2，#248）：安装 {@code POST /skills/install} 带 {@code {repoUrl,
+ *       excludeDirs}} 命令体（excludeDirs 可缺省）、回执＝裸 List（与清单行共形——本次装入的
+ *       条目清单）；停用/启用 {@code POST /skills/{id}/disable|enable} <strong>无请求体</strong>
+ *       （null body）、回执＝翻转后清单行单行；卸载 {@code DELETE /skills/{id}}——HTTP
+ *       <strong>DELETE 动词不可替代</strong>（get/post 即失败的 stub 钉死）、回执＝删除前终态
+ *       清单行。</li>
  *   <li>错误透传（数字业务码＝SKL 域码 7×1000＋序号）：SKL_001→7001（404，技能不存在——含
- *       未寻址内置名/TSID、畸形柄，provider 侧两形制柄单点分解裁决，admin 不预检）。</li>
+ *       未寻址内置名/TSID、畸形柄，provider 侧两形制柄单点分解裁决，admin 不预检）；
+ *       SKL_002→7002（400 地址空）、SKL_003→7003（409 同源重复安装）、SKL_004→7004（502
+ *       克隆失败）、SKL_005→7005（400 未解析到技能）、SKL_006→7006（400 SKILL.md 不合格）、
+ *       SKL_007→7007（400 包内重名）、SKL_008→7008（409 有指派在身拒卸载）、SKL_009→7009
+ *       （400 操作者缺头）——fail-fast 失败族整体不入库，admin 不拦截不翻译。</li>
  * </ul>
  *
  * <p>本测试 <strong>不</strong> mock {@code AiplatformClient}（方法边界 mock 会绕过 wire 反序列化
@@ -138,6 +150,77 @@ class AiplatformSkillClientContractTest {
               "message": "技能不存在",
               "data": null,
               "requestId": "req-s5n0f",
+              "errors": null
+            }
+            """;
+
+    /**
+     * aiplatform POST /api/backoffice/skills/install 的真实成功响应形状：回执＝本次装入的
+     * 条目清单（裸 List，与清单行共形）——同源包两行（排除目录段命中其余条目的代表面）。
+     */
+    private static final String SKILL_INSTALL_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": [
+                {
+                  "id": "3852300002222222",
+                  "name": "web-research",
+                  "description": "联网检索与网页抓取整理",
+                  "source": 2,
+                  "sourceName": "安装",
+                  "sourcePackage": "https://github.com/acme/agent-skills",
+                  "version": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                  "status": 1,
+                  "statusName": "启用",
+                  "operatorId": "700200",
+                  "operatorName": "运营·技能管理员",
+                  "updateAvailable": null
+                },
+                {
+                  "id": "3852300003333333",
+                  "name": "prd-writing",
+                  "description": "撰写或修订 PRD 时使用",
+                  "source": 2,
+                  "sourceName": "安装",
+                  "sourcePackage": "https://github.com/acme/agent-skills",
+                  "version": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                  "status": 1,
+                  "statusName": "启用",
+                  "operatorId": "700200",
+                  "operatorName": "运营·技能管理员",
+                  "updateAvailable": null
+                }
+              ],
+              "requestId": "req-s7i9a",
+              "errors": null
+            }
+            """;
+
+    /**
+     * 启停/卸载回执的真实成功响应形状：清单行单行（停用/启用＝翻转后行；卸载＝删除前终态——
+     * provider 对两动作共形回执，此处取停用态行作代表面）。
+     */
+    private static final String SKILL_ACTION_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data":
+                {
+                  "id": "3852300001111111",
+                  "name": "web-research",
+                  "description": "联网检索与网页抓取整理",
+                  "source": 2,
+                  "sourceName": "安装",
+                  "sourcePackage": "https://github.com/acme/agent-skills",
+                  "version": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                  "status": 2,
+                  "statusName": "停用",
+                  "operatorId": "700200",
+                  "operatorName": "运营·技能管理员",
+                  "updateAvailable": true
+                },
+              "requestId": "req-s9a0c",
               "errors": null
             }
             """;
@@ -276,6 +359,163 @@ class AiplatformSkillClientContractTest {
                     assertThat(upstream.httpStatus()).isEqualTo(404);
                     assertThat(upstream.envelopeCode()).isEqualTo(7001);
                     assertThat(upstream.getMessage()).isEqualTo("技能不存在");
+                });
+    }
+
+    // ========== 安装（POST /install 带命令体 + 回执与清单行共形）==========
+
+    @Test
+    void given_installCommand_when_install_then_wireUrlAndBodyMirrorProviderContract() throws Exception {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillWriteAppServiceWithStubTransport(
+                SKILL_INSTALL_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        appService.install(new AiplatformSkillInstallCommand(
+                "https://github.com/acme/agent-skills.git", List.of("deprecated", "in-progress")));
+
+        // 出站 wire 形状逐字镜像 provider 契约：POST /api/backoffice/skills/install，命令体
+        // {repoUrl, excludeDirs} 两字段——逐字镜像 SkillInstallCommand，无增删
+        assertThat(wireUrl[0]).isEqualTo("http://stub-aiplatform/api/backoffice/skills/install");
+        var body = new ObjectMapper().readTree(wireBody[0]);
+        assertThat(body.fieldNames()).toIterable().containsExactlyInAnyOrder("repoUrl", "excludeDirs");
+        assertThat(body.path("repoUrl").asText()).isEqualTo("https://github.com/acme/agent-skills.git");
+        assertThat(body.path("excludeDirs").get(0).asText()).isEqualTo("deprecated");
+        assertThat(body.path("excludeDirs").get(1).asText()).isEqualTo("in-progress");
+    }
+
+    @Test
+    void given_installReceiptEnvelope_when_install_then_receiptConformsToSummaryRows() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillWriteAppServiceWithStubTransport(
+                SKILL_INSTALL_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        List<AiplatformSkillSummaryResponse> installed = appService.install(
+                new AiplatformSkillInstallCommand("https://github.com/acme/agent-skills", null));
+
+        // excludeDirs 可缺省（null 出站在场——全局 Jackson 含 null，provider 侧 null＝不排除）
+        assertThat(wireBody[0]).contains("\"excludeDirs\":null");
+
+        // 回执＝本次装入的条目清单（与清单行共形）：裸 List 信封正确拆开、两行全字段绑定——
+        // 安装行形态（来源 2、启用态、装者留痕、新版标记未检查过 null）
+        assertThat(installed).hasSize(2);
+        var first = installed.get(0);
+        assertThat(first.id()).isEqualTo("3852300002222222");
+        assertThat(first.name()).isEqualTo("web-research");
+        assertThat(first.source()).isEqualTo(2);
+        assertThat(first.sourceName()).isEqualTo("安装");
+        assertThat(first.sourcePackage()).isEqualTo("https://github.com/acme/agent-skills");
+        assertThat(first.version()).isEqualTo("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+        assertThat(first.status()).isEqualTo(1);
+        assertThat(first.statusName()).isEqualTo("启用");
+        assertThat(first.operatorId()).isEqualTo("700200");
+        assertThat(first.operatorName()).isEqualTo("运营·技能管理员");
+        assertThat(first.updateAvailable()).isNull();
+        var second = installed.get(1);
+        assertThat(second.id()).isEqualTo("3852300003333333");
+        assertThat(second.name()).isEqualTo("prd-writing");
+        assertThat(second.status()).isEqualTo(1);
+    }
+
+    // ========== 停用⇄启用（POST {id}/disable|enable，无请求体）==========
+
+    @Test
+    void given_tsidHandle_when_disableAndEnable_then_wireUrlMirrorsProviderAndBodyEmpty() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillWriteAppServiceWithStubTransport(
+                SKILL_ACTION_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        appService.disable(INSTALLED_SKILL_ID);
+        // 启停无请求体（provider 端只读路径参数）：URL 镜像 POST /{id}/disable、body 记 null
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/" + INSTALLED_SKILL_ID + "/disable");
+        assertThat(wireBody[0]).isNull();
+
+        var disabled = appService.disable(INSTALLED_SKILL_ID);
+        // 回执＝翻转后清单行单行（停用态＋最近动作者留痕）
+        assertThat(disabled.id()).isEqualTo(INSTALLED_SKILL_ID);
+        assertThat(disabled.status()).isEqualTo(2);
+        assertThat(disabled.statusName()).isEqualTo("停用");
+        assertThat(disabled.operatorId()).isEqualTo("700200");
+
+        appService.enable(INSTALLED_SKILL_ID);
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/" + INSTALLED_SKILL_ID + "/enable");
+        assertThat(wireBody[0]).isNull();
+    }
+
+    // ========== 卸载（DELETE 动词不可替代 + 删除前终态回执）==========
+
+    @Test
+    void given_uninstall_when_invoked_then_deleteVerbOnly_stubsForGetOrPostFail() {
+        String[] wireUrl = new String[1];
+        // get/post 即失败的 stub（issue #81 验收钉死）：卸载若误用 GET/POST 出站，AssertionError
+        // 立刻炸测试——DELETE 是唯一可接受动词
+        var appService = AiplatformWireTestSupport.skillDeleteOnlyAppServiceWithStubTransport(
+                SKILL_ACTION_RECEIPT_ENVELOPE, wireUrl);
+
+        var removed = appService.uninstall(INSTALLED_SKILL_ID);
+
+        // 出站 DELETE /api/backoffice/skills/{id}（无请求体），回执＝删除前终态清单行
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/" + INSTALLED_SKILL_ID);
+        assertThat(removed.id()).isEqualTo(INSTALLED_SKILL_ID);
+        assertThat(removed.status()).isEqualTo(2);
+        assertThat(removed.statusName()).isEqualTo("停用");
+    }
+
+    // ========== 错误族透传（SKL_002–SKL_009 数字业务码，不映射）==========
+
+    @Test
+    void given_sklErrorFamily_when_writeActions_then_passThroughWithoutMapping() {
+        // 安装 fail-fast 失败族（002–007＋缺头 009）：HTTP 状态/数字码/message 均取 provider 原值
+        assertSkillWriteErrorPassthrough(400, 7002, "安装仓库地址不能为空", "install");
+        assertSkillWriteErrorPassthrough(409, 7003,
+                "该技能仓库已安装过，不能重复安装（同源去重，更新走显式更新）", "install");
+        assertSkillWriteErrorPassthrough(502, 7004, "技能仓库克隆失败", "install");
+        assertSkillWriteErrorPassthrough(400, 7005, "仓库未解析到任何技能（无 SKILL.md 或全部被排除）", "install");
+        assertSkillWriteErrorPassthrough(400, 7006, "仓库内 SKILL.md 不合格（须含 name、description 与正文）", "install");
+        assertSkillWriteErrorPassthrough(400, 7007, "同一仓库内存在重名技能", "install");
+        // 操作者缺头守卫（009）：启停同受域面守卫拦截（admin 不拦——透传断言即证据）
+        assertSkillWriteErrorPassthrough(400, 7009, "操作者不能为空", "disable");
+        // 卸载守卫（008）：有指派在身拒卸（先解绑再卸）
+        assertSkillWriteErrorPassthrough(409, 7008, "技能有指派在身，先解绑再卸载", "uninstall");
+    }
+
+    /** 按端点族（install/disable/uninstall）断言错误信封透传：HTTP 状态＋数字业务码＋message 原样。 */
+    private static void assertSkillWriteErrorPassthrough(
+            int httpStatus, int envelopeCode, String message, String action) {
+        String errorEnvelope = """
+                {
+                  "code": %d,
+                  "message": "%s",
+                  "data": null,
+                  "requestId": "req-s7x%d",
+                  "errors": null
+                }
+                """.formatted(envelopeCode, message, envelopeCode);
+        var appService = AiplatformWireTestSupport.skillWriteAppServiceWithErrorTransport(
+                httpStatus, errorEnvelope, new String[1]);
+
+        var command = new AiplatformSkillInstallCommand("https://github.com/acme/agent-skills", null);
+        // 按端点族触发出站（disable/enable/uninstall 同一守卫族，取代表面各一）
+        var invocation = switch (action) {
+            case "install" -> (Runnable) () -> appService.install(command);
+            case "disable" -> (Runnable) () -> appService.disable(INSTALLED_SKILL_ID);
+            case "uninstall" -> (Runnable) () -> appService.uninstall(INSTALLED_SKILL_ID);
+            default -> throw new IllegalArgumentException("未知端点族: " + action);
+        };
+
+        assertThatThrownBy(invocation::run)
+                .as("SKL_%d（数字业务码 %d）应经 %s 透传", envelopeCode - 7000, envelopeCode, action)
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(httpStatus);
+                    assertThat(upstream.envelopeCode()).isEqualTo(envelopeCode);
+                    assertThat(upstream.getMessage()).isEqualTo(message);
                 });
     }
 }
