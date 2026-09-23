@@ -26,6 +26,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssi
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
@@ -180,6 +183,15 @@ public class AiplatformClient {
     // 槽位指派（#249 技能线 T3）：GET 读面与 PUT 回执同形——{slot, skills[]} 单对象（skills
     // 与清单行共形、含停用行）
     private static final TypeReference<ApiResponse<AiplatformSlotAssignmentWireResponse>> SLOT_ASSIGNMENT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 显式更新＋版本留痕（#250 技能线 T4）：POST /update 回执为单对象（from/to＋removedSkillNames
+    // ＋终态行集——skills 与清单行共形）；GET /update-traces data 为裸 List（append-only 时间倒序，
+    // 有界——同技能清单 List 直出同形）
+    private static final TypeReference<ApiResponse<AiplatformSkillUpdateWireResponse>> SKILL_UPDATE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>>> SKILL_UPDATE_TRACE_LIST_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1335,6 +1347,63 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSlotAssignmentWireResponse> resp =
                     openApiClient.put(url, command, SLOT_ASSIGNMENT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 显式更新技能包（透传 aiplatform，技能线 T4 写口）——按来源包整体重拉快照入库
+     * （ADR-0021：更新永远显式点，平台永不自动跟新远端——清单「有新版」标记只提示、不动作）；
+     * 排除名单＝装时持久化口径（更新不还魂装时排除的目录）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/update}（#250）：请求体
+     * {@code {sourcePackage}} 逐字镜像（取清单行原值回传，服务端再规范化，同源身份单源），
+     * 返回 {@code ApiResponse<BackofficeSkillUpdateResponse>}——from/to 版本＋被移除技能名＋
+     * 更新后该包终态行集（skills 与清单行共形；同名行原地翻新保留 id/状态/指派——TSID 柄
+     * 稳定）。远端未前进＝幂等回执（from==to、removedSkillNames 空、不落痕不写行）。操作者
+     * 透传头自动落痕（显式动作必留痕，缺头 400 SKL_009＝7009）。失败族：来源包空 400
+     * SKL_014（7014）、未安装 404 SKL_012（7012）、克隆失败/超时 502 SKL_004（7004）、远端
+     * 未解析到技能 400 SKL_005（7005）、包内重名 400 SKL_007（7007）、移除项有指派在身整体
+     * 拒绝 409 SKL_013（7013，先解绑再更新）——均原样透传。</p>
+     *
+     * @param command 更新命令体（由应用层从北向命令映射而来，字段合法性归 provider 更新用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_004/005/007/009/012/013/014 等，不做映射）
+     */
+    public AiplatformSkillUpdateWireResponse updateSkills(AiplatformSkillUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/skills/update";
+        log.debug("AiplatformClient.updateSkills: {}", url);
+        try {
+            ApiResponse<AiplatformSkillUpdateWireResponse> resp =
+                    openApiClient.post(url, command, SKILL_UPDATE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 更新留痕读面（透传 aiplatform，技能线 T4 读口）——该来源包全部显式更新留痕
+     * （from→to 版本＋操作者＋时刻），按时间倒序（最近先）。append-only：卸载不删留痕
+     * （历史事实不随库行消失），装时版本经链条首个 from 可回溯。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills/update-traces}（#250）：查询参数
+     * {@code sourcePackage} 保持 provider 形态——<strong>可选绑定</strong>（spec #79：
+     * admin 不在绑定层前置拦截），空/缺由 provider 手工校验出 400 SKL_014（7014）原样透传；
+     * 返回 {@code ApiResponse<List<BackofficeSkillUpdateTraceResponse>>}——data 为裸 List
+     * （append-only 时间倒序，有界——与技能清单 List 直出同形，不造分页）。</p>
+     *
+     * @param sourcePackage 来源包标识（清单行原值回传；可缺省——空/缺由 provider 判 SKL_014，admin 不拦）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（400 SKL_014 等，不做映射）
+     */
+    public List<AiplatformSkillUpdateTraceWireResponse> listSkillUpdateTraces(String sourcePackage) {
+        StringBuilder url = new StringBuilder(baseUrl).append("/api/backoffice/skills/update-traces");
+        appendParam(url, "sourcePackage", sourcePackage);
+        log.debug("AiplatformClient.listSkillUpdateTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>> resp =
+                    openApiClient.get(url.toString(), SKILL_UPDATE_TRACE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

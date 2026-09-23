@@ -45,7 +45,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       空清单＝清空）的 summary＋description 逐字镜像 provider——三槽位键
  *       main/executor/subagent、未知槽位 SKL_010＝7010、内置柄不可指派 SKL_011＝7011 等
  *       关键语义须在 api-docs 在场；北向 schema 的 slot/skills 与指派命令体 skillIds 同步
- *       自描述。</li>
+ *       自描述；</li>
+ *   <li>显式更新＋更新留痕读面两端点 @Operation 描述镜像（issue #83 镜像 aiplatform #250
+ *       技能线 T4）：更新写面（重拉快照＋版本留痕、永不自动跟新、同名行原地翻新柄稳定、
+ *       远端未前进＝幂等回执不落痕不写行）与留痕读面（时间倒序、append-only 卸载不删留痕）
+ *       的 summary＋description 逐字镜像 provider——SKL_013＝7013（移除项有指派在身整体拒）、
+ *       SKL_012＝7012（来源包未安装）、SKL_014＝7014（来源包标识不能为空）等关键语义须在
+ *       api-docs 在场；北向 schema 的更新命令体 sourcePackage、更新回执 fromVersion/
+ *       removedSkillNames/skills 与留痕行 operatedAt 同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -309,6 +316,63 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(exampleText(slot)).isEqualTo("executor");
         assertThat(property("AiplatformSlotAssignmentResponse", "skills")
                 .path("description").asText("")).contains("含停用行");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：显式更新＋留痕读面两端点 @Operation 描述镜像 provider（#83，幂等语义 + SKL_012/013/014 数字码在场）")
+    void given_skillUpdateEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 显式更新：来源包原值回传＋翻新语义（柄稳定）＋幂等回执＋失败族数字码＋回执三肢
+        JsonNode update = paths.path("/api/admin/aiplatform/skills/update").path("post");
+        assertThat(update.isMissingNode()).as("api-docs 应含技能显式更新端点").isFalse();
+        assertThat(update.path("summary").asText(""))
+                .contains("显式更新技能包").contains("重拉快照＋版本留痕");
+        assertThat(update.path("description").asText(""))
+                .contains("永不自动跟新")
+                .contains("sourcePackage 取清单行原值回传")
+                .contains("TSID 柄")
+                .contains("SKL_013").contains("7013")
+                .contains("幂等回执").contains("from==to").contains("不落痕不写行")
+                .contains("SKL_009").contains("7009")
+                .contains("SKL_014").contains("7014")
+                .contains("SKL_012").contains("7012")
+                .contains("SKL_004").contains("7004")
+                .contains("SKL_005").contains("7005")
+                .contains("SKL_007").contains("7007")
+                .contains("from/to 版本＋被移除技能名＋更新后终态行集");
+
+        // 留痕读面：时间倒序＋append-only（卸载不删留痕）＋sourcePackage 必填校验数字码
+        JsonNode traces = paths.path("/api/admin/aiplatform/skills/update-traces").path("get");
+        assertThat(traces.isMissingNode()).as("api-docs 应含更新留痕读面端点").isFalse();
+        assertThat(traces.path("summary").asText(""))
+                .contains("更新留痕读面").contains("历史版本可查");
+        assertThat(traces.path("description").asText(""))
+                .contains("from→to 版本＋操作者＋时刻")
+                .contains("时间倒序")
+                .contains("append-only")
+                .contains("卸载不删留痕")
+                .contains("装时版本经链条首个 from 回溯")
+                .contains("SKL_014").contains("7014");
+
+        // 更新命令 schema 自描述：sourcePackage 取清单行原值回传（同源身份单源）
+        JsonNode sourcePackage = property("AiplatformSkillUpdateCommand", "sourcePackage");
+        assertThat(sourcePackage.path("description").asText(""))
+                .contains("取技能清单行 sourcePackage 原值回传")
+                .contains("永不自动跟新");
+        assertThat(exampleText(sourcePackage)).isNotBlank();
+
+        // 更新回执 schema 自描述：幂等语义（from==to）＋移除名＋终态行集同形
+        JsonNode fromVersion = property("AiplatformSkillUpdateResponse", "fromVersion");
+        assertThat(fromVersion.path("description").asText("")).contains("幂等回执");
+        assertThat(property("AiplatformSkillUpdateResponse", "removedSkillNames")
+                .path("description").asText("")).contains("SKL_013");
+        assertThat(property("AiplatformSkillUpdateResponse", "skills")
+                .path("description").asText("")).contains("清单行同形");
+
+        // 留痕行 schema 自描述：时刻倒序语义
+        assertThat(property("AiplatformSkillUpdateTraceResponse", "operatedAt")
+                .path("description").asText("")).contains("时间倒序");
     }
 
     // ---------- 装载 ----------

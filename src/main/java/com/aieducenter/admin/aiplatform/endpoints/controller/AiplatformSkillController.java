@@ -5,8 +5,11 @@ import java.util.List;
 import com.aieducenter.admin.aiplatform.application.AiplatformSkillAppService;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateTraceResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotAssignmentResponse;
 import com.aieducenter.admin.constants.AdminScopes;
 import com.cartisan.security.annotation.RequireAuth;
@@ -22,12 +25,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AI 平台技能管理控制器——技能线 T1 读面（issue #80，清单/详情）＋T2 写面（issue #81，
- * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82），镜像 aiplatform #247/#248/#249
- * 技能线。
+ * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面
+ * （issue #83），镜像 aiplatform #247/#248/#249/#250 技能线。
  *
  * <p>北向 {@code /api/admin/aiplatform/skills/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/skills/**}（机机签名出站）。技能寻址柄 {@code id} 为 opaque 串
@@ -37,8 +41,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 排序服务端定死——同形不造分页，ADR-0012 分页决议不适用于无分页端点）。</p>
  *
  * <p>权限码（spec #79，技能线 per-verb 11 码）：读 {@code skill:read} 一码挂清单/详情/
- * 指派读面三端点；写码 {@code skill:install|disable|enable|uninstall|assign} 各自独立
- * 成码逐端点挂载（最小授权——如只给内容审核员配启停而不给装/卸、只给装配运营配指派）。
+ * 指派读面/更新留痕读面四端点；写码 {@code skill:install|disable|enable|uninstall|assign|update}
+ * 各自独立成码逐端点挂载（最小授权——如只给内容审核员配启停而不给装/卸/更新、只给装配运营
+ * 配指派）。
  * {@code slot} 为职能槽位稳定键（main/executor/subagent）字符串路径参数——透传不预校验，
  * 未知键由 provider 判 404 SKL_010（数字业务码 7010）。写口操作者经框架
  * {@code OpenApiClient} 自动透传 {@code X-User-Id/X-User-Name} 出站头（identity 同款），
@@ -224,5 +229,50 @@ public class AiplatformSkillController {
     public ApiResponse<AiplatformSlotAssignmentResponse> assignSlot(
             @PathVariable String slot, @RequestBody AiplatformSkillAssignCommand command) {
         return ApiResponse.ok(skillAppService.assignSlot(slot, command));
+    }
+
+    // 不挂 @ErrorCodes（同上各口）：更新失败族 SKL_004/005/007/009/012/013/014 以 description 文档化。
+    @PostMapping("/update")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill:update",
+            name = "AI 平台 / 技能包更新",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "显式更新技能包（重拉快照＋版本留痕）——透传 aiplatform",
+            description = "按来源包整体重拉快照入库（ADR-0021：更新永远显式点，"
+                    + "平台永不自动跟新远端——清单「有新版」标记只提示、不动作）。"
+                    + "sourcePackage 取清单行原值回传（服务端再规范化，同源身份"
+                    + "单源）；排除名单＝装时持久化口径（更新不还魂装时排除的目录）。"
+                    + "翻新语义：同名行原地翻新（id/状态/指派跨更新保留——TSID 柄"
+                    + "稳定）、新技能插入（启用）、远端已删行移除——移除有指派在身"
+                    + "的技能整体拒绝（409 SKL_013＝数字业务码 7013，先解绑再更新）。"
+                    + "远端未前进＝幂等回执（from==to、不落痕不写行）。每次前进必留"
+                    + "版本痕（from→to＋操作者，经 update-traces 可查）。X-User-Id/"
+                    + "X-User-Name 透传头落痕（缺头 400 SKL_009＝7009）。失败族：来源包空"
+                    + " 400 SKL_014（7014）、未安装 404 SKL_012（7012）、克隆失败/超时"
+                    + " 502 SKL_004（7004）、远端未解析到技能 400 SKL_005（7005）、"
+                    + "包内重名 400 SKL_007（7007）。回执＝from/to 版本＋被移除技能名"
+                    + "＋更新后终态行集。")
+    public ApiResponse<AiplatformSkillUpdateResponse> update(@RequestBody AiplatformSkillUpdateCommand command) {
+        return ApiResponse.ok(skillAppService.update(command));
+    }
+
+    // 不挂 @ErrorCodes（同上各口）：SKL_014 以 description 文档化。
+    @GetMapping("/update-traces")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill:read",
+            name = "AI 平台 / 技能管理查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "更新留痕读面（历史版本可查）——透传 aiplatform",
+            description = "该来源包全部显式更新留痕（from→to 版本＋操作者＋时刻），"
+                    + "按时间倒序（最近先）。append-only：卸载不删留痕——历史事实"
+                    + "不随库行消失，装时版本经链条首个 from 回溯。sourcePackage"
+                    + " 取清单行原值（必填，空/缺 400 SKL_014＝数字业务码 7014）。")
+    public ApiResponse<List<AiplatformSkillUpdateTraceResponse>> updateTraces(
+            @RequestParam(required = false) String sourcePackage) {
+        return ApiResponse.ok(skillAppService.updateTraces(sourcePackage));
     }
 }

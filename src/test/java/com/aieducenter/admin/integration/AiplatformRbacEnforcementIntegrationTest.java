@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
@@ -51,6 +52,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssi
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
@@ -88,7 +92,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
- * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写）
+ * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -96,8 +100,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code order:quote|cancel|retry-archive}）+ 沙箱四独立写码
  * （{@code workspace:wake|hibernate|rebuild|seal}）+ 单价表两独立写码
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
- * （{@code material:disable|enable|delete}）+ 技能五独立写码
- * （{@code skill:install|disable|enable|uninstall|assign}——指派读面复用 read、写面独立 assign）对未登录（401）/
+ * （{@code material:disable|enable|delete}）+ 技能六独立写码
+ * （{@code skill:install|disable|enable|uninstall|assign|update}——指派读面/更新留痕读面复用 read、
+ * 写面独立 assign/update）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -216,6 +221,11 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SLOT_ASSIGNMENTS_ENDPOINT = SKILLS_ENDPOINT + "/assignments/" + SLOT_KEY;
     private static final String SLOT_ASSIGN_BODY =
             "{\"skillIds\":[\"3852300001111111\",\"3852300003333333\"]}";
+    private static final String SKILL_UPDATE_PERMISSION = "admin:aiplatform:skill:update";
+    private static final String SKILL_UPDATE_ENDPOINT = SKILLS_ENDPOINT + "/update";
+    private static final String SKILL_UPDATE_TRACES_ENDPOINT = SKILLS_ENDPOINT + "/update-traces";
+    private static final String SKILL_UPDATE_BODY =
+            "{\"sourcePackage\":\"https://github.com/acme/agent-skills\"}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -239,6 +249,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithSkillWrite;
     private String usernameWithSkillDisableOnly;
     private String usernameWithSkillAssign;
+    private String usernameWithSkillUpdate;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -256,6 +267,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String skillWriteUserNickname;
     private Long skillAssignUserId;
     private String skillAssignUserNickname;
+    private Long skillUpdateUserId;
+    private String skillUpdateUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -290,6 +303,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithSkillWrite = "aiplaswpr" + suffix;
         usernameWithSkillDisableOnly = "aiplasdon" + suffix;
         usernameWithSkillAssign = "aiplasaan" + suffix;
+        usernameWithSkillUpdate = "aiplasupn" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -435,6 +449,19 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithSkillAssign, PASSWORD,
                         skillAssignUserNickname, null, null, null));
         userAppService.assignRoles(skillAssignUserId, new AssignRolesCommand(List.of(skillAssignRoleId)));
+
+        // 仅 update 单写码（无读码）——钉死更新写面独立 update、留痕读面复用 read（issue #83）；
+        // 操作者透传断言用其 id/昵称（provider 显式动作必留痕）
+        Long skillUpdateRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台技能更新_" + suffix, "AIPLASUDN_" + suffix,
+                        "AI 平台技能包显式更新权限", 103, null));
+        roleAppService.assignPermissions(skillUpdateRoleId,
+                new AssignPermissionsCommand(List.of(SKILL_UPDATE_PERMISSION)));
+        skillUpdateUserNickname = "版本治理运营_" + suffix;
+        skillUpdateUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSkillUpdate, PASSWORD,
+                        skillUpdateUserNickname, null, null, null));
+        userAppService.assignRoles(skillUpdateUserId, new AssignRolesCommand(List.of(skillUpdateRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -718,6 +745,56 @@ class AiplatformRbacEnforcementIntegrationTest {
             capture.run();
             return slotAssignmentWire();
         }).when(aiplatformClient).assignSlot(eq(SLOT_KEY), any(AiplatformSkillAssignWireRequest.class));
+        // 显式更新＋留痕读面 mock（issue #83，aiplatform #250 技能线 T4）：更新回执＝
+        // from/to 版本＋被移除技能名＋终态行集（远端已前进代表面）；POST 抓取 RequestContext
+        // （操作者透传契约证据，provider 显式动作必留痕、缺头必拦 SKL_009，断言必带）
+        doAnswer(inv -> {
+            capture.run();
+            return skillUpdateReceiptWire();
+        }).when(aiplatformClient).updateSkills(any(AiplatformSkillUpdateWireRequest.class));
+        // 留痕读面：裸 List、append-only 时间倒序（最近先）——版本链衔接（次条 toVersion＝
+        // 首条 fromVersion）
+        when(aiplatformClient.listSkillUpdateTraces(eq("https://github.com/acme/agent-skills")))
+                .thenReturn(List.of(
+                        new AiplatformSkillUpdateTraceWireResponse(
+                                "https://github.com/acme/agent-skills",
+                                "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                                "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
+                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname,
+                                LocalDateTime.of(2026, 9, 22, 14, 30, 0)),
+                        new AiplatformSkillUpdateTraceWireResponse(
+                                "https://github.com/acme/agent-skills",
+                                "0f1e2d3c4b5a6978f1e2d3c4b5a6978f1e2d3c4b",
+                                "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                                "700100", "运营·平台管理员",
+                                LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
+    }
+
+    /**
+     * 显式更新回执 wire 载荷工厂（issue #83，远端已前进代表面）：from→to 版本不同＋
+     * removedSkillNames 含被移除技能名＋更新后终态行集（两行——同名行原地翻新 id 稳定、
+     * 新技能插入启用）。操作者两肢取登录版本治理运营（provider 落痕口径：显式动作必留痕）。
+     */
+    private AiplatformSkillUpdateWireResponse skillUpdateReceiptWire() {
+        return new AiplatformSkillUpdateWireResponse(
+                "https://github.com/acme/agent-skills",
+                "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
+                List.of("legacy-summary"),
+                String.valueOf(skillUpdateUserId), skillUpdateUserNickname,
+                List.of(
+                        new AiplatformSkillSummaryWireResponse(
+                                SKILL_ID, "web-research", "联网检索与网页抓取整理",
+                                2, "安装", "https://github.com/acme/agent-skills",
+                                "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
+                                1, "启用",
+                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false),
+                        new AiplatformSkillSummaryWireResponse(
+                                "3852300004444444", "code-review", "代码评审时使用",
+                                2, "安装", "https://github.com/acme/agent-skills",
+                                "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
+                                1, "启用",
+                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false)));
     }
 
     /**
@@ -2212,6 +2289,138 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("code").asInt()).isEqualTo(7011);
         assertThat(root.path("message").asText())
                 .isEqualTo("内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 显式更新＋留痕读面（skill:update 写面 / skill:read 读面，技能线 T4）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 skill:update → 显式更新 200，回执含 from/to＋removedSkillNames＋终态行集，且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithSkillUpdate_when_update_then_200ReceiptShapeMirrorsProvider_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSkillUpdate);
+
+        ResponseEntity<String> response = postWithToken(SKILL_UPDATE_ENDPOINT, SKILL_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 回执＝from/to 版本＋被移除技能名＋更新后终态行集（远端已前进代表面——issue #83 验收）
+        assertThat(data.path("sourcePackage").asText()).isEqualTo("https://github.com/acme/agent-skills");
+        assertThat(data.path("fromVersion").asText())
+                .isEqualTo("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+        assertThat(data.path("toVersion").asText())
+                .isEqualTo("f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5");
+        assertThat(data.path("removedSkillNames").get(0).asText()).isEqualTo("legacy-summary");
+        // 终态行集与清单行共形：首行同名行原地翻新（TSID 柄稳定＝SKILL_ID）、版本换新
+        assertThat(data.path("skills").size()).isEqualTo(2);
+        assertThat(data.path("skills").get(0).path("id").asText()).isEqualTo(SKILL_ID);
+        assertThat(data.path("skills").get(0).path("version").asText())
+                .isEqualTo("f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5");
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(skillUpdateUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(skillUpdateUserNickname);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 显式动作必留痕、缺头必拦 SKL_009
+        // ——issue #83 断言必带）：== 登录版本治理运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(skillUpdateUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(skillUpdateUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 skill:read → 留痕读面 200，裸 List 时间倒序（最近先）＋版本链衔接")
+    void given_nonSuperAdminWithSkillRead_when_updateTraces_then_200TraceListMirrorsProvider()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(
+                SKILL_UPDATE_TRACES_ENDPOINT + "?sourcePackage=https://github.com/acme/agent-skills", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // data 为裸 List（append-only 时间倒序——最近先；装时版本经链条首个 from 可回溯）
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(2);
+        JsonNode latest = data.get(0);
+        assertThat(latest.path("sourcePackage").asText()).isEqualTo("https://github.com/acme/agent-skills");
+        assertThat(latest.path("fromVersion").asText())
+                .isEqualTo("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+        assertThat(latest.path("toVersion").asText())
+                .isEqualTo("f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5");
+        assertThat(latest.path("operatorId").asText()).isEqualTo(String.valueOf(skillUpdateUserId));
+        assertThat(latest.path("operatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
+        // 版本链衔接：次条 toVersion＝首条 fromVersion（append-only 链可回溯装时版本）
+        assertThat(data.get(1).path("toVersion").asText()).isEqualTo(latest.path("fromVersion").asText());
+    }
+
+    @Test
+    @DisplayName("仅有 skill:read（无 update）→ 更新写 403；仅有 skill:update（无 read）→ 留痕读面 403（读写两码不串）")
+    void given_readOrUpdateOnly_when_updateEndpoints_then_403OnTheOtherSide() {
+        // 更新写面独立 skill:update（issue #83 验收）：read ≠ update，写面拒
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(SKILL_UPDATE_ENDPOINT, SKILL_UPDATE_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // update 不带读面：GET 留痕读面走 skill:read 拒
+        String updater = login(usernameWithSkillUpdate);
+        assertThat(getWithToken(
+                SKILL_UPDATE_TRACES_ENDPOINT + "?sourcePackage=https://github.com/acme/agent-skills",
+                updater).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 更新写面/留痕读面 403")
+    void given_nonSuperAdminWithoutPermission_when_updateEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(postWithToken(SKILL_UPDATE_ENDPOINT, SKILL_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(
+                SKILL_UPDATE_TRACES_ENDPOINT + "?sourcePackage=https://github.com/acme/agent-skills",
+                token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问更新写面/留痕读面返回 401（含 POST 显式更新）")
+    void given_unauthenticated_when_updateEndpoints_then_401() {
+        assertThat(postWithToken(SKILL_UPDATE_ENDPOINT, SKILL_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(
+                SKILL_UPDATE_TRACES_ENDPOINT + "?sourcePackage=https://github.com/acme/agent-skills",
+                null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("更新写下游 SKL_013（移除项有指派在身整体拒）→ 北向 HTTP 409 + 信封 code=7013 + message 原文（不映射）")
+    void given_skl013FromDownstream_when_update_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.updateSkills(any(AiplatformSkillUpdateWireRequest.class))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":7013,\"message\":\"更新将移除有指派在身的技能，先解绑再更新\",\"data\":null}")));
+
+        String token = login(usernameWithSkillUpdate);
+        ResponseEntity<String> response = postWithToken(SKILL_UPDATE_ENDPOINT, SKILL_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7013（SKL_013＝域码 7×1000＋13），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7013);
+        assertThat(root.path("message").asText()).isEqualTo("更新将移除有指派在身的技能，先解绑再更新");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("留痕读面下游 SKL_014（来源包空/缺）→ 北向 HTTP 400 + 信封 code=7014 + message 原文（可选绑定不前置拦截）")
+    void given_skl014FromDownstream_when_updateTracesWithoutParam_then_errorEnvelopePassedThrough() throws Exception {
+        // sourcePackage 可选绑定（spec #79：admin 不在绑定层前置拦截）——缺参直出 provider，
+        // provider 手工校验出 400 SKL_014 原样透传
+        when(aiplatformClient.listSkillUpdateTraces(isNull())).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":7014,\"message\":\"来源包标识不能为空（取清单行 sourcePackage 值）\",\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILL_UPDATE_TRACES_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7014（SKL_014＝域码 7×1000＋14），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7014);
+        assertThat(root.path("message").asText()).isEqualTo("来源包标识不能为空（取清单行 sourcePackage 值）");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

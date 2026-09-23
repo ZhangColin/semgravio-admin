@@ -4,21 +4,28 @@ import java.util.List;
 
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateTraceResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotAssignmentResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.aieducenter.admin.aiplatform.infrastructure.AiplatformClient;
 import org.springframework.stereotype.Service;
 
 /**
  * aiplatform 技能管理域 BFF 应用服务——T1 读面（清单/详情，issue #80）＋T2 写面（安装/停用⇄
- * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82），aiplatform 技能线 #247/#248/#249。
- * 技能库归 aiplatform base.skills 上下文——admin 不持业务逻辑、不持技能数据。
+ * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面（issue #83），
+ * aiplatform 技能线 #247/#248/#249/#250。技能库归 aiplatform base.skills 上下文——admin 不持业务
+ * 逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
  * 技能库是有界目录，排序服务端定死：内置在前名称序、安装在后按来源包＋名称序，admin 不造
@@ -125,6 +132,33 @@ public class AiplatformSkillAppService {
                 slot, new AiplatformSkillAssignWireRequest(command.skillIds())));
     }
 
+    /**
+     * 显式更新技能包（透传 aiplatform，技能线 T4 写口）——按来源包整体重拉快照入库（ADR-0021：
+     * 更新永远显式点，平台永不自动跟新远端）。回执＝from/to 版本＋被移除技能名＋更新后该包
+     * 终态行集（清单行同形；同名行原地翻新保留 id/状态/指派——TSID 柄稳定）。远端未前进＝
+     * 幂等回执（from==to、removedSkillNames 空、不落痕不写行）。失败族（来源包空 SKL_014、
+     * 未安装 SKL_012、克隆失败 SKL_004、远端未解析到技能 SKL_005、包内重名 SKL_007、移除项
+     * 有指派在身整体拒 SKL_013、操作者缺头 SKL_009）以 provider 数字业务码透传，admin 不拦截
+     * 不翻译；{@code sourcePackage} 取清单行原值回传（服务端再规范化，同源身份单源）——admin
+     * 不自拼原始 URL、不在命令层重复校验。
+     */
+    public AiplatformSkillUpdateResponse update(AiplatformSkillUpdateCommand command) {
+        return toUpdate(aiplatformClient.updateSkills(
+                new AiplatformSkillUpdateWireRequest(command.sourcePackage())));
+    }
+
+    /**
+     * 更新留痕读面（透传 aiplatform，技能线 T4 读口）——该来源包全部显式更新留痕（from→to
+     * 版本＋操作者＋时刻），按时间倒序（最近先）。append-only：卸载不删留痕（历史事实不随
+     * 库行消失）。{@code sourcePackage} 保持 provider 形态——可选绑定（spec #79：admin 不在
+     * 绑定层前置拦截），空/缺由 provider 手工校验出 400 SKL_014（数字业务码 7014）原样透传。
+     */
+    public List<AiplatformSkillUpdateTraceResponse> updateTraces(String sourcePackage) {
+        return aiplatformClient.listSkillUpdateTraces(sourcePackage).stream()
+                .map(AiplatformSkillAppService::toUpdateTrace)
+                .toList();
+    }
+
     private static AiplatformSkillSummaryResponse toSummary(AiplatformSkillSummaryWireResponse wire) {
         return new AiplatformSkillSummaryResponse(
                 wire.id(), wire.name(), wire.description(),
@@ -146,5 +180,18 @@ public class AiplatformSkillAppService {
         return new AiplatformSlotAssignmentResponse(
                 wire.slot(),
                 wire.skills().stream().map(AiplatformSkillAppService::toSummary).toList());
+    }
+
+    private static AiplatformSkillUpdateResponse toUpdate(AiplatformSkillUpdateWireResponse wire) {
+        return new AiplatformSkillUpdateResponse(
+                wire.sourcePackage(), wire.fromVersion(), wire.toVersion(),
+                wire.removedSkillNames(), wire.operatorId(), wire.operatorName(),
+                wire.skills().stream().map(AiplatformSkillAppService::toSummary).toList());
+    }
+
+    private static AiplatformSkillUpdateTraceResponse toUpdateTrace(AiplatformSkillUpdateTraceWireResponse wire) {
+        return new AiplatformSkillUpdateTraceResponse(
+                wire.sourcePackage(), wire.fromVersion(), wire.toVersion(),
+                wire.operatorId(), wire.operatorName(), wire.operatedAt());
     }
 }
