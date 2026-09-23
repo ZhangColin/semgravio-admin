@@ -7,6 +7,9 @@ import java.util.stream.Collectors;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformUpstreamException;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAccountProfileWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
@@ -192,6 +195,15 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>>> SKILL_UPDATE_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    // 智能体配置域（#251 技能线 T5）：GET 读面与 PUT 回执同形——单对象（生效值＋覆盖标记＋
+    // 默认预览＋工具开关＋最近写者）；GET /traces data 为裸 List（append-only 时间倒序——
+    // 与技能更新留痕 List 直出同形，不造分页）
+    private static final TypeReference<ApiResponse<AiplatformAgentConfigWireResponse>> AGENT_CONFIG_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformAgentConfigTraceWireResponse>>> AGENT_CONFIG_TRACE_LIST_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1404,6 +1416,91 @@ public class AiplatformClient {
         try {
             ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>> resp =
                     openApiClient.get(url.toString(), SKILL_UPDATE_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 智能体配置读面（透传 aiplatform，技能线 T5 读口）——该智能体生效配置：systemPrompt／
+     * 模型档位生效值（库覆盖值或枚举默认——装配实取值）＋覆盖标记（现在跑的是覆盖还是默认）
+     * ＋枚举默认预览（清空覆盖即落此值）＋增强工具开关存储态＋最近写者。无覆盖行＝全回落
+     * （覆盖标记 false、写者 null）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}}（#251）：返回
+     * {@code ApiResponse<BackofficeAgentConfigResponse>}。{@code agentKey} 为字符串路径参数
+     * （main/executor 两把稳定键）原样出站——admin 透传不预校验，未知键由 provider 判 404
+     * PRJ_033（数字业务码 4033，classify/naming 等一次性判定不属配置面）原样透传。</p>
+     *
+     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
+     */
+    public AiplatformAgentConfigWireResponse getAgentConfig(String agentKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/" + encode(agentKey);
+        log.debug("AiplatformClient.getAgentConfig: {}", url);
+        try {
+            ApiResponse<AiplatformAgentConfigWireResponse> resp = openApiClient.get(url, AGENT_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 智能体配置全量写（透传 aiplatform，技能线 T5 写口）——PUT 全量语义：请求体即该智能体
+     * 覆盖态终态（systemPrompt/modelId 全文替换，null/缺省/纯空白＝清空覆盖回落枚举默认；
+     * 工具开关缺省 true＝开）。装配生效＝动态查库（变更后下一轮命令构建自然取新值——智能体
+     * 工厂缓存键含 sysPrompt、模型串与工具面规格，新值即新实例，进行中 run 不定格）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/agent-configs/{agentKey}}（#251）：请求体
+     * {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}} 逐字镜像（开关两件
+     * Boolean 装箱——null 出站在场＝provider 缺省 true），HTTP <strong>PUT</strong> 动词
+     * ——经框架 {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径，
+     * 槽位指派先例），返回 {@code ApiResponse<BackofficeAgentConfigResponse>}（回执与 GET
+     * 同形）。变更留痕 append-only（值面有动必落痕——前后全量值快照＋操作者，traces 可查）；
+     * 同值重写＝幂等回执不落痕；回滚＝留痕旧值快照写回（一次新变更、留新痕）。档位名不做
+     * 白名单校验（错值致新会话失败经留痕写回可回滚）。操作者身份经框架 {@code OpenApiClient}
+     * 自动带 {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕——配置变更
+     * 必留痕，<strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）；寻址同 GET（未知键 404
+     * PRJ_033＝4033）——均原样透传。</p>
+     *
+     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @param command  配置命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033、400 PRJ_034 等，不做映射）
+     */
+    public AiplatformAgentConfigWireResponse updateAgentConfig(
+            String agentKey, AiplatformAgentConfigUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/agent-configs/" + encode(agentKey);
+        log.debug("AiplatformClient.updateAgentConfig: {}", url);
+        try {
+            ApiResponse<AiplatformAgentConfigWireResponse> resp =
+                    openApiClient.put(url, command, AGENT_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 配置变更留痕读面（透传 aiplatform，技能线 T5 读口）——该智能体全部配置变更留痕
+     * （变更前后全量值快照 old&#42;/new&#42; 四件对——旧值快照即回滚写回依据），按时间倒序
+     * （最近先）。append-only：留痕不随任何动作删除（历史事实不随配置行消失）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}/traces}（#251）：
+     * 返回 {@code ApiResponse<List<BackofficeAgentConfigTraceResponse>>}——data 为裸 List
+     * （append-only 时间倒序，有界——与技能更新留痕 List 直出同形，不造分页）。寻址同 GET
+     * （未知键 404 PRJ_033＝4033）原样透传。</p>
+     *
+     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
+     */
+    public List<AiplatformAgentConfigTraceWireResponse> listAgentConfigTraces(String agentKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/" + encode(agentKey) + "/traces";
+        log.debug("AiplatformClient.listAgentConfigTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
+                    openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

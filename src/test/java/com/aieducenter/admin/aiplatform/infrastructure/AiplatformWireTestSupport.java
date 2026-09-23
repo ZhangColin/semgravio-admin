@@ -1,6 +1,7 @@
 package com.aieducenter.admin.aiplatform.infrastructure;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformAccountAppService;
+import com.aieducenter.admin.aiplatform.application.AiplatformAgentConfigAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformCostAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.aieducenter.admin.aiplatform.application.AiplatformOrderAppService;
@@ -32,7 +33,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * <p>供 {@code AiplatformAccountClientContractTest} / {@code AiplatformOrderClientContractTest} /
  * {@code AiplatformProjectClientContractTest} / {@code AiplatformWorkspaceClientContractTest} /
  * {@code AiplatformCostClientContractTest} / {@code AiplatformPriceEntryClientContractTest} /
- * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} 复用；
+ * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} /
+ * {@code AiplatformAgentConfigClientContractTest} 复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -729,6 +731,65 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 智能体配置域版（#251 技能线 T5，issue #84）——读面/留痕读面走 {@code get}、全量写走
+     * {@code put}（带命令体 {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}}——
+     * {@code OpenApiClient.put} 与 {@code post} 同走 sendWithBody 序列化路径），均按真实
+     * {@code TypeReference} 反序列化；put 把命令体序列化进 wireBodySink（出站 JSON 形状断言
+     * ——四字段无 Long/BigDecimal 特殊口径，boot 默认 mapper 即生产口径；Boolean 装箱开关
+     * null 出站在场——provider 缺省 true 语义的全局 Jackson 含 null 证据）。
+     */
+    static AiplatformAgentConfigAppService agentConfigAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformAgentConfigAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 智能体配置域版 {@link #accountAppServiceWithErrorTransport}——{@code get} 与
+     * {@code put} 都始终抛 {@code OpenApiClientException}（框架对 ≥400 的行为复刻：
+     * 未知键 PRJ_033、操作者缺头 PRJ_034 与读口错误信封同形）。
+     */
+    static AiplatformAgentConfigAppService agentConfigAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformAgentConfigAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {

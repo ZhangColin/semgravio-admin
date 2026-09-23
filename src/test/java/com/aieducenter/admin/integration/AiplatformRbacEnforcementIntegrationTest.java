@@ -34,6 +34,9 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformUpstreamException;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAccountProfileWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
@@ -92,17 +95,20 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
- * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面）
+ * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面 +
+ * #84 技能线 T5 智能体配置读写＋变更留痕读面）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
- * {@code admin:aiplatform:material:read} / {@code admin:aiplatform:skill:read} + 订单三独立写码
+ * {@code admin:aiplatform:material:read} / {@code admin:aiplatform:skill:read} /
+ * {@code admin:aiplatform:agent-config:read} + 订单三独立写码
  * （{@code order:quote|cancel|retry-archive}）+ 沙箱四独立写码
  * （{@code workspace:wake|hibernate|rebuild|seal}）+ 单价表两独立写码
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
  * （{@code material:disable|enable|delete}）+ 技能六独立写码
  * （{@code skill:install|disable|enable|uninstall|assign|update}——指派读面/更新留痕读面复用 read、
- * 写面独立 assign/update）对未登录（401）/
+ * 写面独立 assign/update）+ 智能体配置独立写码
+ * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -226,6 +232,16 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SKILL_UPDATE_TRACES_ENDPOINT = SKILLS_ENDPOINT + "/update-traces";
     private static final String SKILL_UPDATE_BODY =
             "{\"sourcePackage\":\"https://github.com/acme/agent-skills\"}";
+    private static final String AGENT_CONFIG_READ_PERMISSION = "admin:aiplatform:agent-config:read";
+    private static final String AGENT_CONFIG_UPDATE_PERMISSION = "admin:aiplatform:agent-config:update";
+    /** 智能体稳定键（AgentProfile 两把之一：main=主智能体）：字符串路径参数透传，admin 不预校验。 */
+    private static final String AGENT_KEY = "main";
+    private static final String AGENT_CONFIGS_ENDPOINT = "/api/admin/aiplatform/agent-configs";
+    private static final String AGENT_CONFIG_ENDPOINT = AGENT_CONFIGS_ENDPOINT + "/" + AGENT_KEY;
+    private static final String AGENT_CONFIG_TRACES_ENDPOINT = AGENT_CONFIG_ENDPOINT + "/traces";
+    private static final String AGENT_CONFIG_UPDATE_BODY =
+            "{\"systemPrompt\":\"你是英语学习助手的主智能体：先判意图，再编排执行体。\","
+                    + "\"modelId\":\"deepseek-v4-pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -250,6 +266,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithSkillDisableOnly;
     private String usernameWithSkillAssign;
     private String usernameWithSkillUpdate;
+    private String usernameWithAgentConfigUpdate;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -269,6 +286,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String skillAssignUserNickname;
     private Long skillUpdateUserId;
     private String skillUpdateUserNickname;
+    private Long agentConfigUpdateUserId;
+    private String agentConfigUpdateUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -304,14 +323,16 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithSkillDisableOnly = "aiplasdon" + suffix;
         usernameWithSkillAssign = "aiplasaan" + suffix;
         usernameWithSkillUpdate = "aiplasupn" + suffix;
+        usernameWithAgentConfigUpdate = "aiplaacup" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
-                        "AI 平台账号档案 + 订单 + 项目 + 沙箱 + 成本 + 单价表 + 知识素材读权限", 80, null));
+                        "AI 平台账号档案 + 订单 + 项目 + 沙箱 + 成本 + 单价表 + 知识素材 + 智能体配置读权限", 80, null));
         roleAppService.assignPermissions(readRoleId,
                 new AssignPermissionsCommand(List.of(READ_PERMISSION, ORDER_READ_PERMISSION,
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
-                        PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION)));
+                        PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
+                        AGENT_CONFIG_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -462,6 +483,19 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithSkillUpdate, PASSWORD,
                         skillUpdateUserNickname, null, null, null));
         userAppService.assignRoles(skillUpdateUserId, new AssignRolesCommand(List.of(skillUpdateRoleId)));
+
+        // 仅 agent-config:update 单写码（无读码）——钉死配置写面独立 update、读面/留痕读面复用
+        // read（issue #84 高敏感独立授权面）；操作者透传断言用其 id/昵称（provider 配置变更必留痕）
+        Long agentConfigUpdateRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台智能体配置_" + suffix, "AIPLAACUP_" + suffix,
+                        "AI 平台智能体配置维护权限", 104, null));
+        roleAppService.assignPermissions(agentConfigUpdateRoleId,
+                new AssignPermissionsCommand(List.of(AGENT_CONFIG_UPDATE_PERMISSION)));
+        agentConfigUpdateUserNickname = "智能体配置运营_" + suffix;
+        agentConfigUpdateUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithAgentConfigUpdate, PASSWORD,
+                        agentConfigUpdateUserNickname, null, null, null));
+        userAppService.assignRoles(agentConfigUpdateUserId, new AssignRolesCommand(List.of(agentConfigUpdateRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -768,6 +802,48 @@ class AiplatformRbacEnforcementIntegrationTest {
                                 "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
                                 "700100", "运营·平台管理员",
                                 LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
+        // 智能体配置域 mock（issue #84，aiplatform #251 技能线 T5）：读面＝有覆盖行代表面
+        // （生效值≠默认预览、覆盖标记 true×2、开关一开一关、最近写者两肢俱全）；PUT 抓取
+        // RequestContext（操作者透传契约证据，provider 配置变更必留痕、缺头必拦 PRJ_034，
+        // 断言必带）；留痕读面＝裸 List 时间倒序（首条清空变更 new null、次条首配 old null——
+        // 四件对 null 两侧各一面）
+        when(aiplatformClient.getAgentConfig(eq(AGENT_KEY))).thenReturn(agentConfigWire(
+                "700200", "运营·技能管理员", LocalDateTime.of(2026, 9, 22, 14, 30, 0)));
+        doAnswer(inv -> {
+            capture.run();
+            return agentConfigWire(
+                    String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
+                    LocalDateTime.of(2026, 9, 23, 10, 0, 0));
+        }).when(aiplatformClient).updateAgentConfig(eq(AGENT_KEY), any(AiplatformAgentConfigUpdateWireRequest.class));
+        when(aiplatformClient.listAgentConfigTraces(eq(AGENT_KEY))).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000002222222",
+                        "首次覆盖 prompt 全文", "deepseek-v4-pro", true, false,
+                        null, null, true, true,
+                        String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
+                        LocalDateTime.of(2026, 9, 22, 14, 30, 0)),
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000001111111",
+                        null, null, true, true,
+                        "首次覆盖 prompt 全文", "deepseek-v4-pro", true, false,
+                        "700100", "运营·平台管理员",
+                        LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
+    }
+
+    /**
+     * 智能体配置读面/写回执共用的 wire 载荷工厂（issue #84，有覆盖行代表面）：生效值＝库覆盖
+     * （覆盖标记 true×2、生效值≠默认预览——「现在跑的是覆盖」）、开关一开一关；操作者两肢＋
+     * 写入时刻参数化（读面＝既有写者、写回执＝本次写者——provider 落痕口径：值面有动必落痕）。
+     */
+    private static AiplatformAgentConfigWireResponse agentConfigWire(
+            String operatorId, String operatorName, LocalDateTime updatedAt) {
+        return new AiplatformAgentConfigWireResponse(
+                AGENT_KEY, "主智能体",
+                "你是英语学习助手的主智能体：先判意图，再编排执行体。", "deepseek-v4-pro",
+                true, true,
+                "你是主智能体。（枚举默认全文）", "deepseek-v4-flash",
+                true, false,
+                operatorId, operatorName, updatedAt);
     }
 
     /**
@@ -2421,6 +2497,176 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 7014（SKL_014＝域码 7×1000＋14），而非映射后的 400——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(7014);
         assertThat(root.path("message").asText()).isEqualTo("来源包标识不能为空（取清单行 sourcePackage 值）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 智能体配置（agent-config:read 读面+留痕读面 / agent-config:update 写面，技能线 T5）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:read → 配置读面 200，生效值/覆盖标记/默认预览/工具开关/最近写者镜像 provider")
+    void given_nonSuperAdminWithAgentConfigRead_when_getConfig_then_200ConfigShapeMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(AGENT_CONFIG_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 键两肢（稳定键 + 展示名 provider 自带 *Name）
+        assertThat(data.path("agentKey").asText()).isEqualTo(AGENT_KEY);
+        assertThat(data.path("agentName").asText()).isEqualTo("主智能体");
+        // 生效值＝库覆盖（装配实取值）＋覆盖标记 true×2——「现在跑的是覆盖」
+        assertThat(data.path("systemPrompt").asText()).startsWith("你是英语学习助手的主智能体");
+        assertThat(data.path("modelId").asText()).isEqualTo("deepseek-v4-pro");
+        assertThat(data.path("systemPromptOverridden").asBoolean()).isTrue();
+        assertThat(data.path("modelIdOverridden").asBoolean()).isTrue();
+        // 枚举默认预览（清空覆盖即落此值——恢复默认前可先看落点）
+        assertThat(data.path("defaultSystemPrompt").asText()).contains("枚举默认全文");
+        assertThat(data.path("defaultModelId").asText()).isEqualTo("deepseek-v4-flash");
+        // 增强工具开关存储态（一开一关代表面）
+        assertThat(data.path("webSearchEnabled").asBoolean()).isTrue();
+        assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
+        // 最近写者两肢＋写入时刻
+        assertThat(data.path("operatorId").asText()).isEqualTo("700200");
+        assertThat(data.path("operatorName").asText()).isEqualTo("运营·技能管理员");
+        assertThat(data.path("updatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:read → 留痕读面 200，裸 List 时间倒序 + old*/new* 四件对（null 两侧）")
+    void given_nonSuperAdminWithAgentConfigRead_when_traces_then_200TraceListMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(AGENT_CONFIG_TRACES_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // data 为裸 List（append-only 时间倒序——最近先；留痕不随任何动作删除）
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(2);
+
+        // 首条最近（清空覆盖变更）：new prompt/档位 null＝本次清空回落枚举默认（如实出 JSON
+        // null——全局 Jackson 含 null）；old 快照＝回滚写回依据
+        JsonNode latest = data.get(0);
+        assertThat(latest.path("id").asText()).isEqualTo("3900000002222222");
+        assertThat(latest.path("oldSystemPrompt").asText()).isEqualTo("首次覆盖 prompt 全文");
+        assertThat(latest.path("oldModelId").asText()).isEqualTo("deepseek-v4-pro");
+        assertThat(latest.path("oldWebSearchEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("oldFetchUrlEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newSystemPrompt").isNull()).isTrue();
+        assertThat(latest.path("newModelId").isNull()).isTrue();
+        assertThat(latest.path("newWebSearchEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newFetchUrlEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
+        assertThat(latest.path("operatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
+
+        // 次条更早（首次配置）：old prompt/档位 null＝此前即缺省回落（回滚即把 null 写回）——
+        // 留痕链衔接：次条 new＝首条 old（append-only 时间线诚实可查）
+        JsonNode earlier = data.get(1);
+        assertThat(earlier.path("oldSystemPrompt").isNull()).isTrue();
+        assertThat(earlier.path("oldModelId").isNull()).isTrue();
+        assertThat(earlier.path("newSystemPrompt").asText()).isEqualTo(latest.path("oldSystemPrompt").asText());
+        assertThat(earlier.path("newModelId").asText()).isEqualTo(latest.path("oldModelId").asText());
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:update → 全量写 200，回执与 GET 同形且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithAgentConfigUpdate_when_update_then_200ReceiptSameShapeAsGet_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithAgentConfigUpdate);
+
+        ResponseEntity<String> response = putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 回执＝写入后读面（与 GET 同形——provider 落库后重读同一视图）：覆盖行代表面，
+        // 最近写者＝登录智能体配置运营（provider 落痕口径：值面有动必落痕）
+        assertThat(data.path("agentKey").asText()).isEqualTo(AGENT_KEY);
+        assertThat(data.path("systemPromptOverridden").asBoolean()).isTrue();
+        assertThat(data.path("modelId").asText()).isEqualTo("deepseek-v4-pro");
+        assertThat(data.path("defaultModelId").asText()).isEqualTo("deepseek-v4-flash");
+        assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(agentConfigUpdateUserNickname);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 配置变更必留痕、缺头必拦 PRJ_034
+        // ——issue #84 断言必带）：== 登录智能体配置运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(agentConfigUpdateUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(agentConfigUpdateUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 agent-config:read（无 update）→ 全量写 403；仅有 agent-config:update（无 read）→ 读面/留痕读面 403（读写两码不串）")
+    void given_readOrUpdateOnly_when_agentConfigEndpoints_then_403OnTheOtherSide() {
+        // 写面独立 agent-config:update（issue #84 高敏感独立授权面）：read ≠ update，写面拒
+        String reader = login(usernameWithReadPermission);
+        assertThat(putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // update 不带读面：GET 配置读面与留痕读面走 agent-config:read 拒
+        String updater = login(usernameWithAgentConfigUpdate);
+        assertThat(getWithToken(AGENT_CONFIG_ENDPOINT, updater).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(AGENT_CONFIG_TRACES_ENDPOINT, updater).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 智能体配置三端点 403")
+    void given_nonSuperAdminWithoutPermission_when_agentConfigEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(AGENT_CONFIG_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(AGENT_CONFIG_TRACES_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问智能体配置三端点返回 401（含 PUT 全量写）")
+    void given_unauthenticated_when_agentConfigEndpoints_then_401() {
+        assertThat(getWithToken(AGENT_CONFIG_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(AGENT_CONFIG_TRACES_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("读面下游 PRJ_033（未知智能体键——classify/naming 等一次性判定不属本面）→ 北向 HTTP 404 + 信封 code=4033 + message 原文（不映射）")
+    void given_prj033FromDownstream_when_getConfig_then_errorEnvelopePassedThrough() throws Exception {
+        // 未知键由 provider 裁决（admin 不预检 agentKey 字符串路径参数）
+        when(aiplatformClient.getAgentConfig(eq("classify"))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4033,\"message\":\"智能体不存在（运营配置面只有 main/executor 两座智能体）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(AGENT_CONFIGS_ENDPOINT + "/classify", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4033（PRJ_033＝域码 4×1000＋33），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4033);
+        assertThat(root.path("message").asText())
+                .isEqualTo("智能体不存在（运营配置面只有 main/executor 两座智能体）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("全量写下游 PRJ_034（操作者缺头——配置变更必留痕）→ 北向 HTTP 400 + 信封 code=4034 + message 原文（不映射）")
+    void given_prj034FromDownstream_when_update_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.updateAgentConfig(eq(AGENT_KEY), any(AiplatformAgentConfigUpdateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        String token = login(usernameWithAgentConfigUpdate);
+        ResponseEntity<String> response = putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4034（PRJ_034＝域码 4×1000＋34），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4034);
+        assertThat(root.path("message").asText()).isEqualTo("操作者不能为空");
         assertThat(root.path("data").isNull()).isTrue();
     }
 
