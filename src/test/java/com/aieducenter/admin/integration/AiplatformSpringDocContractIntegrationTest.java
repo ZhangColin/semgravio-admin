@@ -59,7 +59,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       覆盖态终态、null/缺省/纯空白＝清空回落、开关缺省 true、同值重写幂等不落痕、回滚＝
  *       留痕旧值快照写回、档位不做白名单、缺头 PRJ_034＝4034）与留痕读面（old&#42;/new&#42; 四件对、
  *       时间倒序、append-only）的 summary＋description 逐字镜像 provider；北向 schema 的
- *       agentKey/覆盖标记/默认预览与更新命令体四件、留痕行 operatedAt 同步自描述。</li>
+ *       agentKey/覆盖标记/默认预览与更新命令体四件、留痕行 operatedAt 同步自描述；</li>
+ *   <li>工具面两端点 @Operation 描述镜像（issue #85 镜像 aiplatform #252 技能线 T6）：
+ *       清单读面（三职能槽位、三呈现源——平台资产骨架/增强＋harness 内建＋子智能体声明面、
+ *       骨架结构性锁死 ADR-0021、开关面只收增强两件、清单读面即全集）与增强工具开关
+ *       （窄幅：关即退出装配面、开即回归、动态生效进行中 run 不定格、配置留痕同机制、
+ *       PRJ_035＝4035／PRJ_036＝4036／PRJ_037＝4037／PRJ_034＝4034）的 summary＋description
+ *       逐字镜像 provider；北向 schema 的 slot 三槽位/kind 三类别/enabled 挂载态与开关命令体
+ *       enabled（必填、无缺省）同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -466,6 +473,85 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText("")).contains("回滚即把此值写回");
         assertThat(property("AiplatformAgentConfigTraceResponse", "operatedAt")
                 .path("description").asText("")).contains("时间倒序");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：工具面两端点 @Operation 描述镜像 provider（#85，三槽位三呈现源 + PRJ_035/036/037/034 数字码在场）")
+    void given_agentToolEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单读面：三职能槽位（与技能槽位同键）＋三呈现源＋骨架结构性锁死＋开关面只收增强两件
+        JsonNode inventory = paths.path("/api/admin/aiplatform/agent-tools").path("get");
+        assertThat(inventory.isMissingNode()).as("api-docs 应含工具面清单端点").isFalse();
+        assertThat(inventory.path("summary").asText(""))
+                .contains("工具面清单").contains("按职能槽位列当前挂载工具");
+        assertThat(inventory.path("description").asText(""))
+                .contains("排障/审计面")
+                .contains("main=主智能体").contains("executor=run 执行体").contains("subagent=子智能体")
+                .contains("与技能槽位同键")
+                .contains("三呈现源")
+                .contains("骨架=编排链路＋项目事实只读件")
+                .contains("enabled 按运营配置生效态")
+                .contains("false＝在册但退出装配面")
+                .contains("harness 内建编码工具")
+                .contains("不可开关")
+                .contains("子智能体声明工具面")
+                .contains("ADR-0021")
+                .contains("开关面只收增强两件")
+                .contains("清单读面即全集");
+
+        // 增强工具开关：窄幅语义＋动态生效＋配置留痕同机制＋四错误族数字码＋回执同形＋PUT 动词
+        JsonNode toggle = paths.path("/api/admin/aiplatform/agent-tools/{toolName}").path("put");
+        assertThat(toggle.isMissingNode()).as("api-docs 应含增强工具开关端点（PUT 动词）").isFalse();
+        assertThat(toggle.path("summary").asText(""))
+                .contains("增强工具开关").contains("窄幅：关即退出装配面、开即回归");
+        assertThat(toggle.path("description").asText(""))
+                .contains("web_search").contains("fetch_url")
+                .contains("退出对应槽位装配面")
+                .contains("进行中 run 不定格")
+                .contains("配置留痕")
+                .contains("幂等回执零写入")
+                .contains("回滚＝旧值写回")
+                .contains("PRJ_036").contains("4036")
+                .contains("PRJ_035").contains("4035")
+                .contains("PRJ_037").contains("4037")
+                .contains("PRJ_034").contains("4034")
+                .contains("回执＝开关后工具行")
+                .contains("PUT");
+
+        // 工具行 schema 自描述：注册名＝按名寻址键（清单读面即全集）＋kind 三类别（开关判定正本）
+        // ＋enabled 挂载态（骨架恒 true、增强按生效态）
+        JsonNode name = property("AiplatformAgentToolResponse", "name");
+        assertThat(name.path("description").asText(""))
+                .contains("按名寻址键")
+                .contains("清单读面即全集");
+        assertThat(exampleText(name)).isEqualTo("web_search");
+        JsonNode kind = property("AiplatformAgentToolResponse", "kind");
+        assertThat(kind.path("description").asText(""))
+                .contains("SKELETON").contains("ENHANCEMENT").contains("HARNESS_BUILTIN")
+                .contains("开关判定正本");
+        assertThat(exampleText(kind)).isEqualTo("ENHANCEMENT");
+        assertThat(property("AiplatformAgentToolResponse", "enabled")
+                .path("description").asText(""))
+                .contains("在册但退出装配面")
+                .contains("恒 true");
+
+        // 槽位行 schema 自描述：三槽位稳定键（与技能槽位同键）＋呈现序 provider 定死
+        JsonNode slot = property("AiplatformAgentToolSlotResponse", "slot");
+        assertThat(slot.path("description").asText(""))
+                .contains("main=主智能体")
+                .contains("与技能槽位同键");
+        assertThat(exampleText(slot)).isEqualTo("main");
+        assertThat(property("AiplatformAgentToolSlotResponse", "tools")
+                .path("description").asText("")).contains("平台资产在前");
+
+        // 开关命令 schema 自描述：enabled 必填、无缺省（缺省 null 透传＝PRJ_037——provider 裁决）
+        JsonNode enabled = property("AiplatformAgentToolToggleCommand", "enabled");
+        assertThat(enabled.path("description").asText(""))
+                .contains("必填")
+                .contains("无缺省")
+                .contains("PRJ_037");
+        assertThat(exampleText(enabled)).isEqualTo("false");
     }
 
     // ---------- 装载 ----------

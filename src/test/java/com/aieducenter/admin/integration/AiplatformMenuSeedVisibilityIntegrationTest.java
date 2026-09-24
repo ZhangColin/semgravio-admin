@@ -55,7 +55,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 位于支付管理之后账号管理之前（sort_order=3 与 payment 同序、id 82&gt;80 兜底排其后——spec #62 字面值）；
  * 账号读口不种页面（children 恰九叶——嵌订单/项目详情抽屉用；工具面并入智能体配置页区块、不单独种页——
  * spec #79）；非超管经角色分配（只配
- * 叶子 id，目录由祖先补全出现）+ 28 权限码（spec #62 + #79 技能线 T1/T2/T3/T4/T5）既见菜单又汇总权限；禁用角色后
+ * 叶子 id，目录由祖先补全出现）+ 30 权限码（spec #62 + #79 技能线 T1–T6）既见菜单又汇总权限；禁用角色后
  * 菜单与权限贡献均剔除（CONTEXT.md「RBAC」既定口径在新种子上不回归）。</p>
  *
  * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220/230/240。
@@ -92,7 +92,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "aiplatform_cost", "aiplatform_price_entry", "aiplatform_material", "aiplatform_skill",
             "aiplatform_skill_assignment", "aiplatform_agent_config");
 
-    /** 权限码清单（28）：九读码（七域＋智能体配置＋account）＋十九写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update）。 */
+    /** 权限码清单（30）：十读码（七域＋智能体配置＋工具面＋account）＋二十写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -103,6 +103,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:account:read",
             "admin:aiplatform:skill:read",
             "admin:aiplatform:agent-config:read",
+            "admin:aiplatform:agent-tool:read",
             "admin:aiplatform:order:quote",
             "admin:aiplatform:order:cancel",
             "admin:aiplatform:order:retry-archive",
@@ -121,7 +122,8 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:skill:uninstall",
             "admin:aiplatform:skill:assign",
             "admin:aiplatform:skill:update",
-            "admin:aiplatform:agent-config:update");
+            "admin:aiplatform:agent-config:update",
+            "admin:aiplatform:agent-tool:toggle");
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -212,11 +214,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管：角色配九叶种子（祖先补全出目录）+ 28 码 → 菜单与权限均汇总可见")
+    @DisplayName("非超管：角色配九叶种子（祖先补全出目录）+ 30 码 → 菜单与权限均汇总可见")
     void given_roleWithSeedMenusAndAllPermissions_when_my_then_treeVisibleAndPermissionsAggregated() {
         Long roleId = roleAppService.create(
                 new CreateRoleCommand("AI平台运营_" + suffix, "AIPLAMENU_" + suffix,
-                        "AI 平台九叶菜单 + 全量 28 权限码", 88, null));
+                        "AI 平台九叶菜单 + 全量 30 权限码", 88, null));
         // 只分配叶子 id——目录经祖先链补全出现（MenuTreeAssembler 既定行为在真种子上复证）
         roleAppService.assignMenus(roleId, new AssignMenusCommand(AIPLATFORM_LEAF_IDS));
         roleAppService.assignPermissions(roleId, new AssignPermissionsCommand(ALL_AIPLATFORM_PERMISSIONS));
@@ -233,7 +235,8 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         assertThat(stringList(directory.path("children"), "routeName"))
                 .containsExactlyElementsOf(NINE_LEAF_ROUTES);
 
-        // 权限汇总：/auth/current permissions = 28 码全集（account:read 有码——配抽屉用，但无页面）
+        // 权限汇总：/auth/current permissions = 30 码全集（account:read 配抽屉用、agent-tool:read
+        // 配智能体配置页区块用——均有码无独立页面）
         JsonNode current = okData(getWithToken("/api/admin/auth/current", token));
         assertThat(plainStringList(current.path("permissions")))
                 .containsExactlyInAnyOrderElementsOf(ALL_AIPLATFORM_PERMISSIONS);

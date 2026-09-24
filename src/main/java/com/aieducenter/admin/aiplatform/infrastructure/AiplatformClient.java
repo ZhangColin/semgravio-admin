@@ -10,6 +10,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAccountPr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolSlotWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
@@ -204,6 +207,14 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<List<AiplatformAgentConfigTraceWireResponse>>> AGENT_CONFIG_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    // 工具面域（#252 技能线 T6）：GET 清单 data 为裸 List（三槽位有界——main/executor/subagent）；
+    // PUT 开关回执为单工具行（与清单嵌套行同形——provider 回执即该工具行）
+    private static final TypeReference<ApiResponse<List<AiplatformAgentToolSlotWireResponse>>> AGENT_TOOL_SLOT_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformAgentToolWireResponse>> AGENT_TOOL_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -1501,6 +1512,66 @@ public class AiplatformClient {
         try {
             ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
                     openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 工具面清单读面（透传 aiplatform，技能线 T6 读口）——按职能槽位（main=主智能体 /
+     * executor=run 执行体 / subagent=子智能体，与技能槽位同键）列当前挂载工具。三呈现源：
+     * 平台资产（骨架/增强——增强 enabled 按运营配置生效态，false＝在册但退出装配面）、
+     * harness 内建编码工具（executor 槽，不可开关；main 只读面结构性无）、子智能体声明
+     * 工具面。呈现序 provider 定死（平台资产在前、harness 内建在后），admin 原样保序透传。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-tools}（#252）：返回
+     * {@code ApiResponse<List<BackofficeAgentToolSlotResponse>>}——data 为裸 List（三槽位
+     * 有界，List 直出同形不造分页）。清单读面即工具全集（PUT 开关按注册名寻址的正本）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformAgentToolSlotWireResponse> listAgentTools() {
+        String url = baseUrl + "/api/backoffice/agent-tools";
+        log.debug("AiplatformClient.listAgentTools: {}", url);
+        try {
+            ApiResponse<List<AiplatformAgentToolSlotWireResponse>> resp =
+                    openApiClient.get(url, AGENT_TOOL_SLOT_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 增强工具开关（透传 aiplatform，技能线 T6 写口）——按工具注册名窄幅开关，仅增强工具
+     * （web_search/fetch_url）接受：enabled=false 该工具退出对应槽位装配面（模型不可见），
+     * true 回归——动态生效（下一轮命令构建即新装配，进行中 run 不定格）。变更走配置留痕
+     * （与智能体配置同机制：值面有动才落痕、幂等回执零写入、回滚＝旧值写回）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/agent-tools/{toolName}}（#252）：请求体
+     * {@code {enabled}} 单字段逐字镜像（Boolean 装箱——null 出站在场＝provider 判缺目标态
+     * 400 PRJ_037＝数字业务码 4037，无缺省翻转语义），HTTP <strong>PUT</strong> 动词
+     * ——经框架 {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名
+     * 路径，槽位指派/智能体配置先例），返回 {@code ApiResponse<BackofficeAgentToolResponse>}
+     * （回执＝开关后工具行，与清单嵌套行同形）。{@code toolName} 为字符串路径参数
+     * （工具注册名）原样出站——admin 透传不预校验：未知名 404 PRJ_035（4035——清单读面
+     * 即全集）、骨架/harness 内建 403 PRJ_036（4036——ADR-0021 编排权不下放配置）均
+     * provider 裁决原样透传。操作者身份经框架 {@code OpenApiClient} 自动带
+     * {@code X-User-Id/X-User-Name} 头（开关写必留痕，<strong>缺头 400 PRJ_034</strong>
+     * ＝数字业务码 4034）。</p>
+     *
+     * @param toolName 工具注册名（增强两件 web_search/fetch_url；admin 不预检）
+     * @param command  开关命令体（由应用层从北向命令映射而来——缺 body 传 null enabled，目标态合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_035、403 PRJ_036、400 PRJ_037/034 等，不做映射）
+     */
+    public AiplatformAgentToolWireResponse toggleAgentTool(
+            String toolName, AiplatformAgentToolToggleWireRequest command) {
+        String url = baseUrl + "/api/backoffice/agent-tools/" + encode(toolName);
+        log.debug("AiplatformClient.toggleAgentTool: {}", url);
+        try {
+            ApiResponse<AiplatformAgentToolWireResponse> resp =
+                    openApiClient.put(url, command, AGENT_TOOL_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

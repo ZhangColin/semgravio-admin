@@ -37,6 +37,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAccountPr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolSlotWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
@@ -96,7 +99,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
  * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面 +
- * #84 技能线 T5 智能体配置读写＋变更留痕读面）
+ * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -108,7 +111,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code material:disable|enable|delete}）+ 技能六独立写码
  * （{@code skill:install|disable|enable|uninstall|assign|update}——指派读面/更新留痕读面复用 read、
  * 写面独立 assign/update）+ 智能体配置独立写码
- * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）对未登录（401）/
+ * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）+ 工具面两码
+ * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -242,6 +246,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String AGENT_CONFIG_UPDATE_BODY =
             "{\"systemPrompt\":\"你是英语学习助手的主智能体：先判意图，再编排执行体。\","
                     + "\"modelId\":\"deepseek-v4-pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false}";
+    private static final String AGENT_TOOL_READ_PERMISSION = "admin:aiplatform:agent-tool:read";
+    private static final String AGENT_TOOL_TOGGLE_PERMISSION = "admin:aiplatform:agent-tool:toggle";
+    /** 增强工具注册名之一（AgentTool 枚举实值）：web_search=联网搜索——开关代表面。 */
+    private static final String TOOL_NAME = "web_search";
+    private static final String AGENT_TOOLS_ENDPOINT = "/api/admin/aiplatform/agent-tools";
+    private static final String AGENT_TOOL_TOGGLE_ENDPOINT = AGENT_TOOLS_ENDPOINT + "/" + TOOL_NAME;
+    private static final String AGENT_TOOL_TOGGLE_BODY = "{\"enabled\":false}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -267,6 +278,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithSkillAssign;
     private String usernameWithSkillUpdate;
     private String usernameWithAgentConfigUpdate;
+    private String usernameWithAgentToolToggle;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -288,6 +300,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String skillUpdateUserNickname;
     private Long agentConfigUpdateUserId;
     private String agentConfigUpdateUserNickname;
+    private Long agentToolToggleUserId;
+    private String agentToolToggleUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -324,15 +338,16 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithSkillAssign = "aiplasaan" + suffix;
         usernameWithSkillUpdate = "aiplasupn" + suffix;
         usernameWithAgentConfigUpdate = "aiplaacup" + suffix;
+        usernameWithAgentToolToggle = "aiplaatog" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
-                        "AI 平台账号档案 + 订单 + 项目 + 沙箱 + 成本 + 单价表 + 知识素材 + 智能体配置读权限", 80, null));
+                        "AI 平台账号档案 + 订单 + 项目 + 沙箱 + 成本 + 单价表 + 知识素材 + 智能体配置 + 工具面读权限", 80, null));
         roleAppService.assignPermissions(readRoleId,
                 new AssignPermissionsCommand(List.of(READ_PERMISSION, ORDER_READ_PERMISSION,
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
-                        AGENT_CONFIG_READ_PERMISSION)));
+                        AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -496,6 +511,19 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithAgentConfigUpdate, PASSWORD,
                         agentConfigUpdateUserNickname, null, null, null));
         userAppService.assignRoles(agentConfigUpdateUserId, new AssignRolesCommand(List.of(agentConfigUpdateRoleId)));
+
+        // 仅 agent-tool:toggle 单写码（无读码）——钉死工具面清单读面与开关写面两码分权（issue #85）；
+        // 操作者透传断言用其 id/昵称（provider 开关写必留痕、缺头必拦 PRJ_034）
+        Long agentToolToggleRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台工具面开关_" + suffix, "AIPLAATOG_" + suffix,
+                        "AI 平台增强工具开关权限", 105, null));
+        roleAppService.assignPermissions(agentToolToggleRoleId,
+                new AssignPermissionsCommand(List.of(AGENT_TOOL_TOGGLE_PERMISSION)));
+        agentToolToggleUserNickname = "工具面运营_" + suffix;
+        agentToolToggleUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithAgentToolToggle, PASSWORD,
+                        agentToolToggleUserNickname, null, null, null));
+        userAppService.assignRoles(agentToolToggleUserId, new AssignRolesCommand(List.of(agentToolToggleRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -828,6 +856,33 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "首次覆盖 prompt 全文", "deepseek-v4-pro", true, false,
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
+        // 工具面域 mock（issue #85，aiplatform #252 技能线 T6）：清单＝三槽位代表面（main 槽
+        // 骨架两件＋增强两件一开一关、executor 槽骨架＋harness 内建、subagent 槽声明面）；
+        // PUT 开关抓取 RequestContext（操作者透传契约证据，provider 开关写必留痕、缺头必拦
+        // PRJ_034，断言必带），回执＝开关后工具行（web_search 关——与清单嵌套行同形）
+        when(aiplatformClient.listAgentTools()).thenReturn(List.of(
+                new AiplatformAgentToolSlotWireResponse("main", "主智能体", List.of(
+                        new AiplatformAgentToolWireResponse("ask_user", "SKELETON", true,
+                                "每轮一问的澄清工具（问答挂起的唯一起源——编排链路）"),
+                        new AiplatformAgentToolWireResponse("query_project_facts", "SKELETON", true,
+                                "查项目事实含系统访问地址（答询查证只读件）"),
+                        new AiplatformAgentToolWireResponse("fetch_url", "ENHANCEMENT", false,
+                                "读用户贴的 http/https 地址内容（外部资料，取数口安全底线兜底——增强可关）"),
+                        new AiplatformAgentToolWireResponse("web_search", "ENHANCEMENT", true,
+                                "自主搜索调研补缺口（增强可关——成本与滥用可控）"))),
+                new AiplatformAgentToolSlotWireResponse("executor", "run 执行体", List.of(
+                        new AiplatformAgentToolWireResponse("finish_edit", "SKELETON", true,
+                                "更新收口结束工具（「要不要动系统」的判定面——编排链路）"),
+                        new AiplatformAgentToolWireResponse("read_file", "HARNESS_BUILTIN", true,
+                                "读取沙箱内文件内容"))),
+                new AiplatformAgentToolSlotWireResponse("subagent", "子智能体", List.of(
+                        new AiplatformAgentToolWireResponse("execute", "HARNESS_BUILTIN", true,
+                                "self-test 子智能体声明工具面（哨兵 allowlist 结构性收窄，只读交付代码＋跑测试＋报告写隔离根）")))));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformAgentToolWireResponse(TOOL_NAME, "ENHANCEMENT", false,
+                    "自主搜索调研补缺口（增强可关——成本与滥用可控）");
+        }).when(aiplatformClient).toggleAgentTool(eq(TOOL_NAME), any(AiplatformAgentToolToggleWireRequest.class));
     }
 
     /**
@@ -2661,6 +2716,187 @@ class AiplatformRbacEnforcementIntegrationTest {
 
         String token = login(usernameWithAgentConfigUpdate);
         ResponseEntity<String> response = putWithToken(AGENT_CONFIG_ENDPOINT, AGENT_CONFIG_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4034（PRJ_034＝域码 4×1000＋34），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4034);
+        assertThat(root.path("message").asText()).isEqualTo("操作者不能为空");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 工具面（agent-tool:read 清单读面 / agent-tool:toggle 开关写面，技能线 T6）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 agent-tool:read → 工具面清单 200，三槽位×kind×挂载态镜像 provider（裸 List 不分页）")
+    void given_nonSuperAdminWithAgentToolRead_when_listToolSlots_then_200InventoryMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(AGENT_TOOLS_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // data 为裸 List（三槽位有界——无 PageResponse 信封，不造分页）
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(3);
+
+        // 三槽位键序 provider 定死（与技能槽位同键）＋展示名
+        assertThat(data.get(0).path("slot").asText()).isEqualTo("main");
+        assertThat(data.get(0).path("slotName").asText()).isEqualTo("主智能体");
+        assertThat(data.get(1).path("slot").asText()).isEqualTo("executor");
+        assertThat(data.get(2).path("slot").asText()).isEqualTo("subagent");
+
+        // main 槽：骨架恒挂载（enabled true）＋增强两件一开一关（关＝在册但退出装配面——
+        // fetch_url false 代表面；kind 类别名原样透传不映射）
+        JsonNode mainTools = data.get(0).path("tools");
+        assertThat(mainTools.size()).isEqualTo(4);
+        assertThat(mainTools.get(0).path("name").asText()).isEqualTo("ask_user");
+        assertThat(mainTools.get(0).path("kind").asText()).isEqualTo("SKELETON");
+        assertThat(mainTools.get(0).path("enabled").asBoolean()).isTrue();
+        JsonNode fetchUrl = mainTools.get(2);
+        assertThat(fetchUrl.path("kind").asText()).isEqualTo("ENHANCEMENT");
+        assertThat(fetchUrl.path("enabled").asBoolean()).isFalse();
+        assertThat(mainTools.get(3).path("name").asText()).isEqualTo(TOOL_NAME);
+        assertThat(mainTools.get(3).path("enabled").asBoolean()).isTrue();
+
+        // executor 槽：骨架＋harness 内建呈现口径（不可开关——恒 true）
+        JsonNode executorTools = data.get(1).path("tools");
+        assertThat(executorTools.get(1).path("name").asText()).isEqualTo("read_file");
+        assertThat(executorTools.get(1).path("kind").asText()).isEqualTo("HARNESS_BUILTIN");
+        assertThat(executorTools.get(1).path("enabled").asBoolean()).isTrue();
+
+        // subagent 槽：声明工具面（同一句声明描述）
+        JsonNode subagentTools = data.get(2).path("tools");
+        assertThat(subagentTools.get(0).path("description").asText()).contains("self-test 子智能体声明工具面");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 agent-tool:toggle → 增强工具开关 200，回执=开关后工具行且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithAgentToolToggle_when_toggle_then_200ReceiptMirrorsProvider_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithAgentToolToggle);
+
+        ResponseEntity<String> response = putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, AGENT_TOOL_TOGGLE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 回执＝开关后工具行（与清单嵌套行同形）：四件全绑定——关态代表面
+        // （enabled=false＝退出槽位装配面——模型不可见）
+        assertThat(data.path("name").asText()).isEqualTo(TOOL_NAME);
+        assertThat(data.path("kind").asText()).isEqualTo("ENHANCEMENT");
+        assertThat(data.path("enabled").asBoolean()).isFalse();
+        assertThat(data.path("description").asText()).contains("增强可关");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 开关写必留痕、缺头必拦 PRJ_034
+        // ——issue #85 断言必带）：== 登录工具面运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(agentToolToggleUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(agentToolToggleUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 agent-tool:read（无 toggle）→ 开关写 403；仅有 agent-tool:toggle（无 read）→ 清单读面 403（读写两码不串）")
+    void given_readOrToggleOnly_when_agentToolEndpoints_then_403OnTheOtherSide() {
+        // 开关写面独立 agent-tool:toggle（issue #85 验收）：read ≠ toggle，写面拒
+        String reader = login(usernameWithReadPermission);
+        assertThat(putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, AGENT_TOOL_TOGGLE_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // toggle 不带读面：GET 清单走 agent-tool:read 拒
+        String toggler = login(usernameWithAgentToolToggle);
+        assertThat(getWithToken(AGENT_TOOLS_ENDPOINT, toggler).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 工具面两端点 403")
+    void given_nonSuperAdminWithoutPermission_when_agentToolEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(AGENT_TOOLS_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, AGENT_TOOL_TOGGLE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问工具面两端点返回 401（含 PUT 开关）")
+    void given_unauthenticated_when_agentToolEndpoints_then_401() {
+        assertThat(getWithToken(AGENT_TOOLS_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, AGENT_TOOL_TOGGLE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("开关下游 PRJ_035（工具不存在——清单读面即全集）→ 北向 HTTP 404 + 信封 code=4035 + message 原文（不映射）")
+    void given_prj035FromDownstream_when_toggle_then_errorEnvelopePassedThrough() throws Exception {
+        // 未知名由 provider 裁决（admin 不预检 toolName 字符串路径参数）
+        when(aiplatformClient.toggleAgentTool(eq("no_such_tool"), any(AiplatformAgentToolToggleWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4035,\"message\":\"工具不存在（工具面按注册名寻址，清单读面即全集）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithAgentToolToggle);
+        ResponseEntity<String> response = putWithToken(
+                AGENT_TOOLS_ENDPOINT + "/no_such_tool", AGENT_TOOL_TOGGLE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4035（PRJ_035＝域码 4×1000＋35），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4035);
+        assertThat(root.path("message").asText()).isEqualTo("工具不存在（工具面按注册名寻址，清单读面即全集）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("开关下游 PRJ_036（骨架/harness 内建锁死）→ 北向 HTTP 403 + 信封 code=4036 + message 原文（不映射）")
+    void given_prj036FromDownstream_when_toggle_then_errorEnvelopePassedThrough() throws Exception {
+        // 骨架锁死判定归 provider（ADR-0021 编排权不下放配置——admin 不代判 kind）
+        when(aiplatformClient.toggleAgentTool(eq("ask_user"), any(AiplatformAgentToolToggleWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(403,
+                        "{\"code\":4036,\"message\":\"该工具不开放开关（骨架/harness 内建结构性锁死——编排权不下放配置）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithAgentToolToggle);
+        ResponseEntity<String> response = putWithToken(
+                AGENT_TOOLS_ENDPOINT + "/ask_user", AGENT_TOOL_TOGGLE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4036（PRJ_036＝域码 4×1000＋36），而非映射后的 403——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4036);
+        assertThat(root.path("message").asText())
+                .isEqualTo("该工具不开放开关（骨架/harness 内建结构性锁死——编排权不下放配置）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("开关下游 PRJ_037（缺目标态——enabled 必填无缺省）→ 北向 HTTP 400 + 信封 code=4037 + message 原文（可选绑定不前置拦截）")
+    void given_prj037FromDownstream_when_toggleWithoutTarget_then_errorEnvelopePassedThrough() throws Exception {
+        // enabled 缺省＝null 透传（Boolean 装箱与 provider 命令同型——provider @RequestBody(required=false)
+        // 缺 body 容忍同语义），provider 手工校验出 400 PRJ_037 原样透传
+        when(aiplatformClient.toggleAgentTool(eq(TOOL_NAME), any(AiplatformAgentToolToggleWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4037,\"message\":\"开关目标态必填（enabled=true/false）\",\"data\":null}")));
+
+        String token = login(usernameWithAgentToolToggle);
+        ResponseEntity<String> response = putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, "{}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4037（PRJ_037＝域码 4×1000＋37），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4037);
+        assertThat(root.path("message").asText()).isEqualTo("开关目标态必填（enabled=true/false）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("开关下游 PRJ_034（操作者缺头——开关写必留痕）→ 北向 HTTP 400 + 信封 code=4034 + message 原文（不映射）")
+    void given_prj034FromDownstream_when_toggle_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.toggleAgentTool(eq(TOOL_NAME), any(AiplatformAgentToolToggleWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        String token = login(usernameWithAgentToolToggle);
+        ResponseEntity<String> response = putWithToken(AGENT_TOOL_TOGGLE_ENDPOINT, AGENT_TOOL_TOGGLE_BODY, token);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         JsonNode root = objectMapper.readTree(response.getBody());

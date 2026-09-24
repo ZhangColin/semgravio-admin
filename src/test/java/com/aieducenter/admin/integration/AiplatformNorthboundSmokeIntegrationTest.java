@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformAccountController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformAgentConfigController;
+import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformAgentToolController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformCostController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformMaterialController;
 import com.aieducenter.admin.aiplatform.endpoints.controller.AiplatformOrderController;
@@ -37,20 +38,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * aiplatform BFF 北向全量冒烟复核（issue #72 T10 收口、#80 技能线 T1、#83 技能线 T4、
- * #84 技能线 T5 智能体配置、#61 冒烟四项之「域内全端点」就绪态）。
+ * #84 技能线 T5 智能体配置、#85 技能线 T6 工具面、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>七域 47 端点合入后的收口审计，两条腿：</p>
+ * <p>七域 49 端点合入后的收口审计，两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
- *       九个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
+ *       十个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
  *       下既不缺端点也不多端点，方法逐一路径一致）——admin-web 按 api-docs 对接（spec #62
- *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 47 显式断言。</li>
+ *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 49 显式断言。</li>
  *   <li><b>权限注解与权限码清单一致</b>：每个北向映射方法恰一个 {@code @RequirePermission}；
- *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线九码 read/install/disable/enable/uninstall/assign/update
- *       ＋agent-config:read/update——留痕读面复用 read，
- *       共二十八码）。注解计数 == 47（一端点一码，无裸奔端点）。与
- *       {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）互补——此处钉
- *       静态清单完整性，防后续增删端点时清单漂移。</li>
+ *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线十一码
+ *       read/install/disable/enable/uninstall/assign/update＋agent-config:read/update
+ *       ＋agent-tool:read/toggle——留痕读面复用 read，共三十码）。注解计数 == 49（一端点一码，
+ *       无裸奔端点）。与 {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）
+ *       互补——此处钉静态清单完整性，防后续增删端点时清单漂移。</li>
  * </ul>
  *
  * <p>纯反射部分不依赖种子/登录；swagger 部分走 {@code RANDOM_PORT} 真实 MVC（api-docs 不在
@@ -63,8 +64,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1/T2/T3/T4/T5：七域 47 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 10 + 智能体配置 3 + 账号 1。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 47;
+    /** spec #62 + #79 技能线 T1–T6：七域 49 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 10 + 智能体配置 3 + 工具面 2 + 账号 1。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 49;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -77,9 +78,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
             AiplatformMaterialController.class,
             AiplatformSkillController.class,
             AiplatformAgentConfigController.class,
+            AiplatformAgentToolController.class,
             AiplatformAccountController.class);
 
-    /** 权限码清单（28）：九读码（七域＋智能体配置＋account）＋十九写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update——留痕读面复用 agent-config:read）。 */
+    /** 权限码清单（30）：九读码（七域＋智能体配置＋工具面＋account）＋二十一写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read）。 */
     private static final Set<String> EXPECTED_PERMISSION_CODES = Set.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -108,7 +110,9 @@ class AiplatformNorthboundSmokeIntegrationTest {
             "admin:aiplatform:skill:uninstall",
             "admin:aiplatform:skill:assign",
             "admin:aiplatform:skill:update",
-            "admin:aiplatform:agent-config:update");
+            "admin:aiplatform:agent-config:update",
+            "admin:aiplatform:agent-tool:read",
+            "admin:aiplatform:agent-tool:toggle");
 
     private final TestRestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -123,19 +127,19 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 47 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all47AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 49 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all49AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
                 .isEqualTo(HttpStatus.OK);
 
-        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 47
+        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 49
         // （materials/{id} 同路径 get+delete 双方法、agent-configs/{agentKey} 同路径 get+put
-        // 双方法——按「路径×方法」对计数，非路径数）
+        // 双方法、agent-tools/{toolName} 同路径 put——按「路径×方法」对计数，非路径数）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("九 controller 映射（路径×方法）对应为 47（spec #62 + #79 技能线 T1/T2/T3/T4/T5）")
+        assertThat(endpointPairCount).as("十 controller 映射（路径×方法）对应为 49（spec #62 + #79 技能线 T1–T6）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -163,7 +167,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、28 码清单精确一致（含 account:read/skill:read/agent-config:read）、注解计数=47")
+    @DisplayName("权限注解复核：每映射方法恰一码、30 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read）、注解计数=49")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -184,17 +188,19 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 47（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 49（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
-                .as("distinct 权限码集合应与权限码清单精确一致（九读 + 十九写，不缺不多）")
+                .as("distinct 权限码集合应与权限码清单精确一致（九读 + 二十一写，不缺不多）")
                 .isEqualTo(EXPECTED_PERMISSION_CODES);
         // 显式点名（spec #72 验收）：account:read 有码（嵌抽屉用、无页面）
         assertThat(codes).contains("admin:aiplatform:account:read");
+        // 显式点名（spec #79 验收）：agent-tool:read 有码（并入智能体配置页区块、无独立页面）
+        assertThat(codes).contains("admin:aiplatform:agent-tool:read");
     }
 
     /**
-     * 反射扫描九个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
+     * 反射扫描十个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
      * （类级 + 方法级 {@code @RequestMapping} 合并；路径取首个值——本包约定每方法单路径）。
      */
     private static Map<String, Set<String>> deriveFromControllers() {
