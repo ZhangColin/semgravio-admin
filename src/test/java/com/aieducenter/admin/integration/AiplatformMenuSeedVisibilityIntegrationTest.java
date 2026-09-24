@@ -43,7 +43,8 @@ import cn.dev33.satoken.SaManager;
 import cn.dev33.satoken.config.SaTokenConfig;
 
 /**
- * AI 平台菜单种子（V15）可见性与权限汇总集成断言（issue #72 T10 收口）。
+ * AI 平台菜单种子（V15 六域＋V17/V18/V19 技能线三叶）可见性与权限汇总集成断言
+ * （issue #72 T10 六域收口、#80/#82/#84 技能线 T1/T3/T5 逐叶种入、#86 七域收口）。
  *
  * <p><b>为什么跑在独立 Flyway schema 上</b>：常规测试库 {@code flyway.enabled=false} +
  * {@code ddl-auto=create}（空表、无种子），种子可见性在常规环境不可达；本类照

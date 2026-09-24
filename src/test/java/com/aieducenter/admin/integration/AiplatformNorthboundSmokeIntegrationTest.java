@@ -37,8 +37,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * aiplatform BFF 北向全量冒烟复核（issue #72 T10 收口、#80 技能线 T1、#83 技能线 T4、
- * #84 技能线 T5 智能体配置、#85 技能线 T6 工具面、#61 冒烟四项之「域内全端点」就绪态）。
+ * aiplatform BFF 北向全量冒烟复核（issue #72 T10 六域收口、#80–#85 技能线 T1–T6
+ * 逐票扩入 15 端点、#86 七域收口、#61 冒烟四项之「域内全端点」就绪态）。
  *
  * <p>七域 49 端点合入后的收口审计，两条腿：</p>
  * <ul>
