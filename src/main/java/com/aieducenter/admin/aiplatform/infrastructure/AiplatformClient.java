@@ -31,6 +31,7 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireRe
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
@@ -189,6 +190,11 @@ public class AiplatformClient {
     // 槽位指派（#249 技能线 T3）：GET 读面与 PUT 回执同形——{slot, skills[]} 单对象（skills
     // 与清单行共形、含停用行）
     private static final TypeReference<ApiResponse<AiplatformSlotAssignmentWireResponse>> SLOT_ASSIGNMENT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 指派双头预检（#255，技能域第 16 端点）：POST 回执为单对象 {executed, hints[]}——两态
+    // 纪律回执（executed=false＝未执行，非无重叠），hints 恒至少空表（provider 构造器归一）
+    private static final TypeReference<ApiResponse<AiplatformSkillPrecheckWireResponse>> SKILL_PRECHECK_TYPEREF =
             new TypeReference<>() {};
 
     // 显式更新＋版本留痕（#250 技能线 T4）：POST /update 回执为单对象（from/to＋removedSkillNames
@@ -1370,6 +1376,41 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSlotAssignmentWireResponse> resp =
                     openApiClient.put(url, command, SLOT_ASSIGNMENT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 指派双头预检（透传 aiplatform，技能域第 16 端点）——PUT 指派提交前的<strong>非阻断</strong>
+     * 方法论重叠检查（只读）：对照双头「该槽位生效工作协议（智能体运营配置生效值）∪ 该槽位
+     * 已指派启用技能 ∪ 候选集内其他技能」，由 provider 侧模型判定（flash 档专用配置键、15s
+     * 超时——BFF 出站默认 read 30s 不会先掐）。回执两件同读：{@code executed}=true 且 hints
+     * 空＝确认无重叠；executed=true 且 hints 非空＝发现重叠（逐条四字段，判定权留管理员）；
+     * executed=false＝<strong>未执行</strong>（判定失败/超时/输出不可解析，hints 恒空）——
+     * 不得当无重叠呈现。非阻断：预检结果不拦 PUT 指派、组件故障不阻塞指派照常提交。全程
+     * 只读不留痕（不落库、不改指派、无操作者头要求——区别于 PUT 指派的 SKL_009）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/assignments/{slot}/precheck}（#255）：
+     * 请求体复用指派整包替换命令 {@code {skillIds}}（候选终态清单，与 PUT 同形——provider 同款
+     * 复用 {@code SkillSlotAssignCommand}，不另造 Precheck 命令型），经框架 {@code OpenApiClient.post}
+     * （install/update 已立的 bodySink 序列化 seam），返回
+     * {@code ApiResponse<BackofficeSkillPrecheckResponse>}。{@code slot} 寻址同 GET/PUT
+     * （main/executor/subagent 字符串路径参数透传不预校验，未知 404 SKL_010＝7010）。错误族与
+     * PUT 指派同源同码：内置柄 400 SKL_011（7011）、未寻址/畸形 TSID 404 SKL_001（7001）——
+     * 均原样透传。</p>
+     *
+     * @param slot    职能槽位键（main/executor/subagent，admin 不预检）
+     * @param command 指派命令体（候选终态清单——与 PUT 同形复用，柄合法性归 provider 指派用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_001/010/011 等，不做映射）
+     */
+    public AiplatformSkillPrecheckWireResponse precheckSlot(String slot, AiplatformSkillAssignWireRequest command) {
+        String url = baseUrl + "/api/backoffice/skills/assignments/" + encode(slot) + "/precheck";
+        log.debug("AiplatformClient.precheckSlot: {}", url);
+        try {
+            ApiResponse<AiplatformSkillPrecheckWireResponse> resp =
+                    openApiClient.post(url, command, SKILL_PRECHECK_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

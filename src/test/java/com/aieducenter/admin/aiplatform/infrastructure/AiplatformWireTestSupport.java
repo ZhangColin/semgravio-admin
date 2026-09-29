@@ -735,6 +735,48 @@ final class AiplatformWireTestSupport {
     }
 
     /**
+     * 技能管理域<strong>指派双头预检</strong>版（#255，技能域第 16 端点，issue #90）——预检
+     * 走 {@code post}（带命令体 {@code {skillIds}}——复用指派整包替换命令，与 PUT 同形），
+     * 按真实 {@code TypeReference} 反序列化；post 把命令体序列化进 wireBodySink（出站 JSON
+     * 形状断言——skillIds 为 List&lt;String&gt; 无特殊口径，boot 默认 mapper 即生产口径）。
+     * 仅 {@code post} 一口触达（预检无读面副作用）。
+     */
+    static AiplatformSkillAppService skillPrecheckAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域指派双头预检版 {@link #skillAppServiceWithErrorTransport}——{@code post}
+     * 始终抛 {@link OpenApiClientException}（框架对 ≥400 的行为复刻：预检错误族
+     * SKL_001/010/011 与读口错误信封同形）。
+     */
+    static AiplatformSkillAppService skillPrecheckAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
      * 智能体配置域版（#251 技能线 T5，issue #84）——读面/留痕读面走 {@code get}、全量写走
      * {@code put}（带命令体 {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}}——
      * {@code OpenApiClient.put} 与 {@code post} 同走 sendWithBody 序列化路径），均按真实

@@ -57,6 +57,7 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireRe
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
@@ -99,7 +100,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
  * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面 +
- * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关）
+ * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关 +
+ * #90 指派双头预检——技能域第 16 端点）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -110,7 +112,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code price-entry:reprice|deactivate}）+ 知识素材三独立写码
  * （{@code material:disable|enable|delete}）+ 技能六独立写码
  * （{@code skill:install|disable|enable|uninstall|assign|update}——指派读面/更新留痕读面复用 read、
- * 写面独立 assign/update）+ 智能体配置独立写码
+ * 写面独立 assign/update；指派双头预检<strong>复用 assign</strong>（#90：预检触发模型调用有成本，
+ * 只读角色不得调用——read≠assign 两码不串；超管 bypass 与其他技能域端点一致，框架级测试钉住））
+ * + 智能体配置独立写码
  * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）+ 工具面两码
  * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
@@ -231,6 +235,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SLOT_ASSIGNMENTS_ENDPOINT = SKILLS_ENDPOINT + "/assignments/" + SLOT_KEY;
     private static final String SLOT_ASSIGN_BODY =
             "{\"skillIds\":[\"3852300001111111\",\"3852300003333333\"]}";
+    private static final String SLOT_PRECHECK_ENDPOINT = SLOT_ASSIGNMENTS_ENDPOINT + "/precheck";
     private static final String SKILL_UPDATE_PERMISSION = "admin:aiplatform:skill:update";
     private static final String SKILL_UPDATE_ENDPOINT = SKILLS_ENDPOINT + "/update";
     private static final String SKILL_UPDATE_TRACES_ENDPOINT = SKILLS_ENDPOINT + "/update-traces";
@@ -807,6 +812,17 @@ class AiplatformRbacEnforcementIntegrationTest {
             capture.run();
             return slotAssignmentWire();
         }).when(aiplatformClient).assignSlot(eq(SLOT_KEY), any(AiplatformSkillAssignWireRequest.class));
+        // 指派双头预检 mock（issue #90，aiplatform #255 技能域第 16 端点）：回执＝两态纪律载体
+        // （executed=true＋hints 非空＝发现重叠代表面——首条四字段俱全、次条 null 容差）；预检
+        // 只读不留痕（无操作者头要求——不抓 RequestContext，区别于 PUT 指派）
+        when(aiplatformClient.precheckSlot(eq(SLOT_KEY), any(AiplatformSkillAssignWireRequest.class)))
+                .thenReturn(new AiplatformSkillPrecheckWireResponse(true, List.of(
+                        new AiplatformSkillPrecheckWireResponse.PrecheckHint(
+                                List.of("报告生成"), "工作协议",
+                                "都在 PRD 产出环节做结构化写作，方法论高度重叠",
+                                "二选一或收窄 description"),
+                        new AiplatformSkillPrecheckWireResponse.PrecheckHint(
+                                List.of("web-research", "site-fetch"), null, null, "可不指派其一"))));
         // 显式更新＋留痕读面 mock（issue #83，aiplatform #250 技能线 T4）：更新回执＝
         // from/to 版本＋被移除技能名＋终态行集（远端已前进代表面）；POST 抓取 RequestContext
         // （操作者透传契约证据，provider 显式动作必留痕、缺头必拦 SKL_009，断言必带）
@@ -2421,6 +2437,60 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("message").asText())
                 .isEqualTo("内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）");
         assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 指派双头预检（复用 skill:assign，技能域第 16 端点，issue #90）· 权限三态 + 两态纪律回执形状 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 skill:assign → 指派双头预检 200，回执 executed=true＋hints 逐条四字段（两态纪律载体，null 如实在场）")
+    void given_nonSuperAdminWithSkillAssign_when_precheckSlot_then_200ThreeStateReceiptMirrorsProvider()
+            throws Exception {
+        String token = login(usernameWithSkillAssign);
+
+        ResponseEntity<String> response = postWithToken(SLOT_PRECHECK_ENDPOINT, SLOT_ASSIGN_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 两态纪律回执：executed=true＋hints 非空＝发现方法论重叠（提示是输入不是门——判定权
+        // 留管理员，非阻断不拦 PUT 指派）
+        assertThat(data.path("executed").asBoolean()).isTrue();
+        assertThat(data.path("hints").size()).isEqualTo(2);
+
+        // 首条四字段俱全：skills（候选侧技能名）/counterpart（「工作协议」——双头对照侧）/
+        // overlap（重叠内容）/resolution（消解方向）
+        JsonNode full = data.path("hints").get(0);
+        assertThat(full.path("skills").get(0).asText()).isEqualTo("报告生成");
+        assertThat(full.path("counterpart").asText()).isEqualTo("工作协议");
+        assertThat(full.path("overlap").asText()).isEqualTo("都在 PRD 产出环节做结构化写作，方法论高度重叠");
+        assertThat(full.path("resolution").asText()).isEqualTo("二选一或收窄 description");
+
+        // 次条 null 容差：hint 三 String 字段可 null（模型输出解析态）——出 JSON null 如实在场
+        // （全局 Jackson 含 null），前端按 null 分支呈现、BFF 不臆造兜底文案
+        JsonNode partial = data.path("hints").get(1);
+        assertThat(partial.path("skills").size()).isEqualTo(2);
+        assertThat(partial.path("counterpart").isNull()).isTrue();
+        assertThat(partial.path("overlap").isNull()).isTrue();
+        assertThat(partial.path("resolution").asText()).isEqualTo("可不指派其一");
+    }
+
+    @Test
+    @DisplayName("仅有 skill:read（无 assign）→ 预检 403；无任何技能权限 → 预检 403（复用 assign，只读角色不得烧模型 token）")
+    void given_readOnlyOrNoSkillPermission_when_precheckSlot_then_403() {
+        // 预检复用 skill:assign（issue #90）：预检触发模型调用有真实成本（flash 档 skillcheck
+        // 计量），read≠assign——读写两码不串，只读角色被拒
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(SLOT_PRECHECK_ENDPOINT, SLOT_ASSIGN_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        String noPermission = login(usernameWithoutPermission);
+        assertThat(postWithToken(SLOT_PRECHECK_ENDPOINT, SLOT_ASSIGN_BODY, noPermission).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问指派双头预检返回 401")
+    void given_unauthenticated_when_precheckSlot_then_401() {
+        assertThat(postWithToken(SLOT_PRECHECK_ENDPOINT, SLOT_ASSIGN_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     // ========== 显式更新＋留痕读面（skill:update 写面 / skill:read 读面，技能线 T4）· 权限三态 + 回执形状 + 操作者透传 ==========

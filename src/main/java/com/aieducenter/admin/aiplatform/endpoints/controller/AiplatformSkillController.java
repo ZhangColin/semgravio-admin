@@ -7,6 +7,7 @@ import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillA
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateTraceResponse;
@@ -31,7 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * AI 平台技能管理控制器——技能线 T1 读面（issue #80，清单/详情）＋T2 写面（issue #81，
  * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面
- * （issue #83），镜像 aiplatform #247/#248/#249/#250 技能线。
+ * （issue #83）＋指派双头预检（issue #90，技能域第 16 端点），镜像 aiplatform
+ * #247/#248/#249/#250 技能线＋#255 预检端点。
  *
  * <p>北向 {@code /api/admin/aiplatform/skills/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/skills/**}（机机签名出站）。技能寻址柄 {@code id} 为 opaque 串
@@ -43,7 +45,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>权限码（spec #79，技能线 per-verb 11 码）：读 {@code skill:read} 一码挂清单/详情/
  * 指派读面/更新留痕读面四端点；写码 {@code skill:install|disable|enable|uninstall|assign|update}
  * 各自独立成码逐端点挂载（最小授权——如只给内容审核员配启停而不给装/卸/更新、只给装配运营
- * 配指派）。
+ * 配指派）。指派双头预检<strong>复用 {@code skill:assign}</strong>（issue #90：预检触发模型
+ * 调用有真实成本——flash 档 skillcheck 计量，只读角色不得烧 token；它是指派写流程的附属
+ * 检查，assign-only 用户语义自洽，30 码总数不变）。
  * {@code slot} 为职能槽位稳定键（main/executor/subagent）字符串路径参数——透传不预校验，
  * 未知键由 provider 判 404 SKL_010（数字业务码 7010）。写口操作者经框架
  * {@code OpenApiClient} 自动透传 {@code X-User-Id/X-User-Name} 出站头（identity 同款），
@@ -77,10 +81,11 @@ public class AiplatformSkillController {
             scope = AdminScopes.ADMIN
     )
     @Operation(summary = "技能清单（内置＋安装同权，不分页）——透传 aiplatform",
-            description = "平台全部技能：内置（classpath 合成，来源=1）与库中安装"
-                    + "（来源=2）同权呈现，空库时仍呈现内置技能。条目字段：名称、"
-                    + "description、来源 code（1=内置 2=安装）与来源名、来源包"
-                    + "（内置 null）、版本标识（装时 commit，内置 null）、状态"
+            description = "平台全部技能：内置（classpath 合成，来源=1）与库中技能"
+                    + "（安装＝来源 2、自产＝来源 3）同权呈现，空库时仍呈现内置技能。"
+                    + "条目字段：名称、description、来源 code（1=内置 2=安装 3=自产）"
+                    + "与来源名、来源包（安装仓库；内置 null、自产＝固定虚拟值 self）、"
+                    + "版本标识（装时 commit；自产＝self；内置 null）、状态"
                     + "（1=启用 2=停用，内置恒 1）、最近管理动作操作者（安装＝装者、"
                     + "启停＝最近动作者，内置 null）、远端有新版标记 updateAvailable"
                     + "（来源包级：定期只读检查远端 HEAD 与装时版本不同即 true——"
@@ -229,6 +234,42 @@ public class AiplatformSkillController {
     public ApiResponse<AiplatformSlotAssignmentResponse> assignSlot(
             @PathVariable String slot, @RequestBody AiplatformSkillAssignCommand command) {
         return ApiResponse.ok(skillAppService.assignSlot(slot, command));
+    }
+
+    // 不挂 @ErrorCodes（同上各口）：预检错误族 SKL_001/010/011 以 description 文档化（与 PUT 指派
+    // 同族；无 SKL_009——预检只读不留痕，无操作者头要求）。
+    @PostMapping("/assignments/{slot}/precheck")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill:assign",
+            name = "AI 平台 / 技能指派",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "指派双头预检（非阻断提示，只读）——透传 aiplatform",
+            description = "PUT 指派提交前对候选集做方法论重叠判定：对照双头——该槽位"
+                    + "生效工作协议（智能体运营配置生效值）∪ 该槽位已指派启用技能 ∪ "
+                    + "候选集内其他技能（subagent 槽无运营配置正本：对照＝已指派＋候选集，"
+                    + "机制同一不特判），由 provider 侧模型判定（flash 档专用配置键、专用"
+                    + "计量标记 skillcheck、15s 超时）。<strong>两态纪律</strong>：回执"
+                    + "两件同读——executed=true 且 hints 空＝确认无重叠；executed=true 且"
+                    + " hints 非空＝发现重叠（每条：skills 涉及的候选技能、counterpart"
+                    + " 对照侧〔「工作协议」或对侧技能名〕、overlap 重叠内容、resolution"
+                    + " 消解方向；三 String 字段可 null——模型输出解析态，出 JSON null 如实"
+                    + "在场不兜底）；executed=false＝<strong>未执行</strong>（判定失败/"
+                    + "超时/输出不可解析，hints 恒空）——<strong>不得当「确认无重叠」呈现</strong>，"
+                    + "如实标注「预检未执行」（降级是预期内态、不必自动重试；候选清单未变"
+                    + "不必重调）。<strong>非阻断</strong>：提示是输入不是门，判定权留管理员"
+                    + "——预检结果不拦 PUT 指派、预检组件故障不阻塞指派照常提交。全程只读"
+                    + "不留痕（不落库、不改指派、无操作者头要求——区别于 PUT 指派的缺头"
+                    + "SKL_009）。请求体与 PUT 指派同形（skillIds＝候选终态清单，直接传"
+                    + "确认框里将要提交的清单）；slot 寻址同 PUT（未知 404 SKL_010＝数字"
+                    + "业务码 7010）。错误族与 PUT 同源同码：内置柄 400 SKL_011（7011）、"
+                    + "未寻址/畸形 TSID 404 SKL_001（7001）——均原样透传。权限复用"
+                    + " skill:assign：预检触发模型调用有真实成本，只读角色不得调用（指派"
+                    + "配置页菜单 230 承载，触发时机归前端 grill）。")
+    public ApiResponse<AiplatformSkillPrecheckResponse> precheckSlot(
+            @PathVariable String slot, @RequestBody AiplatformSkillAssignCommand command) {
+        return ApiResponse.ok(skillAppService.precheckSlot(slot, command));
     }
 
     // 不挂 @ErrorCodes（同上各口）：更新失败族 SKL_004/005/007/009/012/013/014 以 description 文档化。

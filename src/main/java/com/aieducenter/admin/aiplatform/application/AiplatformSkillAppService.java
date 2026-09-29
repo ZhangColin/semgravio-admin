@@ -6,6 +6,7 @@ import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillA
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateTraceResponse;
@@ -13,6 +14,7 @@ import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotA
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
@@ -24,8 +26,9 @@ import org.springframework.stereotype.Service;
 /**
  * aiplatform 技能管理域 BFF 应用服务——T1 读面（清单/详情，issue #80）＋T2 写面（安装/停用⇄
  * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面（issue #83），
- * aiplatform 技能线 #247/#248/#249/#250。技能库归 aiplatform base.skills 上下文——admin 不持业务
- * 逻辑、不持技能数据。
+ * aiplatform 技能线 #247/#248/#249/#250；另收指派双头预检（技能域第 16 端点，issue #90，
+ * aiplatform #255——PUT 指派提交前的非阻断方法论重叠检查，只读）。技能库归 aiplatform
+ * base.skills 上下文——admin 不持业务逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
  * 技能库是有界目录，排序服务端定死：内置在前名称序、安装在后按来源包＋名称序，admin 不造
@@ -133,6 +136,23 @@ public class AiplatformSkillAppService {
     }
 
     /**
+     * 指派双头预检（透传 aiplatform，技能域第 16 端点，issue #90）——PUT 指派提交前的
+     * <strong>非阻断</strong>方法论重叠检查：对照「槽位生效工作协议 ∪ 该槽位已指派启用技能 ∪
+     * 候选集内其他技能」，由 provider 侧模型判定（flash 档、15s 超时）。回执两件同读：
+     * executed=true 且 hints 空＝确认无重叠；executed=true 且 hints 非空＝发现重叠（逐条四
+     * 字段，判定权留管理员）；executed=false＝<strong>未执行</strong>（判定失败/超时/输出
+     * 不可解析，hints 恒空）——不得当无重叠呈现。非阻断：预检是输入不是门，不拦 PUT、组件
+     * 故障不阻塞指派照常提交。请求体复用指派整包替换命令（{@code skillIds}＝候选终态清单，
+     * 与 PUT 同形）；{@code slot} 字符串路径参数原样出站（未知 404 SKL_010＝7010，admin 不
+     * 预检）；错误族与 PUT 指派同源（内置柄 SKL_011、未寻址/畸形 TSID SKL_001 均由 provider
+     * 裁决）。全程只读不留痕——无操作者头要求（区别于 PUT 指派的 SKL_009）。
+     */
+    public AiplatformSkillPrecheckResponse precheckSlot(String slot, AiplatformSkillAssignCommand command) {
+        return toPrecheck(aiplatformClient.precheckSlot(
+                slot, new AiplatformSkillAssignWireRequest(command.skillIds())));
+    }
+
+    /**
      * 显式更新技能包（透传 aiplatform，技能线 T4 写口）——按来源包整体重拉快照入库（ADR-0021：
      * 更新永远显式点，平台永不自动跟新远端）。回执＝from/to 版本＋被移除技能名＋更新后该包
      * 终态行集（清单行同形；同名行原地翻新保留 id/状态/指派——TSID 柄稳定）。远端未前进＝
@@ -180,6 +200,18 @@ public class AiplatformSkillAppService {
         return new AiplatformSlotAssignmentResponse(
                 wire.slot(),
                 wire.skills().stream().map(AiplatformSkillAppService::toSummary).toList());
+    }
+
+    private static AiplatformSkillPrecheckResponse toPrecheck(AiplatformSkillPrecheckWireResponse wire) {
+        return new AiplatformSkillPrecheckResponse(
+                wire.executed(),
+                wire.hints().stream().map(AiplatformSkillAppService::toPrecheckHint).toList());
+    }
+
+    private static AiplatformSkillPrecheckResponse.PrecheckHint toPrecheckHint(
+            AiplatformSkillPrecheckWireResponse.PrecheckHint wire) {
+        return new AiplatformSkillPrecheckResponse.PrecheckHint(
+                wire.skills(), wire.counterpart(), wire.overlap(), wire.resolution());
     }
 
     private static AiplatformSkillUpdateResponse toUpdate(AiplatformSkillUpdateWireResponse wire) {

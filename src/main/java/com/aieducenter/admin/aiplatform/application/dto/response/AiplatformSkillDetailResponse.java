@@ -30,17 +30,17 @@ public record AiplatformSkillDetailResponse(
         /** 简介 */
         String description,
 
-        /** 来源 code（1=内置 2=安装） */
-        @Schema(description = "来源 code（1=内置 2=安装）", example = "1")
+        /** 来源 code（1=内置 2=安装 3=自产） */
+        @Schema(description = "来源 code（1=内置 2=安装 3=自产）", example = "1")
         Integer source,
 
         /** 来源名（直读展示） */
         String sourceName,
 
-        /** 来源包标识（安装仓库；内置为 null） */
+        /** 来源包标识（安装仓库；内置为 null、自产＝固定虚拟值 self） */
         String sourcePackage,
 
-        /** 版本标识（装时 commit；内置为 null） */
+        /** 版本标识（装时 commit；自产＝self；内置为 null） */
         String version,
 
         /** 状态 code（1=启用 2=停用；内置恒 1） */

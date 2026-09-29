@@ -45,7 +45,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       空清单＝清空）的 summary＋description 逐字镜像 provider——三槽位键
  *       main/executor/subagent、未知槽位 SKL_010＝7010、内置柄不可指派 SKL_011＝7011 等
  *       关键语义须在 api-docs 在场；北向 schema 的 slot/skills 与指派命令体 skillIds 同步
- *       自描述；</li>
+ *       自描述；清单来源 code 三值（1=内置 2=安装 3=自产——#90 纠偏，自产行 sourcePackage/
+ *       version＝固定虚拟值 self）在场；</li>
+ *   <li>指派双头预检端点 @Operation 描述镜像（issue #90 镜像 aiplatform #255，技能域第 16
+ *       端点）：双头对照（生效工作协议∪已指派启用技能∪候选集内其他技能）、<strong>两态纪律</strong>
+ *       （executed=false＝未执行≠无重叠、不得当「确认无重叠」呈现）、非阻断（不拦 PUT、
+ *       组件故障不阻塞照常提交）、只读不留痕（无操作者头要求）、与 PUT 同形命令体
+ *       （skillIds＝候选终态清单）、错误族 SKL_011/001/010 数字码、权限复用 skill:assign
+ *       等关键语义须在 api-docs 在场；北向 schema 的 executed/hints 与 hint 行四字段
+ *       （三 String 可 null 容差）同步自描述；</li>
  *   <li>显式更新＋更新留痕读面两端点 @Operation 描述镜像（issue #83 镜像 aiplatform #250
  *       技能线 T4）：更新写面（重拉快照＋版本留痕、永不自动跟新、同名行原地翻新柄稳定、
  *       远端未前进＝幂等回执不落痕不写行）与留痕读面（时间倒序、append-only 卸载不删留痕）
@@ -179,7 +187,8 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("内置＋安装同权").contains("不分页");
         assertThat(list.path("description").asText(""))
                 .contains("空库时仍呈现内置技能")
-                .contains("来源 code（1=内置 2=安装）")
+                .contains("来源 code（1=内置 2=安装 3=自产）")
+                .contains("固定虚拟值 self")
                 .contains("内置在前").contains("来源包、名称序")
                 .contains("有界目录")
                 .contains("不分页不过滤")
@@ -330,6 +339,60 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(exampleText(slot)).isEqualTo("executor");
         assertThat(property("AiplatformSlotAssignmentResponse", "skills")
                 .path("description").asText("")).contains("含停用行");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：指派双头预检端点 @Operation 描述镜像 provider（#90，两态纪律 + 非阻断 + 只读不留痕 + 错误族数字码在场）")
+    void given_slotPrecheckEndpoint_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 预检（技能域第 16 端点，镜像 #255）：双头对照＋两态纪律＋非阻断＋只读不留痕＋
+        // 与 PUT 同形命令体＋错误族数字码＋权限复用 skill:assign
+        JsonNode precheck = paths.path("/api/admin/aiplatform/skills/assignments/{slot}/precheck").path("post");
+        assertThat(precheck.isMissingNode()).as("api-docs 应含指派双头预检端点").isFalse();
+        assertThat(precheck.path("summary").asText(""))
+                .contains("指派双头预检").contains("非阻断提示").contains("只读");
+        assertThat(precheck.path("description").asText(""))
+                .contains("生效工作协议")
+                .contains("已指派启用技能")
+                .contains("候选集内其他技能")
+                .contains("确认无重叠")
+                .contains("不得当「确认无重叠」呈现")
+                .contains("如实标注「预检未执行」")
+                .contains("非阻断")
+                .contains("不拦 PUT 指派")
+                .contains("照常提交")
+                .contains("无操作者头要求")
+                .contains("skillIds＝候选终态清单")
+                .contains("复用")
+                .contains("skill:assign")
+                .contains("SKL_011").contains("7011")
+                .contains("SKL_001").contains("7001")
+                .contains("SKL_010").contains("7010");
+
+        // 回执 schema 自描述：executed 两态纪律（admin-web 消费契约——#90 验收钉两态纪律进
+        // 北向自描述）＋hints 空/非空语义
+        assertThat(property("AiplatformSkillPrecheckResponse", "executed")
+                .path("description").asText(""))
+                .contains("不得当")
+                .contains("不拦 PUT")
+                .contains("预检未执行");
+        assertThat(property("AiplatformSkillPrecheckResponse", "hints")
+                .path("description").asText(""))
+                .contains("确认无重叠")
+                .contains("可 null");
+
+        // hint 行 schema 自描述（springdoc 平铺嵌套 record 命名 PrecheckHint——CostSummary 先例）：
+        // 四字段语义＋三 String 字段 null 容差
+        assertThat(property("PrecheckHint", "skills")
+                .path("description").asText("")).contains("候选技能名");
+        assertThat(property("PrecheckHint", "counterpart")
+                .path("description").asText(""))
+                .contains("对照侧").contains("可 null");
+        assertThat(property("PrecheckHint", "overlap")
+                .path("description").asText("")).contains("重叠内容").contains("可 null");
+        assertThat(property("PrecheckHint", "resolution")
+                .path("description").asText("")).contains("消解方向").contains("可 null");
     }
 
     @Test

@@ -4,8 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * AI 平台技能清单行——北向出口，逐字镜像 aiplatform {@code BackofficeSkillSummaryResponse}
- * （#247，清单行/安装回执共形）：内置（classpath 合成）与安装技能同权共形，来源包/版本标识/
- * 状态仅安装行有值（内置随平台发版）。技能库是有界目录（provider 定死：内置在前名称序、
+ * （#247，清单行/安装回执共形）：内置（classpath 合成）与库中技能（安装＋自产）同权共形，
+ * 来源包/版本标识/操作者仅库行有值（内置随平台发版；自产行 sourcePackage/version＝固定
+ * 虚拟值 self）。技能库是有界目录（provider 定死：内置在前名称序、
  * 安装在后按来源包＋名称序），不分页不过滤（spec #79 同形不造分页）。
  *
  * <p>{@code id} 为 <strong>opaque 串两形制</strong>（内置 {@code builtin:<技能名>}／安装 TSID 十进制串）
@@ -31,19 +32,19 @@ public record AiplatformSkillSummaryResponse(
         /** 简介（frontmatter description） */
         String description,
 
-        /** 来源 code（1=内置 2=安装） */
-        @Schema(description = "来源 code（1=内置 2=安装）", example = "1")
+        /** 来源 code（1=内置 2=安装 3=自产） */
+        @Schema(description = "来源 code（1=内置 2=安装 3=自产）", example = "1")
         Integer source,
 
         /** 来源名（直读展示） */
         String sourceName,
 
-        /** 来源包标识（安装仓库；内置为 null） */
-        @Schema(description = "来源包标识（安装仓库；内置为 null）")
+        /** 来源包标识（安装仓库；内置为 null、自产＝固定虚拟值 self） */
+        @Schema(description = "来源包标识（安装仓库；内置为 null、自产＝固定虚拟值 self）")
         String sourcePackage,
 
-        /** 版本标识（装时 commit；内置为 null） */
-        @Schema(description = "版本标识（装时 commit；内置为 null）")
+        /** 版本标识（装时 commit；自产＝self；内置为 null） */
+        @Schema(description = "版本标识（装时 commit；自产＝self；内置为 null）")
         String version,
 
         /** 状态 code（1=启用 2=停用；内置恒 1） */

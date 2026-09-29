@@ -17,6 +17,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * {@code X-User-Id/X-User-Name} 自动透传落痕（整包替换留最近动作者，缺头由 provider 域面
  * 守卫 SKL_009 拦，admin 不拦）。</p>
  *
+ * <p><strong>复用为指派双头预检请求体</strong>（issue #90，技能域第 16 端点
+ * {@code POST /assignments/{slot}/precheck}）：provider 同款复用 {@code SkillSlotAssignCommand}
+ * 不另造 Precheck 命令型——{@code skillIds} 即候选终态清单（直接传确认框里将要提交的清单，
+ * 与 PUT 同形）；预检只读不留痕，无操作者头要求。</p>
+ *
  * @since 0.1.0
  */
 public record AiplatformSkillAssignCommand(

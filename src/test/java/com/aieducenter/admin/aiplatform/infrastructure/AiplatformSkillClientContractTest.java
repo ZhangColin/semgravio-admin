@@ -12,6 +12,7 @@ import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillA
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateTraceResponse;
@@ -20,13 +21,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * aiplatform 技能管理域（清单/详情＋安装/停用⇄启用/卸载＋槽位指派读写＋显式更新＋更新留痕
- * 读面）的 wire 契约测试（对接 aiplatform #247 技能线 T1、#248 技能线 T2、#249 技能线 T3、
- * #250 技能线 T4，issue #80/#81/#82/#83）。
+ * 读面＋指派双头预检）的 wire 契约测试（对接 aiplatform #247 技能线 T1、#248 技能线 T2、
+ * #249 技能线 T3、#250 技能线 T4、#255 指派双头预检，issue #80/#81/#82/#83/#90）。
  *
- * <p>契约事实（2026-09-23 对照 aiplatform 源码 {@code BackofficeSkillController} /
- * {@code BackofficeSkillAppService} / {@code BackofficeSkillSummaryResponse} /
+ * <p>契约事实（2026-09-23 对照 aiplatform 源码；2026-09-29 预检组对照 #255 落地实况
+ * {@code BackofficeSkillController} /
+ * {@code BackofficeSkillAppService} / {@code BackofficeSkillPrecheckAppService} /
+ * {@code BackofficeSkillSummaryResponse} /
  * {@code BackofficeSkillDetailResponse} / {@code SkillInstallCommand} /
  * {@code SkillSlotAssignCommand} / {@code BackofficeSlotAssignmentResponse} /
+ * {@code BackofficeSkillPrecheckResponse}（嵌套 {@code PrecheckHint}——hint 三 String 字段
+ * 经 {@code textOrNull} 解析可 null）/
  * {@code SkillSource} / {@code SkillStatus} / {@code SkillSlot} / {@code SkillMessage} /
  * {@code ErrorCodePrefix} 核实）：</p>
  * <ul>
@@ -35,7 +40,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       内置在前名称序、安装在后按来源包＋名称序），详情 data 为单对象。</li>
  *   <li>行字段：{@code id} String——<strong>opaque 串两形制</strong>（内置
  *       {@code builtin:<技能名>}／安装 TSID 十进制串），admin 字符串透传不解析不预校验；
- *       {@code source} Integer code（1=内置 2=安装）+ {@code sourceName} 中文名、
+ *       {@code source} Integer code（1=内置 2=安装 3=自产——自产行 sourcePackage/version＝
+ *       固定虚拟值 {@code self}）+ {@code sourceName} 中文名、
  *       {@code status} Integer code（1=启用 2=停用）+ {@code statusName} 中文名随行；
  *       {@code sourcePackage}/{@code version} 仅安装行有值（内置 null）；{@code updateAvailable}
  *       来源包级新版标记（null＝未检查过，内置恒 null）。</li>
@@ -62,6 +68,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       <strong>可选绑定</strong>（spec #79：admin 不在绑定层前置拦截，空/缺由 provider 手工
  *       校验出 400 SKL_014），data 为裸 List（append-only 时间倒序、卸载不删留痕——与清单
  *       List 直出同形，不造分页）。</li>
+ *   <li>指派双头预检（#255，技能域第 16 端点）：POST {@code /skills/assignments/{slot}/precheck}
+ *       ——请求体复用 PUT 指派命令 {@code {skillIds}}（候选终态清单，与 PUT 同形——provider
+ *       同款复用 {@code SkillSlotAssignCommand} 不另造命令型）；回执 {@code {executed, hints[]}}
+ *       两件同读的<strong>两态纪律</strong>载体：executed=true＋hints 空＝确认无重叠、
+ *       executed=true＋hints 非空＝发现重叠（每条四字段：skills 候选侧技能名清单、
+ *       counterpart/overlap/resolution 三 String——经模型输出解析<strong>可 null</strong>，
+ *       BFF 照透传不臆造兜底文案）、executed=false＝<strong>未执行</strong>（判定失败/
+ *       超时/输出不可解析，hints 恒空——provider 侧 primitive boolean 恒非 null、hints
+ *       构造器归一恒至少空表）；非阻断（不拦 PUT、组件故障不阻塞指派）；只读不留痕
+ *       （无 SKL_009 操作者头要求——区别于 PUT 指派）。</li>
  *   <li>错误透传（数字业务码＝SKL 域码 7×1000＋序号）：SKL_001→7001（404，技能不存在——含
  *       未寻址内置名/TSID、畸形柄，provider 侧两形制柄单点分解裁决，admin 不预检）；
  *       SKL_002→7002（400 地址空）、SKL_003→7003（409 同源重复安装）、SKL_004→7004（502
@@ -324,6 +340,72 @@ class AiplatformSkillClientContractTest {
               "message": "内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）",
               "data": null,
               "requestId": "req-s15l1",
+              "errors": null
+            }
+            """;
+
+    /**
+     * aiplatform POST /api/backoffice/skills/assignments/{slot}/precheck 的真实成功响应形状
+     * （发现重叠代表面）：executed=true＋hints 非空——首条四字段俱全（skills 单技能、
+     * counterpart＝「工作协议」双头对照侧）、次条 counterpart/overlap 为 null（hint 三 String
+     * 字段经模型输出解析可 null——BFF 照透传，null 容差代表面）。
+     */
+    private static final String PRECHECK_HINTS_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "executed": true,
+                "hints": [
+                  {
+                    "skills": ["报告生成"],
+                    "counterpart": "工作协议",
+                    "overlap": "都在 PRD 产出环节做结构化写作，方法论高度重叠",
+                    "resolution": "二选一或收窄 description"
+                  },
+                  {
+                    "skills": ["web-research", "site-fetch"],
+                    "counterpart": null,
+                    "overlap": null,
+                    "resolution": "可不指派其一"
+                  }
+                ]
+              },
+              "requestId": "req-s33p1",
+              "errors": null
+            }
+            """;
+
+    /**
+     * 预检确认无重叠回执（executed=true＋hints 空表——provider 构造器归一恒至少空表，
+     * 空表照常出 {@code []} 在场）。
+     */
+    private static final String PRECHECK_NO_OVERLAP_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "executed": true,
+                "hints": []
+              },
+              "requestId": "req-s35p3",
+              "errors": null
+            }
+            """;
+
+    /**
+     * 预检未执行回执（executed=false——判定失败/超时/输出不可解析的降级态，hints 恒空；
+     * 与「确认无重叠」靠 executed 区分，BFF 不解释不重试）。
+     */
+    private static final String PRECHECK_NOT_EXECUTED_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "executed": false,
+                "hints": []
+              },
+              "requestId": "req-s37p5",
               "errors": null
             }
             """;
@@ -919,6 +1001,118 @@ class AiplatformSkillClientContractTest {
         assertThatThrownBy(() -> appService.assignSlot(SLOT_KEY,
                         new AiplatformSkillAssignCommand(List.of(INSTALLED_SKILL_ID))))
                 .as("数字业务码 %d 应经 PUT /assignments/{slot} 透传", envelopeCode)
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(httpStatus);
+                    assertThat(upstream.envelopeCode()).isEqualTo(envelopeCode);
+                    assertThat(upstream.getMessage()).isEqualTo(message);
+                });
+    }
+
+    // ========== 指派双头预检（POST /assignments/{slot}/precheck：与 PUT 同形命令体 + 两态纪律回执）==========
+
+    @Test
+    void given_precheckCommand_when_precheckSlot_then_wireUrlAndBodyMirrorProviderContract() throws Exception {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillPrecheckAppServiceWithStubTransport(
+                PRECHECK_HINTS_ENVELOPE, wireUrl, wireBody);
+
+        appService.precheckSlot(SLOT_KEY, new AiplatformSkillAssignCommand(
+                List.of(INSTALLED_SKILL_ID, SECOND_INSTALLED_SKILL_ID)));
+
+        // 出站 wire 形状逐字镜像 provider 契约：POST /api/backoffice/skills/assignments/{slot}/precheck，
+        // 命令体复用 {skillIds}（候选终态清单，与 PUT 同形——provider 同款复用
+        // SkillSlotAssignCommand 不另造命令型，无增删）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/assignments/" + SLOT_KEY + "/precheck");
+        var body = new ObjectMapper().readTree(wireBody[0]);
+        assertThat(body.fieldNames()).toIterable().containsExactly("skillIds");
+        assertThat(body.path("skillIds").get(0).asText()).isEqualTo(INSTALLED_SKILL_ID);
+        assertThat(body.path("skillIds").get(1).asText()).isEqualTo(SECOND_INSTALLED_SKILL_ID);
+    }
+
+    @Test
+    void given_hintsEnvelope_when_precheckSlot_then_hintRowsBoundWithNullTolerance() {
+        var appService = AiplatformWireTestSupport.skillPrecheckAppServiceWithStubTransport(
+                PRECHECK_HINTS_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformSkillPrecheckResponse precheck = appService.precheckSlot(SLOT_KEY,
+                new AiplatformSkillAssignCommand(List.of(INSTALLED_SKILL_ID, SECOND_INSTALLED_SKILL_ID)));
+
+        // 信封正确拆开：executed=true（判定已执行）＋hints 非空＝发现方法论重叠——两态纪律的
+        // 「重叠态」（与「确认无重叠」「未执行」靠 executed×hints 两件区分）
+        assertThat(precheck.executed()).isTrue();
+        assertThat(precheck.hints()).hasSize(2);
+
+        // 首条四字段俱全：skills（候选侧技能名）、counterpart（「工作协议」——双头对照侧）、
+        // overlap（重叠内容）、resolution（消解方向）
+        var full = precheck.hints().get(0);
+        assertThat(full.skills()).containsExactly("报告生成");
+        assertThat(full.counterpart()).isEqualTo("工作协议");
+        assertThat(full.overlap()).isEqualTo("都在 PRD 产出环节做结构化写作，方法论高度重叠");
+        assertThat(full.resolution()).isEqualTo("二选一或收窄 description");
+
+        // 次条 null 容差：hint 三 String 字段经模型输出解析可 null——如实绑定 null（不臆造
+        // 兜底文案），skills 多技能清单原样到达
+        var partial = precheck.hints().get(1);
+        assertThat(partial.skills()).containsExactly("web-research", "site-fetch");
+        assertThat(partial.counterpart()).isNull();
+        assertThat(partial.overlap()).isNull();
+        assertThat(partial.resolution()).isEqualTo("可不指派其一");
+    }
+
+    @Test
+    void given_noOverlapEnvelope_when_precheckSlot_then_executedTrueWithEmptyHints() {
+        var appService = AiplatformWireTestSupport.skillPrecheckAppServiceWithStubTransport(
+                PRECHECK_NO_OVERLAP_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformSkillPrecheckResponse precheck = appService.precheckSlot(SLOT_KEY,
+                new AiplatformSkillAssignCommand(List.of(INSTALLED_SKILL_ID)));
+
+        // 确认无重叠态：executed=true＋hints 空（provider 构造器归一恒至少空表——空表在场
+        // 而非 null/缺省）
+        assertThat(precheck.executed()).isTrue();
+        assertThat(precheck.hints()).isEmpty();
+    }
+
+    @Test
+    void given_notExecutedEnvelope_when_precheckSlot_then_executedFalseDistinctFromNoOverlap() {
+        var appService = AiplatformWireTestSupport.skillPrecheckAppServiceWithStubTransport(
+                PRECHECK_NOT_EXECUTED_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformSkillPrecheckResponse precheck = appService.precheckSlot(SLOT_KEY,
+                new AiplatformSkillAssignCommand(List.of(INSTALLED_SKILL_ID)));
+
+        // 未执行态（降级）：executed=false＋hints 恒空——与「确认无重叠」（executed=true）
+        // 靠 executed 区分；BFF 照透传不解释不重试、不伪装成无重叠
+        assertThat(precheck.executed()).isFalse();
+        assertThat(precheck.hints()).isEmpty();
+    }
+
+    // ========== 预检错误族透传（SKL_011/001/010 数字业务码，与 PUT 指派同源同码，不映射）==========
+
+    @Test
+    void given_sklErrorFamily_when_precheckSlot_then_passThroughWithoutMapping() {
+        // 预检失败族与 PUT 指派同源同码（#87/#90）：内置柄不可指派（011）、未寻址/畸形 TSID
+        // （001）、未知槽位（010）——HTTP 状态/数字码/message 均取 provider 原值
+        assertPrecheckErrorPassthrough(400, SKL_011_ERROR_ENVELOPE, 7011,
+                "内置技能不可指派（内置随平台发版，装配合成按配置挂载，无需指派）");
+        assertPrecheckErrorPassthrough(404, SKL_001_ERROR_ENVELOPE, 7001, "技能不存在");
+        assertPrecheckErrorPassthrough(404, SKL_010_ERROR_ENVELOPE, 7010, "职能槽位不存在");
+    }
+
+    /** 断言 POST /assignments/{slot}/precheck 的错误信封透传：HTTP 状态＋数字业务码＋message 原样。 */
+    private static void assertPrecheckErrorPassthrough(
+            int httpStatus, String errorEnvelope, int envelopeCode, String message) {
+        var appService = AiplatformWireTestSupport.skillPrecheckAppServiceWithErrorTransport(
+                httpStatus, errorEnvelope, new String[1]);
+
+        assertThatThrownBy(() -> appService.precheckSlot(SLOT_KEY,
+                        new AiplatformSkillAssignCommand(List.of(INSTALLED_SKILL_ID))))
+                .as("SKL_%d（数字业务码 %d）应经 POST /assignments/{slot}/precheck 透传",
+                        envelopeCode - 7000, envelopeCode)
                 .isInstanceOf(AiplatformUpstreamException.class)
                 .satisfies(e -> {
                     var upstream = (AiplatformUpstreamException) e;

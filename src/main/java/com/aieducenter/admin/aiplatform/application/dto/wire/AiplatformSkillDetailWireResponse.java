@@ -14,10 +14,10 @@ import java.util.Map;
  * @param id              技能柄（opaque 串两形制，同清单行）
  * @param name            技能名
  * @param description     简介
- * @param source          来源 code（1=内置 2=安装）
+ * @param source          来源 code（1=内置 2=安装 3=自产）
  * @param sourceName      来源名（直读展示）
- * @param sourcePackage   来源包标识（内置为 null）
- * @param version         版本标识（装时 commit；内置为 null）
+ * @param sourcePackage   来源包标识（内置为 null、自产＝固定虚拟值 self）
+ * @param version         版本标识（装时 commit；自产＝self；内置为 null）
  * @param status          状态 code（1=启用 2=停用；内置恒 1）
  * @param statusName      状态名（直读展示）
  * @param frontmatter     SKILL.md frontmatter 全量（解析态键值，含 name/description）
