@@ -3,9 +3,12 @@ package com.aieducenter.admin.aiplatform.application;
 import java.util.List;
 
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillDraftRejectCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
@@ -13,6 +16,9 @@ import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkill
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSlotAssignmentResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftRejectWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
@@ -27,8 +33,9 @@ import org.springframework.stereotype.Service;
  * aiplatform 技能管理域 BFF 应用服务——T1 读面（清单/详情，issue #80）＋T2 写面（安装/停用⇄
  * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面（issue #83），
  * aiplatform 技能线 #247/#248/#249/#250；另收指派双头预检（技能域第 16 端点，issue #90，
- * aiplatform #255——PUT 指派提交前的非阻断方法论重叠检查，只读）。技能库归 aiplatform
- * base.skills 上下文——admin 不持业务逻辑、不持技能数据。
+ * aiplatform #255——PUT 指派提交前的非阻断方法论重叠检查，只读）＋草稿审核面（技能域
+ * 第 17–20 端点，issue #92，aiplatform #258 自产线——在途清单/详情判读/晋升/拒绝）。
+ * 技能库归 aiplatform base.skills 上下文——admin 不持业务逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
  * 技能库是有界目录，排序服务端定死：内置在前名称序、安装在后按来源包＋名称序，admin 不造
@@ -179,6 +186,56 @@ public class AiplatformSkillAppService {
                 .toList();
     }
 
+    /**
+     * 草稿在途清单（透传 aiplatform，草稿审核面读口，issue #92）——智能体自荐技能草稿的
+     * <strong>活跃面</strong>（人审队列）：跨项目全部在途草稿按自荐时间倒序（最近先），
+     * 终态（已晋升/已拒绝）不列活跃面、详情仍可查。行含血统三件（来源项目/run/槽位）＋
+     * 扫描判定＋状态。不分页（provider 有界人审队列天然瓶颈——同形不造分页，spec #91）。
+     */
+    public List<AiplatformSkillDraftSummaryResponse> listDrafts() {
+        return aiplatformClient.listSkillDrafts().stream()
+                .map(AiplatformSkillAppService::toDraftSummary)
+                .toList();
+    }
+
+    /**
+     * 草稿详情（透传 aiplatform，草稿审核面读口，issue #92）——清单行同形字段＋正文全文
+     * （a-only 无 scripts）＋扫描 findings 逐条留档（provider 源即 untyped map——照
+     * untyped 透传不造 typed record，空列表＝无发现）＋终态留痕四字段（在途恒 null），
+     * 人审判读承载面。<strong>任意状态可查</strong>（终态留档）；{@code id} 取清单行
+     * 原值原样出站（TSID 十进制串透传不解析不预校验），畸形/未寻址由 provider 判 404
+     * SKL_015（数字业务码 7015）。
+     */
+    public AiplatformSkillDraftDetailResponse getDraft(String id) {
+        return toDraftDetail(aiplatformClient.getSkillDraft(id));
+    }
+
+    /**
+     * 晋升草稿（透传 aiplatform，草稿审核面写口，issue #92）——人审采纳（ADR-0022 单级
+     * 晋升）：插入启用库行（来源＝3 自产、内容原样——审核者不改稿）＋草稿标已晋升＋
+     * 操作者两处留痕，任一环失败整体回滚。<strong>无命令体</strong>；操作者经框架透传头
+     * 落痕（缺头由 provider 域面守卫 SKL_009 拦，admin 不拦）。回执＝<strong>技能库清单
+     * 行</strong>（新库行含技能 id＝后续指派寻址柄——入池与生效分离，不自动指派，生效仍
+     * 走人工指派＋预检）。撞名 SKL_016、已审结 SKL_017、不存在 SKL_015 均由 provider
+     * 裁决以数字业务码透传，admin 不拦截不翻译。
+     */
+    public AiplatformSkillSummaryResponse promoteDraft(String id) {
+        return toSummary(aiplatformClient.promoteSkillDraft(id));
+    }
+
+    /**
+     * 拒绝草稿（透传 aiplatform，草稿审核面写口，issue #92）——人审不采纳：草稿标已拒绝＋
+     * 操作者/时刻/理由随行留档。拒绝即终态：不列活跃面、详情仍可查；不改稿不复活——重提
+     * 只能靠未来会话产生新草稿。{@code reason} 保持 provider 形态——单字段命令体原样出站
+     * （spec #91：admin 不在绑定层前置拦截），空白由 provider 手工校验出 400 SKL_018
+     * （数字业务码 7018）原样透传。回执＝<strong>终态草稿详情</strong>（留痕形状直读，
+     * 与详情同形）。已审结 SKL_017、不存在 SKL_015、缺头 SKL_009 均由 provider 裁决。
+     */
+    public AiplatformSkillDraftDetailResponse rejectDraft(String id, AiplatformSkillDraftRejectCommand command) {
+        return toDraftDetail(aiplatformClient.rejectSkillDraft(id,
+                new AiplatformSkillDraftRejectWireRequest(command == null ? null : command.reason())));
+    }
+
     private static AiplatformSkillSummaryResponse toSummary(AiplatformSkillSummaryWireResponse wire) {
         return new AiplatformSkillSummaryResponse(
                 wire.id(), wire.name(), wire.description(),
@@ -225,5 +282,21 @@ public class AiplatformSkillAppService {
         return new AiplatformSkillUpdateTraceResponse(
                 wire.sourcePackage(), wire.fromVersion(), wire.toVersion(),
                 wire.operatorId(), wire.operatorName(), wire.operatedAt());
+    }
+
+    private static AiplatformSkillDraftSummaryResponse toDraftSummary(AiplatformSkillDraftSummaryWireResponse wire) {
+        return new AiplatformSkillDraftSummaryResponse(
+                wire.id(), wire.name(), wire.description(),
+                wire.slot(), wire.projectId(), wire.runId(), wire.scanVerdict(),
+                wire.status(), wire.statusName(), wire.createdAt());
+    }
+
+    private static AiplatformSkillDraftDetailResponse toDraftDetail(AiplatformSkillDraftDetailWireResponse wire) {
+        return new AiplatformSkillDraftDetailResponse(
+                wire.id(), wire.name(), wire.description(),
+                wire.slot(), wire.projectId(), wire.runId(), wire.scanVerdict(),
+                wire.status(), wire.statusName(), wire.createdAt(),
+                wire.content(), wire.scanFindings(),
+                wire.operatorId(), wire.operatorName(), wire.reviewedAt(), wire.rejectReason());
     }
 }

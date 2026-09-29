@@ -777,6 +777,64 @@ final class AiplatformWireTestSupport {
     }
 
     /**
+     * 技能管理域<strong>草稿审核面</strong>版（#258 自产线，issue #92）——在途清单/详情两读口
+     * 走 {@code get}、晋升走 {@code post}（<strong>无命令体</strong>——null body 发空 body，
+     * 同启停先例）、拒绝走 {@code post}（带命令体 {@code {reason}}），均按真实
+     * {@code TypeReference} 反序列化；post 把命令体序列化进 wireBodySink（null body 原样记
+     * null——钉死晋升无请求体契约；reason 为 String 无特殊口径，boot 默认 mapper 即生产口径）。
+     */
+    static AiplatformSkillAppService skillDraftAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 技能管理域草稿审核面版 {@link #skillAppServiceWithErrorTransport}——{@code get} 与
+     * {@code post} 都始终抛 {@code OpenApiClientException}（框架对 ≥400 的行为复刻：草稿
+     * 错误族 SKL_009/015/016/017/018 与读口错误信封同形）。
+     */
+    static AiplatformSkillAppService skillDraftAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
      * 智能体配置域版（#251 技能线 T5，issue #84）——读面/留痕读面走 {@code get}、全量写走
      * {@code put}（带命令体 {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}}——
      * {@code OpenApiClient.put} 与 {@code post} 同走 sendWithBody 序列化路径），均按真实

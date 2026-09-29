@@ -30,6 +30,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftRejectWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
@@ -204,6 +207,16 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>>> SKILL_UPDATE_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    // 草稿审核面（#258 自产线，ADR-0022 库制草稿）：GET 清单 data 为裸 List（在途活跃面，不分页
+    // ——人审天然瓶颈，同技能清单 List 直出同形）；GET 详情任意状态可查（终态留档）；晋升回执＝
+    // 技能库清单行（SKILL_SUMMARY_TYPEREF 复用——新库行与清单行同形）；拒绝回执＝终态草稿详情
+    // （与 GET 详情同形——DRAFT_DETAIL_TYPEREF 复用）
+    private static final TypeReference<ApiResponse<List<AiplatformSkillDraftSummaryWireResponse>>> SKILL_DRAFT_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformSkillDraftDetailWireResponse>> SKILL_DRAFT_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
     // 智能体配置域（#251 技能线 T5）：GET 读面与 PUT 回执同形——单对象（生效值＋覆盖标记＋
@@ -1468,6 +1481,126 @@ public class AiplatformClient {
         try {
             ApiResponse<List<AiplatformSkillUpdateTraceWireResponse>> resp =
                     openApiClient.get(url.toString(), SKILL_UPDATE_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 技能草稿在途清单（透传 aiplatform，草稿审核面读口）——智能体自荐技能草稿的
+     * <strong>活跃面</strong>（人审队列）：跨项目全部在途草稿按自荐时间倒序（最近先）——
+     * 终态（已晋升/已拒绝）不列活跃面、详情仍可按 id 查。草稿不参与任何装配（未审内容
+     * 不影响任何 run）。行含血统三件（来源项目 id/run 标识/槽位键）＋写入前静态扫描判定。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills/drafts}（#258 自产线）：
+     * <strong>零查询参数</strong>（不分页——provider 有界人审队列天然瓶颈，对齐技能清单
+     * 有界目录先例；ADR-0012 分页决议不适用于无分页端点），返回
+     * {@code ApiResponse<List<BackofficeSkillDraftSummaryResponse>>}——data 为裸 List
+     * （活跃面恒 status=1）。行 {@code id} 为 TSID 十进制串，admin 按字符串透传不解析
+     * 不预校验（spec #79）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformSkillDraftSummaryWireResponse> listSkillDrafts() {
+        String url = baseUrl + "/api/backoffice/skills/drafts";
+        log.debug("AiplatformClient.listSkillDrafts: {}", url);
+        try {
+            ApiResponse<List<AiplatformSkillDraftSummaryWireResponse>> resp =
+                    openApiClient.get(url, SKILL_DRAFT_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询技能草稿详情（透传 aiplatform，草稿审核面读口）——清单行同形字段＋正文全文
+     * （自荐只有正文——a-only 无 scripts）＋扫描 findings 逐条留档＋终态留痕四字段，
+     * 人审判读承载面（审核口径见 provider 侧 skill-audit-guide：真伪/重叠/description
+     * 三要素/血统可溯）。<strong>任意状态可查</strong>（终态留档——在途留痕四字段恒 null，
+     * 已晋升/已拒绝回填操作者/时刻/拒绝理由）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/skills/drafts/{id}}（#258）：返回
+     * {@code ApiResponse<BackofficeSkillDraftDetailResponse>}；草稿不存在（含未寻址/畸形
+     * TSID）HTTP 404 + 数字业务码 7015（SKL_015）原样透传。{@code id} 取清单行原值原样
+     * 出站（TSID 十进制串透传不预检）。{@code scanFindings} 为
+     * {@code List<Map<String, Object>>}——provider 源即 untyped（字段名 patternId/
+     * severity/category/file/line/matchText/description 仅存在于描述层），admin 照
+     * untyped 镜像不造 typed record（空列表＝无发现）。</p>
+     *
+     * @param id 草稿柄（TSID 十进制串，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_015 等，不做映射）
+     */
+    public AiplatformSkillDraftDetailWireResponse getSkillDraft(String id) {
+        String url = baseUrl + "/api/backoffice/skills/drafts/" + encode(id);
+        log.debug("AiplatformClient.getSkillDraft: {}", url);
+        try {
+            ApiResponse<AiplatformSkillDraftDetailWireResponse> resp =
+                    openApiClient.get(url, SKILL_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 晋升技能草稿（透传 aiplatform，草稿审核面写口）——人审采纳（ADR-0022 单级晋升）：
+     * 事务＝撞名复查（审核期间技能库新增同名即拒）＋插入启用库行（来源＝3 自产、来源包/
+     * 版本＝固定虚拟值 self、内容原样——审核者不改稿）＋草稿标已晋升＋操作者两处留痕
+     * （库行＝晋升者、草稿＝审结者），任一环失败整体回滚。晋升即入池同权：与安装技能
+     * 同列同套（启停/指派/预检/卸载），<strong>不自动指派</strong>——生效仍走人工指派＋
+     * 预检（入池与生效分离）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/drafts/{id}/promote}（#258）：
+     * <strong>无请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数——同启停先例），返回 {@code ApiResponse<
+     * BackofficeSkillSummaryResponse>}——回执＝<strong>技能库清单行</strong>（新库行含
+     * 技能 id＝后续指派寻址柄；SKILL_SUMMARY_TYPEREF 复用——与清单行同形）。操作者身份
+     * 经框架自动带 {@code X-User-Id/X-User-Name} 头（缺头 400 SKL_009＝7009）。错误族：
+     * 撞名 409 SKL_016（7016）、已审结 409 SKL_017（7017）、不存在 404 SKL_015（7015）
+     * ——均原样透传。</p>
+     *
+     * @param id 草稿柄（TSID 十进制串原样出站；在途判定归 provider 晋升用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_009/015/016/017 等，不做映射）
+     */
+    public AiplatformSkillSummaryWireResponse promoteSkillDraft(String id) {
+        String url = baseUrl + "/api/backoffice/skills/drafts/" + encode(id) + "/promote";
+        log.debug("AiplatformClient.promoteSkillDraft: {}", url);
+        try {
+            // 回执＝技能库清单行（与技能清单行同形——SKILL_SUMMARY_TYPEREF 复用，同 TypeReference 同形）
+            ApiResponse<AiplatformSkillSummaryWireResponse> resp =
+                    openApiClient.post(url, null, SKILL_SUMMARY_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 拒绝技能草稿（透传 aiplatform，草稿审核面写口）——人审不采纳：草稿标已拒绝＋操作者
+     * 留痕（操作者/时刻/理由随行留档）。拒绝即终态：不再列活跃面（在途清单）、详情仍可查
+     * （留档）；不改稿不复活——重提只能靠未来会话产生新草稿（已拒绝不占名）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/skills/drafts/{id}/reject}（#258）：
+     * 请求体 {@code {reason}} 逐字镜像（单字段——BFF 不前置拦截，空白由 provider 手工
+     * 校验出 400 SKL_018＝7018 原样透传；缺 body 同语义），返回
+     * {@code ApiResponse<BackofficeSkillDraftDetailResponse>}——回执＝<strong>终态草稿
+     * 详情</strong>（留痕形状直读，与 GET 详情同形——DRAFT_DETAIL_TYPEREF 复用）。操作者
+     * 透传头口径同 promote（缺头 400 SKL_009＝7009）。草稿须在途（已审结 409 SKL_017
+     * ＝7017）；不存在 404 SKL_015（7015）——均原样透传。</p>
+     *
+     * @param id      草稿柄（TSID 十进制串原样出站；在途判定归 provider 拒绝用例）
+     * @param command 拒绝命令体（由应用层从北向命令映射而来，理由合法性归 provider 拒绝用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（SKL_009/015/017/018 等，不做映射）
+     */
+    public AiplatformSkillDraftDetailWireResponse rejectSkillDraft(
+            String id, AiplatformSkillDraftRejectWireRequest command) {
+        String url = baseUrl + "/api/backoffice/skills/drafts/" + encode(id) + "/reject";
+        log.debug("AiplatformClient.rejectSkillDraft: {}", url);
+        try {
+            ApiResponse<AiplatformSkillDraftDetailWireResponse> resp =
+                    openApiClient.post(url, command, SKILL_DRAFT_DETAIL_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

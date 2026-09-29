@@ -9,9 +9,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformUpstreamException;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillDraftRejectCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
@@ -21,8 +24,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * aiplatform 技能管理域（清单/详情＋安装/停用⇄启用/卸载＋槽位指派读写＋显式更新＋更新留痕
- * 读面＋指派双头预检）的 wire 契约测试（对接 aiplatform #247 技能线 T1、#248 技能线 T2、
- * #249 技能线 T3、#250 技能线 T4、#255 指派双头预检，issue #80/#81/#82/#83/#90）。
+ * 读面＋指派双头预检＋草稿审核面）的 wire 契约测试（对接 aiplatform #247 技能线 T1、#248
+ * 技能线 T2、#249 技能线 T3、#250 技能线 T4、#255 指派双头预检、#258 自产草稿线，
+ * issue #80/#81/#82/#83/#90/#92）。
  *
  * <p>契约事实（2026-09-23 对照 aiplatform 源码；2026-09-29 预检组对照 #255 落地实况
  * {@code BackofficeSkillController} /
@@ -87,7 +91,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       不可指派）、SKL_012→7012（404 来源包未安装——更新寻址已装来源包，未装先走安装）、
  *       SKL_013→7013（409 更新将移除有指派在身的技能——先解绑再更新）、SKL_014→7014
  *       （400 来源包标识不能为空——取清单行 sourcePackage 值）——fail-fast 失败族整体不入库，
- *       admin 不拦截不翻译。</li>
+ *       admin 不拦截不翻译；草稿面：SKL_015→7015（404 技能草稿不存在——含未寻址/畸形
+ *       TSID）、SKL_016→7016（409 技能库已有同名技能晋升被拒）、SKL_017→7017（409 草稿
+ *       已审结终态不可再审）、SKL_018→7018（400 拒绝理由不能为空）。</li>
+ *   <li>草稿审核面四端点（#258 自产线，ADR-0022 库制草稿，技能域第 17–20 端点）：
+ *       GET {@code /skills/drafts}——data 为<strong>裸 List</strong>（在途活跃面不分页——
+ *       人审天然瓶颈，恒 status=1，自荐时间倒序）；GET {@code /skills/drafts/{id}}——任意
+ *       状态可查（终态留档），详情＝清单行同形＋{@code content}（a-only 无 scripts）＋
+ *       {@code scanFindings}（<strong>{@code List<Map<String, Object>>}</strong>——provider
+ *       源即 untyped，字段名仅存在于描述层，admin 照 untyped 镜像不造 typed record，空列表
+ *       ＝无发现）＋终态留痕四字段（在途恒 null）；POST {@code /skills/drafts/{id}/promote}
+ *       ——<strong>无命令体</strong>（null body 发空 body，同启停先例），回执＝技能库清单行
+ *       （SKILL_SUMMARY_TYPEREF 共形——新库行含技能 id＝后续指派寻址柄）；POST
+ *       {@code /skills/drafts/{id}/reject}——请求体 {@code {reason}} 单字段（可选绑定不前置
+ *       拦截，空白/缺 body 由 provider 判 SKL_018），回执＝<strong>终态草稿详情</strong>
+ *       （留痕形状直读，与 GET 详情同形）。操作者经 X-User-Id/X-User-Name 透传头两写口落痕
+ *       （缺头 400 SKL_009，admin 不拦）。</li></li>
  * </ul>
  *
  * <p>本测试 <strong>不</strong> mock {@code AiplatformClient}（方法边界 mock 会绕过 wire 反序列化
@@ -567,6 +586,177 @@ class AiplatformSkillClientContractTest {
               "message": "来源包标识不能为空（取清单行 sourcePackage 值）",
               "data": null,
               "requestId": "req-s29p4",
+              "errors": null
+            }
+            """;
+
+    // ========== 草稿审核面（#258 自产线，issue #92）：在途清单/详情判读/晋升/拒绝 ==========
+
+    /** 草稿 TSID 十进制串柄（在途行代表面）。 */
+    private static final String DRAFT_ID = "3852400001111111";
+
+    /** 在途草稿清单行（活跃面恒 status=1）：血统三件＋扫描判定 SAFE 代表面。 */
+    private static final String DRAFT_IN_FLIGHT_ROW = """
+            {
+              "id": "3852400001111111",
+              "name": "report-outline",
+              "description": "生成结构化报告大纲时使用",
+              "slot": "main",
+              "projectId": "3829492001234567",
+              "runId": "run-3a77bc",
+              "scanVerdict": "SAFE",
+              "status": 1,
+              "statusName": "在途",
+              "createdAt": "2026-09-27T09:15:00"
+            }
+            """;
+
+    /**
+     * aiplatform GET /api/backoffice/skills/drafts 的真实成功响应形状（信封＋裸 List）：
+     * 在途活跃面自荐时间倒序（最近先）——CAUTION 判定行跨项目代表面。
+     */
+    private static final String DRAFT_LIST_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": [
+                {
+                  "id": "3852400002222222",
+                  "name": "seo-checklist",
+                  "description": "发布前 SEO 检查时使用",
+                  "slot": "executor",
+                  "projectId": "3829492007654321",
+                  "runId": "run-9f22e1",
+                  "scanVerdict": "CAUTION",
+                  "status": 1,
+                  "statusName": "在途",
+                  "createdAt": "2026-09-28T16:40:00"
+                },
+                %s
+              ],
+              "requestId": "req-s30l1",
+              "errors": null
+            }
+            """.formatted(DRAFT_IN_FLIGHT_ROW);
+
+    /**
+     * aiplatform GET /api/backoffice/skills/drafts/{id} 的真实成功响应形状（在途态）：清单行
+     * 同形＋正文全文（a-only 无 scripts）＋扫描 findings 逐条留档（untyped map——line 为数字、
+     * 其余字符串，混合类型证明 Object 绑定）＋终态留痕四字段恒 null（在途未审结）。
+     */
+    private static final String DRAFT_DETAIL_IN_FLIGHT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3852400001111111",
+                "name": "report-outline",
+                "description": "生成结构化报告大纲时使用",
+                "slot": "main",
+                "projectId": "3829492001234567",
+                "runId": "run-3a77bc",
+                "scanVerdict": "SAFE",
+                "status": 1,
+                "statusName": "在途",
+                "createdAt": "2026-09-27T09:15:00",
+                "content": "# Report Outline\\n\\n先定读者与决策点，再列章节……\\n\\n## 步骤\\n\\n1. 拆解材料\\n2. 划分章节",
+                "scanFindings": [
+                  {
+                    "patternId": "secret-like-token",
+                    "severity": "CAUTION",
+                    "category": "security",
+                    "file": "SKILL.md",
+                    "line": 42,
+                    "matchText": "sk-abc123",
+                    "description": "疑似密钥字面量，人审确认是否脱敏"
+                  },
+                  {
+                    "patternId": "network-fetch",
+                    "severity": "INFO",
+                    "category": "network",
+                    "file": "SKILL.md",
+                    "line": 7,
+                    "matchText": "fetch(",
+                    "description": "正文含联网取数指引，血统必查外部资料接触史"
+                  }
+                ],
+                "operatorId": null,
+                "operatorName": null,
+                "reviewedAt": null,
+                "rejectReason": null
+              },
+              "requestId": "req-s30d2",
+              "errors": null
+            }
+            """;
+
+    /**
+     * aiplatform POST /api/backoffice/skills/drafts/{id}/promote 的真实成功响应形状：回执＝
+     * 技能库清单行（新库行）——来源＝3 自产、来源包/版本＝固定虚拟值 self、启用态、操作者＝
+     * 晋升者（含技能 id＝后续指派寻址柄）。
+     */
+    private static final String DRAFT_PROMOTE_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3852300005555555",
+                "name": "report-outline",
+                "description": "生成结构化报告大纲时使用",
+                "source": 3,
+                "sourceName": "自产",
+                "sourcePackage": "self",
+                "version": "self",
+                "status": 1,
+                "statusName": "启用",
+                "operatorId": "700300",
+                "operatorName": "运营·技能审核员",
+                "updateAvailable": null
+              },
+              "requestId": "req-s30p3",
+              "errors": null
+            }
+            """;
+
+    /**
+     * aiplatform POST /api/backoffice/skills/drafts/{id}/reject 的真实成功响应形状：回执＝
+     * 终态草稿详情（留痕形状直读）——status=3 已拒绝、操作者/时刻/拒绝理由回填、findings
+     * 空列表（无发现）与在途详情同一形状。
+     */
+    private static final String DRAFT_REJECT_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3852400001111111",
+                "name": "report-outline",
+                "description": "生成结构化报告大纲时使用",
+                "slot": "main",
+                "projectId": "3829492001234567",
+                "runId": "run-3a77bc",
+                "scanVerdict": "SAFE",
+                "status": 3,
+                "statusName": "已拒绝",
+                "createdAt": "2026-09-27T09:15:00",
+                "content": "# Report Outline\\n\\n先定读者与决策点，再列章节……",
+                "scanFindings": [],
+                "operatorId": "700300",
+                "operatorName": "运营·技能审核员",
+                "reviewedAt": "2026-09-29T11:20:00",
+                "rejectReason": "正文与现有技能 prd-writing 方法论重叠，解消方向不明"
+              },
+              "requestId": "req-s30r4",
+              "errors": null
+            }
+            """;
+
+    /** 技能草稿不存在（含未寻址/畸形 TSID）：HTTP 404 + 信封 code=7015（SKL_015，域码 7）。 */
+    private static final String SKL_015_ERROR_ENVELOPE = """
+            {
+              "code": 7015,
+              "message": "技能草稿不存在",
+              "data": null,
+              "requestId": "req-s30e5",
               "errors": null
             }
             """;
@@ -1306,6 +1496,317 @@ class AiplatformSkillClientContractTest {
                     assertThat(upstream.httpStatus()).isEqualTo(400);
                     assertThat(upstream.envelopeCode()).isEqualTo(7014);
                     assertThat(upstream.getMessage()).isEqualTo("来源包标识不能为空（取清单行 sourcePackage 值）");
+                });
+    }
+
+    // ========== 草稿审核面（#258 自产线，issue #92）：在途清单（裸 List 不分页）==========
+
+    @Test
+    void given_draftQueue_when_listDrafts_then_wireUrlMirrorsProviderContract() {
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_LIST_ENVELOPE, wireUrl, new String[1]);
+
+        appService.listDrafts();
+
+        // 出站 wire 形状逐字镜像 provider 契约：零查询参数——不分页（provider 有界人审队列
+        // 天然瓶颈）、不过滤（活跃面恒在途，自荐时间倒序服务端定死）
+        assertThat(wireUrl[0]).isEqualTo("http://stub-aiplatform/api/backoffice/skills/drafts");
+    }
+
+    @Test
+    void given_draftListEnvelope_when_listDrafts_then_bareListBoundWithLineage() {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_LIST_ENVELOPE, new String[1], new String[1]);
+
+        List<AiplatformSkillDraftSummaryResponse> drafts = appService.listDrafts();
+
+        // 信封正确拆开——证明 SKILL_DRAFT_LIST_TYPEREF 按 ApiResponse<List<…>> 裸 List 反序列化
+        // （误用分页载体 typeref 会把 List 绑不进来）；活跃面恒 status=1（在途）
+        assertThat(drafts).hasSize(2);
+
+        // 首行（最近自荐）：跨项目血统三件（projectId/runId/slot 稳定键）＋CAUTION 判定
+        // （字符串透传不映射枚举）＋status Integer code＋statusName 中文名随行
+        var latest = drafts.get(0);
+        assertThat(latest.id()).isEqualTo("3852400002222222");
+        assertThat(latest.name()).isEqualTo("seo-checklist");
+        assertThat(latest.description()).isEqualTo("发布前 SEO 检查时使用");
+        assertThat(latest.slot()).isEqualTo("executor");
+        assertThat(latest.projectId()).isEqualTo("3829492007654321");
+        assertThat(latest.runId()).isEqualTo("run-9f22e1");
+        assertThat(latest.scanVerdict()).isEqualTo("CAUTION");
+        assertThat(latest.status()).isEqualTo(1);
+        assertThat(latest.statusName()).isEqualTo("在途");
+        assertThat(latest.createdAt()).isEqualTo("2026-09-28T16:40:00");
+
+        // 次行（更早自荐）：SAFE 判定代表面——时间倒序由 provider 定死，admin 不重排
+        var earlier = drafts.get(1);
+        assertThat(earlier.id()).isEqualTo(DRAFT_ID);
+        assertThat(earlier.slot()).isEqualTo("main");
+        assertThat(earlier.scanVerdict()).isEqualTo("SAFE");
+        assertThat(earlier.createdAt()).isEqualTo("2026-09-27T09:15:00");
+    }
+
+    // ========== 草稿详情（正文全文＋扫描 findings untyped map＋终态留痕四 null）==========
+
+    @Test
+    void given_draftId_when_getDraft_then_wireUrlMirrorsProvider() {
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_DETAIL_IN_FLIGHT_ENVELOPE, wireUrl, new String[1]);
+
+        appService.getDraft(DRAFT_ID);
+
+        // TSID 十进制串柄原样出站（透传不解析不预校验——畸形/未寻址由 provider 判 SKL_015）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/drafts/" + DRAFT_ID);
+    }
+
+    @Test
+    void given_inFlightDraftDetailEnvelope_when_getDraft_then_contentFindingsAndNullTraceBound() {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_DETAIL_IN_FLIGHT_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformSkillDraftDetailResponse detail = appService.getDraft(DRAFT_ID);
+
+        // 清单行同形十字段逐字绑定
+        assertThat(detail.id()).isEqualTo(DRAFT_ID);
+        assertThat(detail.name()).isEqualTo("report-outline");
+        assertThat(detail.slot()).isEqualTo("main");
+        assertThat(detail.projectId()).isEqualTo("3829492001234567");
+        assertThat(detail.runId()).isEqualTo("run-3a77bc");
+        assertThat(detail.scanVerdict()).isEqualTo("SAFE");
+        assertThat(detail.status()).isEqualTo(1);
+        assertThat(detail.statusName()).isEqualTo("在途");
+
+        // 正文全文（a-only 无 scripts）原样到达——判读主体，不经截断/改写
+        assertThat(detail.content()).startsWith("# Report Outline");
+        assertThat(detail.content()).contains("\n\n## 步骤\n\n1. 拆解材料\n2. 划分章节");
+
+        // scanFindings＝untyped map 清单逐字透传（provider 源即 List<Map<String,Object>>，
+        // 勿造 typed record）：首条六字段俱全——line 为数字（Integer 绑定）、其余字符串，
+        // 混合类型证明 Object 绑定；字段名仅存在于描述层、不做形状断言
+        assertThat(detail.scanFindings()).hasSize(2);
+        var firstFinding = detail.scanFindings().get(0);
+        assertThat(firstFinding.get("patternId")).isEqualTo("secret-like-token");
+        assertThat(firstFinding.get("severity")).isEqualTo("CAUTION");
+        assertThat(firstFinding.get("line")).isEqualTo(42);
+        assertThat(firstFinding.get("matchText")).isEqualTo("sk-abc123");
+        assertThat(detail.scanFindings().get(1).get("patternId")).isEqualTo("network-fetch");
+
+        // 终态留痕四字段在途恒 null（未审结——如实出 JSON null，区别于已审结回填）
+        assertThat(detail.operatorId()).isNull();
+        assertThat(detail.operatorName()).isNull();
+        assertThat(detail.reviewedAt()).isNull();
+        assertThat(detail.rejectReason()).isNull();
+    }
+
+    // ========== 晋升（POST {id}/promote 无命令体 + 回执＝技能库清单行）==========
+
+    @Test
+    void given_promoteDraft_when_invoked_then_wireUrlMirrorsProviderAndBodyEmpty() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_PROMOTE_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        appService.promoteDraft(DRAFT_ID);
+
+        // 晋升无命令体（provider 端只读路径参数——同启停先例）：URL 镜像 POST /{id}/promote、
+        // body 记 null（操作者走 X-User-Id/X-User-Name 透传头，不在 body）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/drafts/" + DRAFT_ID + "/promote");
+        assertThat(wireBody[0]).isNull();
+    }
+
+    @Test
+    void given_promoteReceiptEnvelope_when_promoteDraft_then_receiptIsLibraryRow() {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_PROMOTE_RECEIPT_ENVELOPE, new String[1], new String[1]);
+
+        var receipt = appService.promoteDraft(DRAFT_ID);
+
+        // 回执＝技能库清单行（SKILL_SUMMARY_TYPEREF 共形——新库行）：来源＝3 自产、
+        // 来源包/版本＝固定虚拟值 self、启用态（入池即同权，启停/指派/预检/卸载同套）、
+        // 操作者＝晋升者（两处留痕之一）；新技能 id＝后续指派寻址柄（入池与生效分离——
+        // 不自动指派，生效仍走人工指派＋预检）；updateAvailable null＝自产无远端不适用
+        assertThat(receipt.id()).isEqualTo("3852300005555555");
+        assertThat(receipt.name()).isEqualTo("report-outline");
+        assertThat(receipt.source()).isEqualTo(3);
+        assertThat(receipt.sourceName()).isEqualTo("自产");
+        assertThat(receipt.sourcePackage()).isEqualTo("self");
+        assertThat(receipt.version()).isEqualTo("self");
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.statusName()).isEqualTo("启用");
+        assertThat(receipt.operatorId()).isEqualTo("700300");
+        assertThat(receipt.operatorName()).isEqualTo("运营·技能审核员");
+        assertThat(receipt.updateAvailable()).isNull();
+    }
+
+    // ========== 拒绝（POST {id}/reject 带 {reason} 命令体 + 回执＝终态草稿详情直读）==========
+
+    @Test
+    void given_rejectCommand_when_rejectDraft_then_wireUrlAndBodyMirrorProviderContract() throws Exception {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_REJECT_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        appService.rejectDraft(DRAFT_ID, new AiplatformSkillDraftRejectCommand(
+                "正文与现有技能 prd-writing 方法论重叠，解消方向不明"));
+
+        // 出站 wire 形状逐字镜像 provider 契约：POST /skills/drafts/{id}/reject，命令体
+        // {reason} 单字段——逐字镜像 SkillDraftRejectCommand，无增删
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/drafts/" + DRAFT_ID + "/reject");
+        var body = new ObjectMapper().readTree(wireBody[0]);
+        assertThat(body.fieldNames()).toIterable().containsExactly("reason");
+        assertThat(body.path("reason").asText())
+                .isEqualTo("正文与现有技能 prd-writing 方法论重叠，解消方向不明");
+    }
+
+    @Test
+    void given_missingBody_when_rejectDraft_then_reasonNullSerializedNotBlocked() throws Exception {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_REJECT_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        // 缺 body（可选绑定 required=false——北向不前置拦截）：出站仍发 {reason: null} 形状，
+        // 空白/缺失的裁决归 provider（400 SKL_018）——BFF 不代判
+        appService.rejectDraft(DRAFT_ID, null);
+
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/skills/drafts/" + DRAFT_ID + "/reject");
+        var body = new ObjectMapper().readTree(wireBody[0]);
+        assertThat(body.fieldNames()).toIterable().containsExactly("reason");
+        assertThat(body.path("reason").isNull()).isTrue();
+    }
+
+    @Test
+    void given_rejectReceiptEnvelope_when_rejectDraft_then_terminalDetailWithTraceDirectRead() {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithStubTransport(
+                DRAFT_REJECT_RECEIPT_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformSkillDraftDetailResponse receipt =
+                appService.rejectDraft(DRAFT_ID, new AiplatformSkillDraftRejectCommand(
+                        "正文与现有技能 prd-writing 方法论重叠，解消方向不明"));
+
+        // 回执＝终态草稿详情（留痕形状直读，与 GET 详情同形）：status=3 已拒绝、
+        // 操作者/时刻/拒绝理由回填（终态留档）
+        assertThat(receipt.id()).isEqualTo(DRAFT_ID);
+        assertThat(receipt.status()).isEqualTo(3);
+        assertThat(receipt.statusName()).isEqualTo("已拒绝");
+        assertThat(receipt.operatorId()).isEqualTo("700300");
+        assertThat(receipt.operatorName()).isEqualTo("运营·技能审核员");
+        assertThat(receipt.reviewedAt()).isEqualTo("2026-09-29T11:20:00");
+        assertThat(receipt.rejectReason())
+                .isEqualTo("正文与现有技能 prd-writing 方法论重叠，解消方向不明");
+
+        // findings 空列表＝无发现（untyped List 空集绑定——区别于 null，扫描留档恒列表形）
+        assertThat(receipt.scanFindings()).isNotNull().isEmpty();
+    }
+
+    // ========== 草稿错误族透传（SKL_009/015/016/017/018 数字业务码，不映射）==========
+
+    @Test
+    void given_skl015ErrorEnvelope_when_getDraft_then_passThroughWithoutMapping() {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithErrorTransport(
+                404, SKL_015_ERROR_ENVELOPE, new String[1]);
+
+        // 草稿不存在（含未寻址/畸形 TSID）由 provider 裁决（admin 不预检）：HTTP 404 +
+        // 数字业务码 7015（SKL_015＝域码 7×1000＋15）+ provider message 原样
+        assertThatThrownBy(() -> appService.getDraft("3824999999999999"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(404);
+                    assertThat(upstream.envelopeCode()).isEqualTo(7015);
+                    assertThat(upstream.getMessage()).isEqualTo("技能草稿不存在");
+                });
+    }
+
+    @Test
+    void given_sklErrorFamily_when_promoteDraft_then_passThroughWithoutMapping() {
+        // 晋升失败族（issue #92 验收清单逐码）：缺操作者 009、撞名 016、已审结 017、
+        // 不存在 015——HTTP 状态/数字码/message 均取 provider 原值
+        assertDraftPromoteErrorPassthrough(400, 7009, "操作者不能为空");
+        assertDraftPromoteErrorPassthrough(409, 7016,
+                "技能库已有同名技能，晋升被拒（审核期间同名入库——先处置同名再晋升）");
+        assertDraftPromoteErrorPassthrough(409, 7017,
+                "草稿已审结（已晋升/已拒绝），终态不可再审——重提为新草稿");
+        assertDraftPromoteErrorPassthrough(404, SKL_015_ERROR_ENVELOPE, 7015, "技能草稿不存在");
+    }
+
+    @Test
+    void given_sklErrorFamily_when_rejectDraft_then_passThroughWithoutMapping() {
+        // 拒绝失败族（issue #92 验收清单逐码）：缺操作者 009、已审结 017、理由空白 018、
+        // 不存在 015——HTTP 状态/数字码/message 均取 provider 原值
+        assertDraftRejectErrorPassthrough(400, 7009, "操作者不能为空");
+        assertDraftRejectErrorPassthrough(409, 7017,
+                "草稿已审结（已晋升/已拒绝），终态不可再审——重提为新草稿");
+        assertDraftRejectErrorPassthrough(400, 7018, "拒绝理由不能为空（终态留档，拒绝须有据）");
+        assertDraftRejectErrorPassthrough(404, SKL_015_ERROR_ENVELOPE, 7015, "技能草稿不存在");
+    }
+
+    private static void assertDraftPromoteErrorPassthrough(int httpStatus, int envelopeCode, String message) {
+        assertDraftPromoteErrorPassthrough(httpStatus, """
+                {
+                  "code": %d,
+                  "message": "%s",
+                  "data": null,
+                  "requestId": "req-s31x%d",
+                  "errors": null
+                }
+                """.formatted(envelopeCode, message, envelopeCode), envelopeCode, message);
+    }
+
+    /** 断言 POST /skills/drafts/{id}/promote 的错误信封透传：HTTP 状态＋数字业务码＋message 原样。 */
+    private static void assertDraftPromoteErrorPassthrough(
+            int httpStatus, String errorEnvelope, int envelopeCode, String message) {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithErrorTransport(
+                httpStatus, errorEnvelope, new String[1]);
+
+        assertThatThrownBy(() -> appService.promoteDraft(DRAFT_ID))
+                .as("SKL_%d（数字业务码 %d）应经 POST /skills/drafts/{id}/promote 透传",
+                        envelopeCode - 7000, envelopeCode)
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(httpStatus);
+                    assertThat(upstream.envelopeCode()).isEqualTo(envelopeCode);
+                    assertThat(upstream.getMessage()).isEqualTo(message);
+                });
+    }
+
+    private static void assertDraftRejectErrorPassthrough(int httpStatus, int envelopeCode, String message) {
+        assertDraftRejectErrorPassthrough(httpStatus, """
+                {
+                  "code": %d,
+                  "message": "%s",
+                  "data": null,
+                  "requestId": "req-s32x%d",
+                  "errors": null
+                }
+                """.formatted(envelopeCode, message, envelopeCode), envelopeCode, message);
+    }
+
+    /** 断言 POST /skills/drafts/{id}/reject 的错误信封透传：HTTP 状态＋数字业务码＋message 原样。 */
+    private static void assertDraftRejectErrorPassthrough(
+            int httpStatus, String errorEnvelope, int envelopeCode, String message) {
+        var appService = AiplatformWireTestSupport.skillDraftAppServiceWithErrorTransport(
+                httpStatus, errorEnvelope, new String[1]);
+
+        assertThatThrownBy(() -> appService.rejectDraft(DRAFT_ID,
+                        new AiplatformSkillDraftRejectCommand("正文与现有技能方法论重叠")))
+                .as("SKL_%d（数字业务码 %d）应经 POST /skills/drafts/{id}/reject 透传",
+                        envelopeCode - 7000, envelopeCode)
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(httpStatus);
+                    assertThat(upstream.envelopeCode()).isEqualTo(envelopeCode);
+                    assertThat(upstream.getMessage()).isEqualTo(message);
                 });
     }
 }

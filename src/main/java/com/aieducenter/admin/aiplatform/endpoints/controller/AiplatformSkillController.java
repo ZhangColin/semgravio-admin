@@ -4,9 +4,12 @@ import java.util.List;
 
 import com.aieducenter.admin.aiplatform.application.AiplatformSkillAppService;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillAssignCommand;
+import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillDraftRejectCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillInstallCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformSkillUpdateCommand;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftDetailResponse;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillDraftSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillPrecheckResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillSummaryResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformSkillUpdateResponse;
@@ -32,8 +35,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * AI 平台技能管理控制器——技能线 T1 读面（issue #80，清单/详情）＋T2 写面（issue #81，
  * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面
- * （issue #83）＋指派双头预检（issue #90，技能域第 16 端点），镜像 aiplatform
- * #247/#248/#249/#250 技能线＋#255 预检端点。
+ * （issue #83）＋指派双头预检（issue #90，技能域第 16 端点）＋草稿审核面（issue #92，
+ * 技能域第 17–20 端点：在途清单/详情判读/晋升/拒绝），镜像 aiplatform
+ * #247/#248/#249/#250 技能线＋#255 预检端点＋#258 自产草稿线。
  *
  * <p>北向 {@code /api/admin/aiplatform/skills/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/skills/**}（机机签名出站）。技能寻址柄 {@code id} 为 opaque 串
@@ -47,7 +51,10 @@ import org.springframework.web.bind.annotation.RestController;
  * 各自独立成码逐端点挂载（最小授权——如只给内容审核员配启停而不给装/卸/更新、只给装配运营
  * 配指派）。指派双头预检<strong>复用 {@code skill:assign}</strong>（issue #90：预检触发模型
  * 调用有真实成本——flash 档 skillcheck 计量，只读角色不得烧 token；它是指派写流程的附属
- * 检查，assign-only 用户语义自洽，30 码总数不变）。
+ * 检查，assign-only 用户语义自洽，30 码总数不变）。草稿审核面另立三码
+ * {@code skill-draft:read|promote|reject}（issue #92 / spec #91 grill 定稿 2026-09-29：
+ * 连字符子域对齐 agent-tool 先例、每写操作一码对齐技能线先例——两读端点复用 read、
+ * promote/reject 各一码，审阅只读角色不得晋升/拒绝、晋升权与拒绝权独立授受，30→33）。
  * {@code slot} 为职能槽位稳定键（main/executor/subagent）字符串路径参数——透传不预校验，
  * 未知键由 provider 判 404 SKL_010（数字业务码 7010）。写口操作者经框架
  * {@code OpenApiClient} 自动透传 {@code X-User-Id/X-User-Name} 出站头（identity 同款），
@@ -315,5 +322,91 @@ public class AiplatformSkillController {
     public ApiResponse<List<AiplatformSkillUpdateTraceResponse>> updateTraces(
             @RequestParam(required = false) String sourcePackage) {
         return ApiResponse.ok(skillAppService.updateTraces(sourcePackage));
+    }
+
+    // 不挂 @ErrorCodes（同上各口）：草稿错误族 SKL_009/015/016/017/018 以 description 文档化。
+    @GetMapping("/drafts")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill-draft:read",
+            name = "AI 平台 / 技能草稿查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "技能草稿清单（活跃面＝在途，人审队列）——透传 aiplatform",
+            description = "智能体自荐的技能草稿（自产线，ADR-0022 库制草稿）：跨项目全部"
+                    + "<strong>在途</strong>草稿按自荐时间倒序（最近先）——终态（已晋升/"
+                    + "已拒绝）不列活跃面、详情仍可按 id 查。行字段：名称、简介、血统三件"
+                    + "（来源项目 id／来源 run 标识／来源槽位键 main/executor/subagent）、"
+                    + "写入前静态扫描判定（SAFE/CAUTION——DANGEROUS 已在写入口拒收不落库）、"
+                    + "状态（恒 1=在途）与自荐时刻。草稿不参与任何装配（未审内容不影响任何"
+                    + " run）。不分页（人审是天然瓶颈，对齐技能清单有界目录先例）。id 为"
+                    + " TSID 十进制串。")
+    public ApiResponse<List<AiplatformSkillDraftSummaryResponse>> drafts() {
+        return ApiResponse.ok(skillAppService.listDrafts());
+    }
+
+    @GetMapping("/drafts/{id}")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill-draft:read",
+            name = "AI 平台 / 技能草稿查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "技能草稿详情（正文＋扫描回执＋血统，审核面）——透传 aiplatform",
+            description = "草稿全文按自产审核口径判读（真伪／重叠／description 三要素／"
+                    + "血统可溯：来源 run 的外部资料接触史必查）：清单行同形字段＋正文全文"
+                    + "（自荐只有正文——a-only 无 scripts）＋扫描 findings 逐条留档"
+                    + "（patternId/severity/category/file/line/matchText/description，"
+                    + "空列表＝无发现——untyped map 逐字透传不做形状断言）＋终态留痕字段"
+                    + "（审核操作者/时刻/拒绝理由——已晋升/已拒绝草稿回填，在途恒 null）。"
+                    + "<strong>任意状态可查</strong>（终态留档）。id 取清单行原值（TSID "
+                    + "十进制串）；草稿不存在（含未寻址/畸形 TSID）404 SKL_015（数字业务码 "
+                    + "7015）。")
+    public ApiResponse<AiplatformSkillDraftDetailResponse> draftDetail(@PathVariable String id) {
+        return ApiResponse.ok(skillAppService.getDraft(id));
+    }
+
+    @PostMapping("/drafts/{id}/promote")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill-draft:promote",
+            name = "AI 平台 / 技能草稿晋升",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "晋升草稿（一键入技能库，单级晋升）——透传 aiplatform",
+            description = "人审采纳（ADR-0022 单级晋升）：事务＝撞名复查（审核期间技能库"
+                    + "新增同名即拒——409 SKL_016＝数字业务码 7016）＋插入启用库行（来源＝"
+                    + "3 自产、来源包/版本＝固定虚拟值 self、内容原样——审核者不改稿）＋草稿标"
+                    + "已晋升＋操作者两处留痕（库行＝晋升者、草稿＝审结者），任一环失败整体"
+                    + "回滚。晋升即入池同权：与安装技能同列同套（启停/指派/预检/卸载/使用计数），"
+                    + "<strong>不自动指派</strong>——生效仍走人工指派＋skillcheck 预检"
+                    + "（入池与生效分离）。自产技能结构性无 scripts。草稿须在途（已审结 "
+                    + "409 SKL_017＝7017——终态不可再审，重提为新草稿）；草稿不存在 404 "
+                    + "SKL_015＝7015；缺操作者 400 SKL_009（数字业务码 7009——X-User-Id/"
+                    + "X-User-Name 透传头，admin 不拦）。<strong>无请求体</strong>。回执＝"
+                    + "新库行清单行（含技能 id——后续指派寻址柄）。")
+    public ApiResponse<AiplatformSkillSummaryResponse> promoteDraft(@PathVariable String id) {
+        return ApiResponse.ok(skillAppService.promoteDraft(id));
+    }
+
+    @PostMapping("/drafts/{id}/reject")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:skill-draft:reject",
+            name = "AI 平台 / 技能草稿拒绝",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "拒绝草稿（终态留档，理由必填）——透传 aiplatform",
+            description = "人审不采纳：理由必填（空白 400 SKL_018＝数字业务码 7018——终态"
+                    + "留档拒绝须有据，由 provider 裁决、BFF 可选绑定不前置拦截）＋草稿标"
+                    + "已拒绝＋操作者留痕（操作者/时刻/理由随行留档）。拒绝即终态：不再列"
+                    + "活跃面（在途清单）、详情仍可查（留档）；不改稿不复活——重提只能靠"
+                    + "未来会话产生新草稿（已拒绝不占名）。草稿须在途（已审结 409 SKL_017"
+                    + "＝7017）；草稿不存在 404 SKL_015＝7015；缺操作者 400 SKL_009＝7009"
+                    + "（X-User-Id/X-User-Name 透传头）。body 仅 reason 单字段。回执＝"
+                    + "<strong>终态草稿详情</strong>（留痕形状直读，与 GET 详情同形）。")
+    public ApiResponse<AiplatformSkillDraftDetailResponse> rejectDraft(
+            @PathVariable String id, @RequestBody(required = false) AiplatformSkillDraftRejectCommand command) {
+        return ApiResponse.ok(skillAppService.rejectDraft(id, command));
     }
 }

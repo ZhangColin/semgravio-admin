@@ -56,6 +56,9 @@ import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPriceEntr
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformPrdWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillAssignWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftDetailWireResponse;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftRejectWireRequest;
+import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillDraftSummaryWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillInstallWireRequest;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillPrecheckWireResponse;
 import com.aieducenter.admin.aiplatform.application.dto.wire.AiplatformSkillSummaryWireResponse;
@@ -101,7 +104,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
  * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面 +
  * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关 +
- * #90 指派双头预检——技能域第 16 端点）
+ * #90 指派双头预检——技能域第 16 端点 + #92 草稿审核面——技能域第 17–20 端点）
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -116,7 +119,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 只读角色不得调用——read≠assign 两码不串；超管 bypass 与其他技能域端点一致，框架级测试钉住））
  * + 智能体配置独立写码
  * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）+ 工具面两码
- * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）对未登录（401）/
+ * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）+ 草稿审核面三码
+ * （{@code skill-draft:read|promote|reject}——issue #92：两读端点复用 read、promote/reject
+ * 各一码，读写不串、两写码互不串——晋升权与拒绝权独立授受）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -258,6 +263,17 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String AGENT_TOOLS_ENDPOINT = "/api/admin/aiplatform/agent-tools";
     private static final String AGENT_TOOL_TOGGLE_ENDPOINT = AGENT_TOOLS_ENDPOINT + "/" + TOOL_NAME;
     private static final String AGENT_TOOL_TOGGLE_BODY = "{\"enabled\":false}";
+    private static final String SKILL_DRAFT_READ_PERMISSION = "admin:aiplatform:skill-draft:read";
+    private static final String SKILL_DRAFT_PROMOTE_PERMISSION = "admin:aiplatform:skill-draft:promote";
+    private static final String SKILL_DRAFT_REJECT_PERMISSION = "admin:aiplatform:skill-draft:reject";
+    /** 草稿 TSID 十进制串柄（透传不解析不预校验——畸形/未寻址由 provider 判 404 SKL_015）。 */
+    private static final String DRAFT_ID = "3852400001111111";
+    private static final String SKILL_DRAFTS_ENDPOINT = SKILLS_ENDPOINT + "/drafts";
+    private static final String SKILL_DRAFT_DETAIL_ENDPOINT = SKILL_DRAFTS_ENDPOINT + "/" + DRAFT_ID;
+    private static final String SKILL_DRAFT_PROMOTE_ENDPOINT = SKILL_DRAFT_DETAIL_ENDPOINT + "/promote";
+    private static final String SKILL_DRAFT_REJECT_ENDPOINT = SKILL_DRAFT_DETAIL_ENDPOINT + "/reject";
+    private static final String SKILL_DRAFT_REJECT_BODY =
+            "{\"reason\":\"正文与现有技能 prd-writing 方法论重叠，解消方向不明\"}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -284,6 +300,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithSkillUpdate;
     private String usernameWithAgentConfigUpdate;
     private String usernameWithAgentToolToggle;
+    private String usernameWithSkillDraftWrite;
+    private String usernameWithDraftPromoteOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -307,6 +325,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String agentConfigUpdateUserNickname;
     private Long agentToolToggleUserId;
     private String agentToolToggleUserNickname;
+    private Long skillDraftWriteUserId;
+    private String skillDraftWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -344,6 +364,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithSkillUpdate = "aiplasupn" + suffix;
         usernameWithAgentConfigUpdate = "aiplaacup" + suffix;
         usernameWithAgentToolToggle = "aiplaatog" + suffix;
+        usernameWithSkillDraftWrite = "aiplasdwpr" + suffix;
+        usernameWithDraftPromoteOnly = "aiplasdpo" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -352,7 +374,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new AssignPermissionsCommand(List.of(READ_PERMISSION, ORDER_READ_PERMISSION,
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
-                        AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION)));
+                        AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
+                        SKILL_DRAFT_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -529,6 +552,31 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new CreateAdminUserCommand(usernameWithAgentToolToggle, PASSWORD,
                         agentToolToggleUserNickname, null, null, null));
         userAppService.assignRoles(agentToolToggleUserId, new AssignRolesCommand(List.of(agentToolToggleRoleId)));
+
+        // 草稿两写码专用运营（promote+reject，无读码）——钉死 skill-draft 读写不串（issue #92）；
+        // 操作者透传断言用其 id/昵称（provider 晋升/拒绝必留痕、缺头必拦 SKL_009）
+        Long skillDraftWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台草稿审核写操作_" + suffix, "AIPLASDWR_" + suffix,
+                        "AI 平台技能草稿晋升 + 拒绝权限", 106, null));
+        roleAppService.assignPermissions(skillDraftWriteRoleId, new AssignPermissionsCommand(List.of(
+                SKILL_DRAFT_PROMOTE_PERMISSION, SKILL_DRAFT_REJECT_PERMISSION)));
+        skillDraftWriteUserNickname = "技能审核员_" + suffix;
+        skillDraftWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSkillDraftWrite, PASSWORD,
+                        skillDraftWriteUserNickname, null, null, null));
+        userAppService.assignRoles(skillDraftWriteUserId, new AssignRolesCommand(List.of(skillDraftWriteRoleId)));
+
+        // 仅 promote 单写码——钉死两写码彼此独立（spec #91：晋升权与拒绝权独立授受——
+        // 有采纳权而无否决权，反之亦然）
+        Long draftPromoteOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台草稿晋升_" + suffix, "AIPLASDPO_" + suffix,
+                        "AI 平台技能草稿仅晋升权限", 107, null));
+        roleAppService.assignPermissions(draftPromoteOnlyRoleId,
+                new AssignPermissionsCommand(List.of(SKILL_DRAFT_PROMOTE_PERMISSION)));
+        Long draftPromoteOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithDraftPromoteOnly, PASSWORD,
+                        "草稿晋升专员_" + suffix, null, null, null));
+        userAppService.assignRoles(draftPromoteOnlyUserId, new AssignRolesCommand(List.of(draftPromoteOnlyRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -899,6 +947,51 @@ class AiplatformRbacEnforcementIntegrationTest {
             return new AiplatformAgentToolWireResponse(TOOL_NAME, "ENHANCEMENT", false,
                     "自主搜索调研补缺口（增强可关——成本与滥用可控）");
         }).when(aiplatformClient).toggleAgentTool(eq(TOOL_NAME), any(AiplatformAgentToolToggleWireRequest.class));
+        // 草稿审核面 mock（issue #92，aiplatform #258 自产线）：在途清单两行（跨项目血统三件
+        // ＋扫描判定，时间倒序）/ 详情＝在途态（findings untyped map 代表面＋终态留痕四 null）；
+        // promote/reject 抓取 RequestContext（操作者透传契约证据，provider 两写口必留痕、缺头
+        // 必拦 SKL_009，断言必带）——promote 回执＝技能库清单行（自产 self/self）、reject 回执＝
+        // 终态草稿详情（留痕直读）
+        when(aiplatformClient.listSkillDrafts()).thenReturn(List.of(
+                new AiplatformSkillDraftSummaryWireResponse(
+                        "3852400002222222", "seo-checklist", "发布前 SEO 检查时使用",
+                        "executor", PROJECT_ID, "run-9f22e1", "CAUTION",
+                        1, "在途", LocalDateTime.of(2026, 9, 28, 16, 40, 0)),
+                new AiplatformSkillDraftSummaryWireResponse(
+                        DRAFT_ID, "report-outline", "生成结构化报告大纲时使用",
+                        "main", "3829492001234567", "run-3a77bc", "SAFE",
+                        1, "在途", LocalDateTime.of(2026, 9, 27, 9, 15, 0))));
+        when(aiplatformClient.getSkillDraft(eq(DRAFT_ID))).thenReturn(new AiplatformSkillDraftDetailWireResponse(
+                DRAFT_ID, "report-outline", "生成结构化报告大纲时使用",
+                "main", "3829492001234567", "run-3a77bc", "SAFE",
+                1, "在途", LocalDateTime.of(2026, 9, 27, 9, 15, 0),
+                "# Report Outline\n\n先定读者与决策点，再列章节……",
+                List.of(Map.of(
+                        "patternId", "secret-like-token", "severity", "CAUTION",
+                        "category", "security", "file", "SKILL.md",
+                        "line", 42, "matchText", "sk-abc123",
+                        "description", "疑似密钥字面量，人审确认是否脱敏")),
+                null, null, null, null));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSkillSummaryWireResponse(
+                    "3852300005555555", "report-outline", "生成结构化报告大纲时使用",
+                    3, "自产", "self", "self",
+                    1, "启用",
+                    String.valueOf(skillDraftWriteUserId), skillDraftWriteUserNickname, null);
+        }).when(aiplatformClient).promoteSkillDraft(eq(DRAFT_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSkillDraftDetailWireResponse(
+                    DRAFT_ID, "report-outline", "生成结构化报告大纲时使用",
+                    "main", "3829492001234567", "run-3a77bc", "SAFE",
+                    3, "已拒绝", LocalDateTime.of(2026, 9, 27, 9, 15, 0),
+                    "# Report Outline\n\n先定读者与决策点，再列章节……",
+                    List.of(),
+                    String.valueOf(skillDraftWriteUserId), skillDraftWriteUserNickname,
+                    LocalDateTime.of(2026, 9, 29, 11, 20, 0),
+                    "正文与现有技能 prd-writing 方法论重叠，解消方向不明");
+        }).when(aiplatformClient).rejectSkillDraft(eq(DRAFT_ID), any(AiplatformSkillDraftRejectWireRequest.class));
     }
 
     /**
@@ -2973,6 +3066,199 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 4034（PRJ_034＝域码 4×1000＋34），而非映射后的 400——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(4034);
         assertThat(root.path("message").asText()).isEqualTo("操作者不能为空");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 草稿审核面（skill-draft:read 读面 / skill-draft:promote、skill-draft:reject 写面，issue #92）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 skill-draft:read → 在途清单 200，裸 List（不分页）＋血统三件＋扫描判定镜像 provider")
+    void given_nonSuperAdminWithSkillDraftRead_when_listDrafts_then_200BareListMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILL_DRAFTS_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // data 为裸 List（在途活跃面不分页——人审天然瓶颈；终态不列、恒 status=1）
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(2);
+
+        // 首行（最近自荐）：跨项目血统三件＋CAUTION 判定（字符串透传不映射枚举）＋status Integer
+        // code＋statusName 中文名随行
+        JsonNode latest = data.get(0);
+        assertThat(latest.path("id").asText()).isEqualTo("3852400002222222");
+        assertThat(latest.path("name").asText()).isEqualTo("seo-checklist");
+        assertThat(latest.path("slot").asText()).isEqualTo("executor");
+        assertThat(latest.path("projectId").asText()).isEqualTo(PROJECT_ID);
+        assertThat(latest.path("runId").asText()).isEqualTo("run-9f22e1");
+        assertThat(latest.path("scanVerdict").asText()).isEqualTo("CAUTION");
+        assertThat(latest.path("status").asInt()).isEqualTo(1);
+        assertThat(latest.path("statusName").asText()).isEqualTo("在途");
+        assertThat(latest.path("createdAt").asText()).isEqualTo("2026-09-28T16:40:00");
+
+        // 次行（更早自荐）：SAFE 判定代表面
+        JsonNode earlier = data.get(1);
+        assertThat(earlier.path("id").asText()).isEqualTo(DRAFT_ID);
+        assertThat(earlier.path("scanVerdict").asText()).isEqualTo("SAFE");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 skill-draft:read → 草稿详情 200，正文全文＋findings untyped＋终态留痕四 null")
+    void given_nonSuperAdminWithSkillDraftRead_when_getDraftDetail_then_200FindingsAndNullTraceMirrored()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SKILL_DRAFT_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("id").asText()).isEqualTo(DRAFT_ID);
+        assertThat(data.path("status").asInt()).isEqualTo(1);
+        assertThat(data.path("statusName").asText()).isEqualTo("在途");
+        // 正文全文（a-only 无 scripts）原样到达——判读主体
+        assertThat(data.path("content").asText()).startsWith("# Report Outline");
+        // findings untyped map 逐条留档：line 为数字（Object 绑定混合类型在场）
+        JsonNode finding = data.path("scanFindings").get(0);
+        assertThat(finding.path("patternId").asText()).isEqualTo("secret-like-token");
+        assertThat(finding.path("line").asInt()).isEqualTo(42);
+        // 终态留痕四字段在途恒 null（如实出 JSON null——全局 Jackson 含 null）
+        assertThat(data.path("operatorId").isNull()).isTrue();
+        assertThat(data.path("operatorName").isNull()).isTrue();
+        assertThat(data.path("reviewedAt").isNull()).isTrue();
+        assertThat(data.path("rejectReason").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有两写码 → 晋升/拒绝 200，回执＝库行/终态详情且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithDraftWriteCodes_when_promoteAndReject_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSkillDraftWrite);
+
+        // 晋升（无请求体）：回执＝技能库清单行——来源 3 自产、来源包/版本＝固定虚拟值 self、
+        // 启用态（入池即同权）、操作者＝晋升者；updateAvailable null＝自产无远端不适用
+        ResponseEntity<String> promote = postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, token);
+        assertThat(promote.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode promoted = objectMapper.readTree(promote.getBody()).path("data");
+        assertThat(promoted.path("id").asText()).isEqualTo("3852300005555555");
+        assertThat(promoted.path("source").asInt()).isEqualTo(3);
+        assertThat(promoted.path("sourceName").asText()).isEqualTo("自产");
+        assertThat(promoted.path("sourcePackage").asText()).isEqualTo("self");
+        assertThat(promoted.path("version").asText()).isEqualTo("self");
+        assertThat(promoted.path("status").asInt()).isEqualTo(1);
+        assertThat(promoted.path("statusName").asText()).isEqualTo("启用");
+        assertThat(promoted.path("operatorId").asText()).isEqualTo(String.valueOf(skillDraftWriteUserId));
+        assertThat(promoted.path("operatorName").asText()).isEqualTo(skillDraftWriteUserNickname);
+        assertThat(promoted.path("updateAvailable").isNull()).isTrue();
+
+        // 拒绝（带 reason 命令体）：回执＝终态草稿详情——status=3 已拒绝、留痕四字段回填直读、
+        // findings 空列表＝无发现
+        ResponseEntity<String> reject = postWithToken(SKILL_DRAFT_REJECT_ENDPOINT, SKILL_DRAFT_REJECT_BODY, token);
+        assertThat(reject.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rejected = objectMapper.readTree(reject.getBody()).path("data");
+        assertThat(rejected.path("id").asText()).isEqualTo(DRAFT_ID);
+        assertThat(rejected.path("status").asInt()).isEqualTo(3);
+        assertThat(rejected.path("statusName").asText()).isEqualTo("已拒绝");
+        assertThat(rejected.path("operatorId").asText()).isEqualTo(String.valueOf(skillDraftWriteUserId));
+        assertThat(rejected.path("reviewedAt").asText()).isEqualTo("2026-09-29T11:20:00");
+        assertThat(rejected.path("rejectReason").asText())
+                .isEqualTo("正文与现有技能 prd-writing 方法论重叠，解消方向不明");
+        assertThat(rejected.path("scanFindings").isArray()).isTrue();
+        assertThat(rejected.path("scanFindings").size()).isZero();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 晋升/拒绝必留痕、缺头必拦 SKL_009
+        // ——issue #92 断言必带）：== 登录技能审核员的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(skillDraftWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(skillDraftWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写两码不串：无 skill-draft:read → 两读口 403；仅有 skill-draft:read（无写码）→ 两写口 403")
+    void given_readCodesOnly_when_draftEndpoints_then_403OnTheOtherSide() {
+        // 写码专用运营（promote+reject，无 skill-draft:read）→ 两读口 403：skill-draft 独立
+        // 成码（连技能域既有读码也不放行——spec #91 三码分权）
+        String draftWriter = login(usernameWithSkillDraftWrite);
+        assertThat(getWithToken(SKILL_DRAFTS_ENDPOINT, draftWriter).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SKILL_DRAFT_DETAIL_ENDPOINT, draftWriter).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // skill-draft:read（无写码）→ 两写口 403：审阅只读角色不得晋升/拒绝
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_DRAFT_REJECT_ENDPOINT, SKILL_DRAFT_REJECT_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅有 skill-draft:promote 单写码 → 晋升 200、拒绝 403（两写码彼此独立，晋升权与拒绝权分权）")
+    void given_nonSuperAdminWithPromoteOnly_when_draftActions_then_promote200Reject403() {
+        String token = login(usernameWithDraftPromoteOnly);
+        assertThat(postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(postWithToken(SKILL_DRAFT_REJECT_ENDPOINT, SKILL_DRAFT_REJECT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 草稿四端点 403")
+    void given_nonSuperAdminWithoutPermission_when_draftEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(SKILL_DRAFTS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SKILL_DRAFT_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SKILL_DRAFT_REJECT_ENDPOINT, SKILL_DRAFT_REJECT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问草稿四端点返回 401（含 POST 晋升/拒绝）")
+    void given_unauthenticated_when_draftEndpoints_then_401() {
+        assertThat(getWithToken(SKILL_DRAFTS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(SKILL_DRAFT_DETAIL_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SKILL_DRAFT_REJECT_ENDPOINT, SKILL_DRAFT_REJECT_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("晋升下游 SKL_016（撞名拒晋升）→ 北向 HTTP 409 + 信封 code=7016 + message 原文（不映射）")
+    void given_skl016FromDownstream_when_promoteDraft_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.promoteSkillDraft(eq(DRAFT_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":7016,\"message\":\"技能库已有同名技能，晋升被拒（审核期间同名入库——先处置同名再晋升）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithSkillDraftWrite);
+        ResponseEntity<String> response = postWithToken(SKILL_DRAFT_PROMOTE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7016（SKL_016＝域码 7×1000＋16），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7016);
+        assertThat(root.path("message").asText())
+                .isEqualTo("技能库已有同名技能，晋升被拒（审核期间同名入库——先处置同名再晋升）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("拒绝下游 SKL_018（理由空白，可选绑定不前置拦截）→ 北向 HTTP 400 + 信封 code=7018 + message 原文（不映射）")
+    void given_skl018FromDownstream_when_rejectDraftWithoutReason_then_errorEnvelopePassedThrough() throws Exception {
+        // reason 空白/缺失由 provider 手工校验出 400 SKL_018 原样透传（admin 不在绑定层前置拦截）
+        when(aiplatformClient.rejectSkillDraft(eq(DRAFT_ID), any(AiplatformSkillDraftRejectWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":7018,\"message\":\"拒绝理由不能为空（终态留档，拒绝须有据）\",\"data\":null}")));
+
+        String token = login(usernameWithSkillDraftWrite);
+        ResponseEntity<String> response = postWithToken(SKILL_DRAFT_REJECT_ENDPOINT,
+                "{\"reason\":\"  \"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 7018（SKL_018＝域码 7×1000＋18），而非映射后的 400——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(7018);
+        assertThat(root.path("message").asText()).isEqualTo("拒绝理由不能为空（终态留档，拒绝须有据）");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

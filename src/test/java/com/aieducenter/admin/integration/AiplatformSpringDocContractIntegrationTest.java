@@ -75,6 +75,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       PRJ_035＝4035／PRJ_036＝4036／PRJ_037＝4037／PRJ_034＝4034）的 summary＋description
  *       逐字镜像 provider；北向 schema 的 slot 三槽位/kind 三类别/enabled 挂载态与开关命令体
  *       enabled（必填、无缺省）同步自描述。</li>
+ *   <li>草稿审核面四端点 @Operation 描述镜像（issue #92 镜像 aiplatform #258 自产线，技能域
+ *       第 17–20 端点）：在途清单（活跃面恒在途、不分页、血统三件、扫描判定）、详情判读
+ *       （正文全文＋scanFindings untyped map＋终态留痕、任意状态可查）、晋升（无请求体、
+ *       撞名复查、入池同权<strong>不自动指派</strong>——入池与生效分离、回执即库行）、拒绝
+ *       （理由必填终态留档、回执即终态详情）的 summary＋description 逐字镜像 provider——
+ *       审核面纪律（活跃面恒在途、终态留档可查、晋升回执即库行、晋升不自动指派）与
+ *       SKL_009/015/016/017/018 数字码须在 api-docs 在场；北向 schema 的草稿行血统三件/
+ *       scanVerdict/status 三态、详情 scanFindings（空列表＝无发现）与终态留痕四字段、
+ *       拒绝命令体 reason（可选绑定不前置拦截）同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -615,6 +624,133 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("无缺省")
                 .contains("PRJ_037");
         assertThat(exampleText(enabled)).isEqualTo("false");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：草稿审核面四端点 @Operation 描述镜像 provider（#92，活跃面纪律 + 晋升不自动指派 + SKL_009/015/016/017/018 数字码在场）")
+    void given_skillDraftEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 在途清单：活跃面＝在途（人审队列）＋不分页＋血统三件＋扫描判定 SAFE/CAUTION
+        JsonNode list = paths.path("/api/admin/aiplatform/skills/drafts").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含草稿在途清单端点").isFalse();
+        assertThat(list.path("summary").asText(""))
+                .contains("技能草稿清单").contains("活跃面＝在途").contains("人审队列");
+        assertThat(list.path("description").asText(""))
+                .contains("自荐时间倒序")
+                .contains("终态（已晋升/已拒绝）不列活跃面")
+                .contains("详情仍可按 id 查")
+                .contains("血统三件")
+                .contains("main/executor/subagent")
+                .contains("SAFE/CAUTION")
+                .contains("DANGEROUS")
+                .contains("草稿不参与任何装配")
+                .contains("不分页")
+                .contains("TSID 十进制串");
+
+        // 详情判读：审核面（正文全文＋findings 逐条＋终态留痕）＋任意状态可查＋404 SKL_015 数字码
+        JsonNode detail = paths.path("/api/admin/aiplatform/skills/drafts/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含草稿详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("技能草稿详情").contains("正文＋扫描回执＋血统").contains("审核面");
+        assertThat(detail.path("description").asText(""))
+                .contains("真伪")
+                .contains("血统可溯")
+                .contains("外部资料接触史必查")
+                .contains("a-only 无 scripts")
+                .contains("patternId/severity/category/file/line/matchText/description")
+                .contains("空列表＝无发现")
+                .contains("untyped map 逐字透传")
+                .contains("在途恒 null")
+                .contains("任意状态可查")
+                .contains("SKL_015").contains("7015");
+
+        // 晋升：无请求体＋撞名复查＋入池同权不自动指派（入池与生效分离）＋回执即库行＋错误族数字码
+        JsonNode promote = paths.path("/api/admin/aiplatform/skills/drafts/{id}/promote").path("post");
+        assertThat(promote.isMissingNode()).as("api-docs 应含草稿晋升端点").isFalse();
+        assertThat(promote.path("summary").asText(""))
+                .contains("晋升草稿").contains("一键入技能库").contains("单级晋升");
+        assertThat(promote.path("description").asText(""))
+                .contains("撞名复查")
+                .contains("SKL_016").contains("7016")
+                .contains("来源＝3 自产")
+                .contains("固定虚拟值 self")
+                .contains("审核者不改稿")
+                .contains("操作者两处留痕")
+                .contains("不自动指派")
+                .contains("入池与生效分离")
+                .contains("无 scripts")
+                .contains("SKL_017").contains("7017")
+                .contains("SKL_015").contains("7015")
+                .contains("SKL_009").contains("7009")
+                .contains("无请求体")
+                .contains("回执＝新库行清单行");
+
+        // 拒绝：理由必填终态留档＋拒绝即终态（不改稿不复活）＋可选绑定不前置拦截＋回执即终态详情
+        JsonNode reject = paths.path("/api/admin/aiplatform/skills/drafts/{id}/reject").path("post");
+        assertThat(reject.isMissingNode()).as("api-docs 应含草稿拒绝端点").isFalse();
+        assertThat(reject.path("summary").asText(""))
+                .contains("拒绝草稿").contains("终态留档").contains("理由必填");
+        assertThat(reject.path("description").asText(""))
+                .contains("SKL_018").contains("7018")
+                .contains("BFF 可选绑定不前置拦截")
+                .contains("拒绝即终态")
+                .contains("不改稿不复活")
+                .contains("重提只能靠未来会话产生新草稿")
+                .contains("已拒绝不占名")
+                .contains("SKL_017").contains("7017")
+                .contains("SKL_015").contains("7015")
+                .contains("SKL_009").contains("7009")
+                .contains("body 仅 reason")
+                .contains("终态草稿详情")
+                .contains("留痕形状直读");
+
+        // 草稿行 schema 自描述：id TSID 十进制串（勿做数值假设）＋slot 三稳定键＋scanVerdict
+        // 判定语义＋status 三态（列表＝活跃面恒 1）
+        JsonNode draftId = property("AiplatformSkillDraftSummaryResponse", "id");
+        assertThat(draftId.path("description").asText(""))
+                .contains("TSID 十进制串")
+                .contains("勿做数值假设")
+                .contains("SKL_015");
+        JsonNode slot = property("AiplatformSkillDraftSummaryResponse", "slot");
+        assertThat(slot.path("description").asText(""))
+                .contains("main=主智能体")
+                .contains("subagent=子智能体");
+        assertThat(exampleText(slot)).isEqualTo("executor");
+        assertThat(property("AiplatformSkillDraftSummaryResponse", "scanVerdict")
+                .path("description").asText(""))
+                .contains("SAFE/CAUTION")
+                .contains("DANGEROUS");
+        assertThat(property("AiplatformSkillDraftSummaryResponse", "status")
+                .path("description").asText(""))
+                .contains("1=在途 2=已晋升 3=已拒绝")
+                .contains("活跃面恒 1");
+
+        // 详情 schema 自描述：scanFindings untyped 留档（空列表＝无发现）＋终态留痕四字段可空
+        assertThat(property("AiplatformSkillDraftDetailResponse", "content")
+                .path("description").asText(""))
+                .contains("a-only 无 scripts")
+                .contains("审核者不改稿");
+        assertThat(property("AiplatformSkillDraftDetailResponse", "scanFindings")
+                .path("description").asText(""))
+                .contains("空列表＝无发现")
+                .contains("untyped")
+                .contains("不做形状断言");
+        assertThat(property("AiplatformSkillDraftDetailResponse", "operatorId")
+                .path("description").asText(""))
+                .contains("在途为 null");
+        assertThat(property("AiplatformSkillDraftDetailResponse", "rejectReason")
+                .path("description").asText(""))
+                .contains("已拒绝态携带");
+
+        // 拒绝命令 schema 自描述：reason 终态留档语义＋空白 SKL_018（provider 裁决不前置拦截）
+        JsonNode reason = property("AiplatformSkillDraftRejectCommand", "reason");
+        assertThat(reason.path("description").asText(""))
+                .contains("终态留档")
+                .contains("拒绝须有据")
+                .contains("SKL_018")
+                .contains("不前置拦截");
+        assertThat(exampleText(reason)).isNotBlank();
     }
 
     // ---------- 装载 ----------
