@@ -34,7 +34,9 @@ import org.springframework.stereotype.Service;
  * 启用/卸载，issue #81）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面（issue #83），
  * aiplatform 技能线 #247/#248/#249/#250；另收指派双头预检（技能域第 16 端点，issue #90，
  * aiplatform #255——PUT 指派提交前的非阻断方法论重叠检查，只读）＋草稿审核面（技能域
- * 第 17–20 端点，issue #92，aiplatform #258 自产线——在途清单/详情判读/晋升/拒绝）。
+ * 第 17–20 端点，issue #92，aiplatform #258 自产线——在途清单/详情判读/晋升/拒绝）＋
+ * 使用计数观测扩展（issue #93，aiplatform #261——清单/详情增 loadCount/lastLoadedAt、
+ * 详情另增 resources scripts/ 资源面（#253 漂移补齐），纯字段无新端点）。
  * 技能库归 aiplatform base.skills 上下文——admin 不持业务逻辑、不持技能数据。
  *
  * <p>admin 作为 BFF 忠实透传（spec #79）：<strong>零查询参数</strong>（清单不分页不过滤——
@@ -59,7 +61,8 @@ public class AiplatformSkillAppService {
 
     /**
      * 技能清单（透传 aiplatform）——内置（classpath 合成）与安装技能同权呈现，空库时仍呈现
-     * 内置技能；不分页不过滤（有界目录，spec #79 同形不造分页）。
+     * 内置技能；不分页不过滤（有界目录，spec #79 同形不造分页）。行携使用计数观测面
+     * loadCount/lastLoadedAt（#261：load 实际发生口径，库行恒有值 0 起、内置恒 null 不适用）。
      */
     public List<AiplatformSkillSummaryResponse> list() {
         return aiplatformClient.listSkills().stream()
@@ -68,9 +71,10 @@ public class AiplatformSkillAppService {
     }
 
     /**
-     * 技能详情（透传 aiplatform）——清单行同形元数据＋frontmatter 全量（解析态键值）＋正文
-     * 全文（frontmatter 剥离后），所见即运行时注入面（安装审核承载面）。id 取清单行原值
-     * （opaque 串两形制）原样出站，不解析不预校验。
+     * 技能详情（透传 aiplatform）——清单行同形元数据（含使用计数两肢）＋frontmatter 全量
+     * （解析态键值）＋正文全文（frontmatter 剥离后）＋scripts/ 资源面（#253：相对路径→
+     * 内容全文，空对象＝无 scripts／内置），所见即运行时注入面（安装审核承载面）。id 取清单行
+     * 原值（opaque 串两形制）原样出站，不解析不预校验。
      */
     public AiplatformSkillDetailResponse getDetail(String id) {
         return toDetail(aiplatformClient.getSkill(id));
@@ -241,7 +245,8 @@ public class AiplatformSkillAppService {
                 wire.id(), wire.name(), wire.description(),
                 wire.source(), wire.sourceName(), wire.sourcePackage(), wire.version(),
                 wire.status(), wire.statusName(),
-                wire.operatorId(), wire.operatorName(), wire.updateAvailable());
+                wire.operatorId(), wire.operatorName(), wire.updateAvailable(),
+                wire.loadCount(), wire.lastLoadedAt());
     }
 
     private static AiplatformSkillDetailResponse toDetail(AiplatformSkillDetailWireResponse wire) {
@@ -249,8 +254,9 @@ public class AiplatformSkillAppService {
                 wire.id(), wire.name(), wire.description(),
                 wire.source(), wire.sourceName(), wire.sourcePackage(), wire.version(),
                 wire.status(), wire.statusName(),
-                wire.frontmatter(), wire.content(),
-                wire.operatorId(), wire.operatorName(), wire.updateAvailable());
+                wire.frontmatter(), wire.content(), wire.resources(),
+                wire.operatorId(), wire.operatorName(), wire.updateAvailable(),
+                wire.loadCount(), wire.lastLoadedAt());
     }
 
     private static AiplatformSlotAssignmentResponse toSlotAssignment(AiplatformSlotAssignmentWireResponse wire) {

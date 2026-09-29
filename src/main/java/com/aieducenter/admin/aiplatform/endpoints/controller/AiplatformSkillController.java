@@ -36,8 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
  * AI 平台技能管理控制器——技能线 T1 读面（issue #80，清单/详情）＋T2 写面（issue #81，
  * 安装/停用⇄启用/卸载）＋T3 槽位指派读写（issue #82）＋T4 显式更新＋更新留痕读面
  * （issue #83）＋指派双头预检（issue #90，技能域第 16 端点）＋草稿审核面（issue #92，
- * 技能域第 17–20 端点：在途清单/详情判读/晋升/拒绝），镜像 aiplatform
- * #247/#248/#249/#250 技能线＋#255 预检端点＋#258 自产草稿线。
+ * 技能域第 17–20 端点：在途清单/详情判读/晋升/拒绝）＋使用计数观测扩展（issue #93，
+ * 清单/详情增 loadCount/lastLoadedAt、详情另增 resources scripts/ 资源面——纯字段
+ * 无新端点无新权限码），镜像 aiplatform
+ * #247/#248/#249/#250 技能线＋#255 预检端点＋#258 自产草稿线＋#261 观测面（含
+ * #253 resources 漂移补齐）。
  *
  * <p>北向 {@code /api/admin/aiplatform/skills/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/skills/**}（机机签名出站）。技能寻址柄 {@code id} 为 opaque 串
@@ -97,7 +100,11 @@ public class AiplatformSkillController {
                     + "启停＝最近动作者，内置 null）、远端有新版标记 updateAvailable"
                     + "（来源包级：定期只读检查远端 HEAD 与装时版本不同即 true——"
                     + "更新走显式 POST /update，平台永不自动跟新；null＝未检查过，"
-                    + "内置恒 null）。排序服务端定死：内置在前"
+                    + "内置恒 null）、使用计数观测面 loadCount/lastLoadedAt"
+                    + "（load 口径＝智能体 load 工具真实加载一次 +1，指派/启停/清单重建"
+                    + "不计数；安装与自产一并覆盖；0＝从未被加载过、lastLoadedAt null"
+                    + "同义；内置恒 null 不适用；loadCount 北向 JSON string 形态）。"
+                    + "排序服务端定死：内置在前"
                     + "（名称序）、安装在后（来源包、名称序）。技能库是有界目录"
                     + "（装什么是运营决策），不分页不过滤。id 为 opaque 串两形制"
                     + "（builtin:<技能名>／TSID 十进制串），作详情/写口寻址柄。")
@@ -112,12 +119,15 @@ public class AiplatformSkillController {
             name = "AI 平台 / 技能管理查看",
             scope = AdminScopes.ADMIN
     )
-    @Operation(summary = "技能详情（元数据＋frontmatter＋正文，审核面）——透传 aiplatform",
+    @Operation(summary = "技能详情（元数据＋frontmatter＋正文＋scripts 资源面，审核面）——透传 aiplatform",
             description = "读全文判安装审核（注入面＋方法论重叠把关）：元数据（与"
-                    + "清单行同形）＋ frontmatter 全量（解析态键值，含 name/"
+                    + "清单行同形，含使用计数观测面 loadCount/lastLoadedAt）＋ "
+                    + "frontmatter 全量（解析态键值，含 name/"
                     + "description）＋正文全文（frontmatter 剥离后的 SKILL.md "
-                    + "body）——所见即运行时注入面。id 取清单行原值（opaque 串"
-                    + "两形制）。技能不存在（含未寻址内置名/TSID、畸形柄）"
+                    + "body）＋ scripts/ 资源面 resources（技能目录相对路径→"
+                    + "文件内容全文，与运行时注入面同源——脚本也是注入面审核须可读；"
+                    + "空对象＝无 scripts／内置）——所见即运行时注入面。id 取清单行"
+                    + "原值（opaque 串两形制）。技能不存在（含未寻址内置名/TSID、畸形柄）"
                     + "404 SKL_001（数字业务码 7001）。")
     public ApiResponse<AiplatformSkillDetailResponse> detail(@PathVariable String id) {
         return ApiResponse.ok(skillAppService.getDetail(id));

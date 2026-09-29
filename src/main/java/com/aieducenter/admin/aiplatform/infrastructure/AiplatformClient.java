@@ -1186,7 +1186,10 @@ public class AiplatformClient {
      * <p>对接 aiplatform {@code GET /api/backoffice/skills}（#247 技能库）：返回
      * {@code ApiResponse<List<BackofficeSkillSummaryResponse>>}——data 为裸 List（非分页载体，
      * 对话史 List 直出同形）。行 {@code id} 为 opaque 串两形制（内置 {@code builtin:<技能名>}／
-     * 安装 TSID 十进制串），admin 按字符串透传（spec #79：不解析不预校验）。</p>
+     * 安装 TSID 十进制串），admin 按字符串透传（spec #79：不解析不预校验）。行尾携使用计数
+     * 观测面（#261，#93 T2 追平）：{@code loadCount} 装箱 Long（provider 上 wire JSON string，
+     * Jackson coercion 绑 Long）＋{@code lastLoadedAt}——库行恒有值（0＝从未加载）、内置恒
+     * null 不适用。</p>
      *
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
      */
@@ -1203,14 +1206,15 @@ public class AiplatformClient {
     }
 
     /**
-     * 查询技能详情（透传 aiplatform）——清单行同形元数据＋frontmatter 全量（解析态键值）＋
-     * 正文全文（frontmatter 剥离后），安装审核承载面（所见即运行时注入面）。
+     * 查询技能详情（透传 aiplatform）——清单行同形元数据（含使用计数两肢）＋frontmatter 全量
+     * （解析态键值）＋正文全文（frontmatter 剥离后）＋scripts/ 资源面（#253：相对路径→内容
+     * 全文，空对象＝无 scripts／内置），安装审核承载面（所见即运行时注入面）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/skills/{id}}（#247）：返回
      * {@code ApiResponse<BackofficeSkillDetailResponse>}；技能不存在（含未寻址内置名/TSID、
      * 畸形柄——provider 侧两形制柄单点分解）时 HTTP 404 + 数字业务码 7001（SKL_001）原样透传。
      * {@code id} 取清单行原值原样出站（opaque 串，URL 编码仅传输层——{@code builtin:}
-     * 冒号与技能名整体入路径）。</p>
+     * 冒号与技能名整体入路径）。{@code resources} 为 {@code Map<String,String>}（#93 T2 追平）。</p>
      *
      * @param id 技能柄（opaque 串两形制：builtin:&lt;技能名&gt;／TSID 十进制串，admin 不预检）
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 SKL_001 等，不做映射）

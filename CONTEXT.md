@@ -91,7 +91,7 @@ admin 内 `account` 子包承载的**终端用户账号运营管理**关注点�
 _Avoid_: admin 自建账号表/本地审计；把「账号管理(终端用户)」与「系统管理(operator)」混淆。
 
 **AI 平台管理上下文 (Aiplatform Admin Context)**:
-admin 内 `aiplatform` 子包承载的 **AI 开发平台（aiplatform）运营监管**关注点——订单报价/取消/归档、项目与交付物查阅、沙箱治理、平台成本、知识素材治理、单价表维护（spec #62：六域 34 端点忠实透传）＋**技能管理第七域**（issue #78，aiplatform 技能线 #246 通报＋#255 指派双头预检＋#258 自产草稿线：技能库/槽位指派（含预检）/智能体运营配置/工具面/草稿审核面——3 控制器 20 端点忠实透传，见下「指派预检」「草稿审核」术语；**治理全在 provider 侧**，admin 不加安装白名单等约束，契约不满足处向 aiplatform 提票）。admin 作为 BFF 经 cartisan-openapi 签名调用 aiplatform `/api/backoffice/**`（机机签名，全局单 key `admin-console`）。与 payment/account admin 同构（BFF 纯透传、操作者身份走 RequestContext 落 aiplatform 审计列、出站客户端裸 `@Component` [ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)），两处**有意的差异**：① 错误**原样透传不做映射**——aiplatform 错误信封 `code` 装数字业务码（域码×1000＋序号，如 IDN_004→6004），HTTP 状态独立，`AiplatformClient` 统一翻译为 `AiplatformUpstreamException`（六域复用、AppService 不再 try/catch），`AiplatformUpstreamErrorAdvice` 北向还原 provider 信封（区别于 payment/account 的 `BaseCodeMessage` 映射式翻译——映射会杀前端比对 aiplatform 业务码的分支，aiplatform #169 教训）；② 北向分页按平台新决议**目标态**实现：请求 1-based + 回显 1-based，全程无 ±1 换算（aiplatform wire 本就 1-based，平台分页统一 2026-09-15 拍板）。成本域另两处口径（issue #67）：时间窗 `from/to`（半开 `[from, to)`、ISO-8601 Instant UTC）北向**必填**——provider 可缺省（缺省＝该侧不限），BFF 不设默认窗口、不暴露 provider 的不限能力（防无界扫描）；计量出口 `TokenUsage` 五档（input/output/cacheRead/cacheWrite/reasoning）为 primitive long——provider 出 JSON 数字（cartisan-web 全局 Long→ToStringSerializer 只覆盖包装类型），BFF 同形镜像。权限码每域读码独立 + 每写操作独立（`admin:aiplatform:{domain}:read` / 逐写操作；技能线三域码：`skill`＝read/install/disable/enable/uninstall/update/assign、`agent-config`＝read/update、`agent-tool`＝read/toggle，#78 grill 定稿 2026-09-23；指派双头预检**复用 `skill:assign`** 不新增码——#90 定，理由见下「指派预检」；草稿审核面三码 `skill-draft`＝read/promote/reject——#92/spec #91 grill 定稿 2026-09-29，两读端点复用 read、promote/reject 各一码〔读写不串、晋升权与拒绝权独立授受〕，连字符子域对齐 agent-tool 先例）；账号读口独立码 `admin:aiplatform:account:read`（无独立页面，订单/项目详情抽屉嵌用）。provider「开行」端点不暴露（种子脚本通道，web 改价只走原子 reprice）。
+admin 内 `aiplatform` 子包承载的 **AI 开发平台（aiplatform）运营监管**关注点——订单报价/取消/归档、项目与交付物查阅、沙箱治理、平台成本、知识素材治理、单价表维护（spec #62：六域 34 端点忠实透传）＋**技能管理第七域**（issue #78，aiplatform 技能线 #246 通报＋#255 指派双头预检＋#258 自产草稿线＋#261 使用计数观测扩展（含 #253 resources 漂移补齐，issue #93——清单/详情增 loadCount/lastLoadedAt、详情另增 resources scripts/ 资源面，纯字段无新端点无新权限码）：技能库/槽位指派（含预检）/智能体运营配置/工具面/草稿审核面——3 控制器 20 端点忠实透传，见下「指派预检」「草稿审核」「使用计数」术语；**治理全在 provider 侧**，admin 不加安装白名单等约束，契约不满足处向 aiplatform 提票）。admin 作为 BFF 经 cartisan-openapi 签名调用 aiplatform `/api/backoffice/**`（机机签名，全局单 key `admin-console`）。与 payment/account admin 同构（BFF 纯透传、操作者身份走 RequestContext 落 aiplatform 审计列、出站客户端裸 `@Component` [ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)），两处**有意的差异**：① 错误**原样透传不做映射**——aiplatform 错误信封 `code` 装数字业务码（域码×1000＋序号，如 IDN_004→6004），HTTP 状态独立，`AiplatformClient` 统一翻译为 `AiplatformUpstreamException`（六域复用、AppService 不再 try/catch），`AiplatformUpstreamErrorAdvice` 北向还原 provider 信封（区别于 payment/account 的 `BaseCodeMessage` 映射式翻译——映射会杀前端比对 aiplatform 业务码的分支，aiplatform #169 教训）；② 北向分页按平台新决议**目标态**实现：请求 1-based + 回显 1-based，全程无 ±1 换算（aiplatform wire 本就 1-based，平台分页统一 2026-09-15 拍板）。成本域另两处口径（issue #67）：时间窗 `from/to`（半开 `[from, to)`、ISO-8601 Instant UTC）北向**必填**——provider 可缺省（缺省＝该侧不限），BFF 不设默认窗口、不暴露 provider 的不限能力（防无界扫描）；计量出口 `TokenUsage` 五档（input/output/cacheRead/cacheWrite/reasoning）为 primitive long——provider 出 JSON 数字（cartisan-web 全局 Long→ToStringSerializer 只覆盖包装类型），BFF 同形镜像。权限码每域读码独立 + 每写操作独立（`admin:aiplatform:{domain}:read` / 逐写操作；技能线三域码：`skill`＝read/install/disable/enable/uninstall/update/assign、`agent-config`＝read/update、`agent-tool`＝read/toggle，#78 grill 定稿 2026-09-23；指派双头预检**复用 `skill:assign`** 不新增码——#90 定，理由见下「指派预检」；草稿审核面三码 `skill-draft`＝read/promote/reject——#92/spec #91 grill 定稿 2026-09-29，两读端点复用 read、promote/reject 各一码〔读写不串、晋升权与拒绝权独立授受〕，连字符子域对齐 agent-tool 先例）；账号读口独立码 `admin:aiplatform:account:read`（无独立页面，订单/项目详情抽屉嵌用）。provider「开行」端点不暴露（种子脚本通道，web 改价只走原子 reprice）。
 _Avoid_: 把 aiplatform 错误映射成 `BaseCodeMessage`（NOT_FOUND 等——丢数字业务码）；在 admin 侧镜像 provider 错误码目录/为 `@ErrorCodes` 注册枚举（漂移面，框架 validator 要求码在本地注册）；把操作者（admin 管理员）与 aiplatform accountId/externalId 混读。
 
 **指派预检 (Assignment Precheck)**:
@@ -101,6 +101,26 @@ _Avoid_: 把 executed=false 当「无重叠」呈现（降级伪装成安全）�
 **草稿审核 (Draft Review)**:
 aiplatform 技能域第 17–20 端点（`GET/POST /api/admin/aiplatform/skills/drafts**` 四端点，issue #92 镜像 aiplatform #258 自产线/ADR-0022 库制草稿）——技能审核员人审智能体自荐技能草稿：在途清单（跨项目**活跃面**恒在途、血统三件 projectId/runId/slot、扫描判定 SAFE/CAUTION——DANGEROUS 写入口已拒收、自荐时间倒序、**不分页**——人审天然瓶颈）→ 详情判读（正文全文 a-only 无 scripts＋`scanFindings` **untyped `List<Map<String,Object>>`**〔provider 源即 untyped 勿造 typed record，对齐 frontmatter 先例〕＋终态留痕四字段在途恒 null；任意状态可查＝终态留档）→ 晋升（**无命令体**、操作者 X-User-* 透传头两处留痕、回执即**技能库清单行**〔来源 3 自产、sourcePackage/version＝固定虚拟值 self〕——**入池与生效分离不自动指派**，生效仍走人工指派＋预检）或拒绝（reason 可选绑定不前置拦截、空白 provider 判 SKL_018、终态留档不改稿不复活——重提靠未来会话新草稿、回执即终态详情直读）。权限码三枚 `skill-draft:read/promote/reject`（30→33）；菜单叶 250（V20，icon `carbon:task-approved`——已对照 admin-web 锁定 @iconify/json 离线集核实；`task-assignments` 不在锁定集勿踩）。错误族 SKL_009/015/016/017/018（7009/7015/7016/7017/7018）原样透传。
 _Avoid_: 给 scanFindings 造 typed record（provider 源 untyped，加戏）；在北向绑定层前置拦截空 reason（provider 裁决）；晋升后自动指派（入池≠生效）；把终态草稿从详情读面剔除（终态留档可查）。
+
+**技能草稿 (Skill Draft)**:
+智能体自荐技能的**库制草稿**（aiplatform ADR-0022：自产线产物先落草稿库待人审，非内存态）——单级晋升（在途→已晋升/已拒绝即终态，不可再审、不改稿不复活；重提靠未来会话新草稿）、**入池与生效分离**（晋升＝入库同权，不自动指派——生效仍走人工指派＋预检）。审核承载＝技能审核员人审（`skill-draft:*` 权限码族）。
+_Avoid_: 把草稿当可编辑工作台（终态不可改）；晋升即指派（入池≠生效）；多级审批流（单级即终态）。
+
+**自产技能 (Self-authored Skill)**:
+技能库第三来源（source=3，区别于内置=1/安装=2）——由草稿晋升而来，`sourcePackage`/`version`＝**固定虚拟值 `self`**（无远端仓库身份：`updateAvailable` 恒 null 不适用——无远端可查）；**结构性无 scripts**（草稿线 a-only：正文全文即全部注入面）。入库后与安装技能同权（启停/指派/预检/卸载同套治理）。
+_Avoid_: 给自产行造远端更新语义（self 无远端）；把自产当二等技能限制指派（同权）。
+
+**血统 (Lineage)**:
+草稿的三件溯源键 `projectId`/`runId`/`slot`——回答「哪个项目的哪次运行、在哪个职能槽位自荐的」：审核判读时必查（外部资料接触史、越权行为面按项目/run 追溯）。跨项目自荐同一技能名各自独立成稿（不合并）。
+_Avoid_: 把血统三件当展示装饰（判读必查）；跨项目合并同名牌稿（各自独立）。
+
+**扫描回执 (Scan Verdict / Findings)**:
+草稿写入口的自动扫描留档两件：`scanVerdict`（SAFE/CAUTION 二值呈现——**DANGEROUS 写入口拒收不落库**，清单永远见不到）＋`scanFindings`（逐条留档 `List<Map<String,Object>>`——provider 源即 untyped，字段名仅存在于描述层）。判读纪律：CAUTION≠拒、SAFE≠过——扫描是辅助面，裁决权在人审。
+_Avoid_: 把 CAUTION 当拒绝理由（人审裁决）；给 findings 造 typed record（untyped 镜像）；期待清单出现 DANGEROUS（写入口已拒）。
+
+**使用计数 (Usage Count)**:
+技能清单/详情的观测面两肢 `loadCount`/`lastLoadedAt`（issue #93 追平 aiplatform #261）——**load 口径**＝智能体 load 工具真实加载该技能一次即 +1（指派/启停/清单重建**不**计数）；安装与自产一并覆盖；provider 存储态 primitive long——库行恒有值（0＝从未被加载过，含新装/新晋行）、`lastLoadedAt` null 同义；**内置技能恒 null 不适用**（区别于「从未加载」的 0/null 态）。`loadCount` 装箱 Long——北向 JSON string 形态（cartisan-web 全局 Long→ToStringSerializer，同 TSID id 口径）。
+_Avoid_: 把指派数当加载数（口径=load 实际发生）；给内置行造 0 计数（null=不适用≠从未加载）；前端把 loadCount 当数值运算（JSON string，先转 Number）。
 
 **admin 是 BFF（非严格 DDD 领域服务）**:
 admin 的职责 = **调接口 + DTO 转换 + 聚合**，无重业务逻辑。出站服务客户端（`AppRegistryClient` / `PaymentClient` / 未来钱包·Token 客户端）为 **infrastructure 包内裸 `@Component`**，应用层直接注入——**不走** `@Port(CLIENT)` + `@Adapter(CLIENT)`。`@Port`/`@Adapter` 是**业务服务**南向端口的 DDD 规范（Domain 定义 Port、Infra 实现 Adapter），admin 作为 BFF 没有那样的 domain 厚度值得去解耦。Q5 grill 定（2026-08-11，issue #37）。

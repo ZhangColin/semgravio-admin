@@ -811,17 +811,20 @@ class AiplatformRbacEnforcementIntegrationTest {
                     String.valueOf(materialWriteUserId), materialWriteUserNickname);
         }).when(aiplatformClient).deleteMaterial(eq(MATERIAL_ID));
         // 技能管理域 mock（issue #80，aiplatform #247 技能线 T1）：清单两行（内置 builtin: 柄 +
-        // 安装 TSID 柄——opaque 两形制代表面）/ 详情（frontmatter 自由键值 + 正文全文，审核面）
+        // 安装 TSID 柄——opaque 两形制代表面）/ 详情（frontmatter 自由键值 + 正文全文，审核面）；
+        // 使用计数观测面（#93 T2 追平）：内置行恒 null 不适用、安装行实值（已加载过代表面）
         when(aiplatformClient.listSkills()).thenReturn(List.of(
                 new AiplatformSkillSummaryWireResponse(
                         BUILTIN_SKILL_HANDLE, "prd-writing", "撰写或修订 PRD 时使用",
                         1, "内置", null, null,
-                        1, "启用", null, null, null),
+                        1, "启用", null, null, null,
+                        null, null),
                 new AiplatformSkillSummaryWireResponse(
                         SKILL_ID, "web-research", "联网检索与网页抓取整理",
                         2, "安装", "https://github.com/acme/agent-skills",
                         "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-                        2, "停用", "700200", "运营·技能管理员", true)));
+                        2, "停用", "700200", "运营·技能管理员", true,
+                        5L, LocalDateTime.of(2026, 9, 20, 10, 0, 0))));
         when(aiplatformClient.getSkill(eq(SKILL_ID))).thenReturn(new AiplatformSkillDetailWireResponse(
                 SKILL_ID, "web-research", "联网检索与网页抓取整理",
                 2, "安装", "https://github.com/acme/agent-skills",
@@ -829,7 +832,9 @@ class AiplatformRbacEnforcementIntegrationTest {
                 1, "启用",
                 Map.of("name", "web-research", "description", "联网检索与网页抓取整理", "license", "MIT"),
                 "# Web Research\n\n先检索后作答……\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源",
-                "700200", "运营·技能管理员", false));
+                Map.of("scripts/run-tests.sh", "#!/bin/bash\nset -e\n"),
+                "700200", "运营·技能管理员", false,
+                5L, LocalDateTime.of(2026, 9, 20, 10, 0, 0)));
         // 技能四写口 mock（issue #81，aiplatform #248 技能线 T2）：安装回执＝本次装入条目清单
         // （裸 List，装者留痕）/ 启停回执＝翻转后清单行 / 卸载回执＝删除前终态——均抓取
         // RequestContext（操作者透传契约证据，provider 缺头必拦 SKL_009，断言必带）
@@ -978,7 +983,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                     "3852300005555555", "report-outline", "生成结构化报告大纲时使用",
                     3, "自产", "self", "self",
                     1, "启用",
-                    String.valueOf(skillDraftWriteUserId), skillDraftWriteUserNickname, null);
+                    String.valueOf(skillDraftWriteUserId), skillDraftWriteUserNickname, null,
+                    0L, null);
         }).when(aiplatformClient).promoteSkillDraft(eq(DRAFT_ID));
         doAnswer(inv -> {
             capture.run();
@@ -1028,13 +1034,15 @@ class AiplatformRbacEnforcementIntegrationTest {
                                 2, "安装", "https://github.com/acme/agent-skills",
                                 "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
                                 1, "启用",
-                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false),
+                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false,
+                                5L, LocalDateTime.of(2026, 9, 20, 10, 0, 0)),
                         new AiplatformSkillSummaryWireResponse(
                                 "3852300004444444", "code-review", "代码评审时使用",
                                 2, "安装", "https://github.com/acme/agent-skills",
                                 "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
                                 1, "启用",
-                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false)));
+                                String.valueOf(skillUpdateUserId), skillUpdateUserNickname, false,
+                                0L, null)));
     }
 
     /**
@@ -1067,7 +1075,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                 2, "安装", "https://github.com/acme/agent-skills",
                 "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
                 status, statusName,
-                String.valueOf(skillWriteUserId), skillWriteUserNickname, null);
+                String.valueOf(skillWriteUserId), skillWriteUserNickname, null,
+                5L, LocalDateTime.of(2026, 9, 20, 10, 0, 0));
     }
 
     /**
@@ -1082,13 +1091,15 @@ class AiplatformRbacEnforcementIntegrationTest {
                         2, "安装", "https://github.com/acme/agent-skills",
                         "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
                         1, "启用",
-                        String.valueOf(skillAssignUserId), skillAssignUserNickname, false),
+                        String.valueOf(skillAssignUserId), skillAssignUserNickname, false,
+                        5L, LocalDateTime.of(2026, 9, 20, 10, 0, 0)),
                 new AiplatformSkillSummaryWireResponse(
                         "3852300003333333", "prd-writing", "撰写或修订 PRD 时使用",
                         2, "安装", "https://github.com/acme/agent-skills",
                         "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
                         2, "停用",
-                        String.valueOf(skillAssignUserId), skillAssignUserNickname, null)));
+                        String.valueOf(skillAssignUserId), skillAssignUserNickname, null,
+                        0L, null)));
     }
 
     /**
@@ -2175,7 +2186,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.size()).isEqualTo(2);
 
         // 首行：内置行——builtin: 柄原样（opaque 串两形制之一）、source/sourceName 1/内置、
-        // 来源包/版本/操作者/新版标记如实出 JSON null（全局 Jackson 含 null）
+        // 来源包/版本/操作者/新版标记/使用计数两肢如实出 JSON null（全局 Jackson 含 null；
+        // 观测面内置恒 null 不适用）
         JsonNode builtin = data.get(0);
         assertThat(builtin.path("id").asText()).isEqualTo(BUILTIN_SKILL_HANDLE);
         assertThat(builtin.path("name").asText()).isEqualTo("prd-writing");
@@ -2187,9 +2199,12 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(builtin.path("version").isNull()).isTrue();
         assertThat(builtin.path("operatorId").isNull()).isTrue();
         assertThat(builtin.path("updateAvailable").isNull()).isTrue();
+        assertThat(builtin.path("loadCount").isNull()).isTrue();
+        assertThat(builtin.path("lastLoadedAt").isNull()).isTrue();
 
         // 次行：安装行——TSID 十进制串柄（两形制之二）、source/status Integer + *Name 随行、
-        // 来源包＋装时 commit＋治理留痕两肢＋新版标记 true
+        // 来源包＋装时 commit＋治理留痕两肢＋新版标记 true＋使用计数实值——loadCount 北向出
+        // JSON string（cartisan-web 全局 Long→ToStringSerializer，同 id 口径）
         JsonNode installed = data.get(1);
         assertThat(installed.path("id").asText()).isEqualTo(SKILL_ID);
         assertThat(installed.path("source").asInt()).isEqualTo(2);
@@ -2201,6 +2216,9 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(installed.path("operatorId").asText()).isEqualTo("700200");
         assertThat(installed.path("operatorName").asText()).isEqualTo("运营·技能管理员");
         assertThat(installed.path("updateAvailable").asBoolean()).isTrue();
+        assertThat(installed.path("loadCount").isTextual()).isTrue();
+        assertThat(installed.path("loadCount").asText()).isEqualTo("5");
+        assertThat(installed.path("lastLoadedAt").asText()).isEqualTo("2026-09-20T10:00:00");
     }
 
     @Test
@@ -2221,6 +2239,14 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("content").asText()).startsWith("# Web Research");
         assertThat(data.path("content").asText()).contains("\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源");
         assertThat(data.path("updateAvailable").asBoolean()).isFalse();
+        // scripts/ 资源面（#253 漂移补齐）：相对路径→内容全文（审核须可读）＋使用计数实值
+        // （loadCount 北向 JSON string——同 id 口径）
+        assertThat(data.path("resources").path("scripts/run-tests.sh").asText())
+                .isEqualTo("#!/bin/bash\nset -e\n");
+        assertThat(data.path("resources").size()).isEqualTo(1);
+        assertThat(data.path("loadCount").isTextual()).isTrue();
+        assertThat(data.path("loadCount").asText()).isEqualTo("5");
+        assertThat(data.path("lastLoadedAt").asText()).isEqualTo("2026-09-20T10:00:00");
     }
 
     @Test

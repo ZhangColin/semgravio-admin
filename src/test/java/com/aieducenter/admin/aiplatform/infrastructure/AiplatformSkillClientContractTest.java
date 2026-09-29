@@ -1,5 +1,6 @@
 package com.aieducenter.admin.aiplatform.infrastructure;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -24,11 +25,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * aiplatform 技能管理域（清单/详情＋安装/停用⇄启用/卸载＋槽位指派读写＋显式更新＋更新留痕
- * 读面＋指派双头预检＋草稿审核面）的 wire 契约测试（对接 aiplatform #247 技能线 T1、#248
- * 技能线 T2、#249 技能线 T3、#250 技能线 T4、#255 指派双头预检、#258 自产草稿线，
- * issue #80/#81/#82/#83/#90/#92）。
+ * 读面＋指派双头预检＋草稿审核面＋使用计数观测扩展）的 wire 契约测试（对接 aiplatform #247
+ * 技能线 T1、#248 技能线 T2、#249 技能线 T3、#250 技能线 T4、#255 指派双头预检、#258
+ * 自产草稿线、#261 使用计数观测面（含 #253 resources 漂移补齐），
+ * issue #80/#81/#82/#83/#90/#92/#93）。
  *
- * <p>契约事实（2026-09-23 对照 aiplatform 源码；2026-09-29 预检组对照 #255 落地实况
+ * <p>契约事实（2026-09-23 对照 aiplatform 源码；2026-09-29 预检组对照 #255 落地实况＋
+ * 观测扩展对照 #261/#253
  * {@code BackofficeSkillController} /
  * {@code BackofficeSkillAppService} / {@code BackofficeSkillPrecheckAppService} /
  * {@code BackofficeSkillSummaryResponse} /
@@ -49,9 +52,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       {@code status} Integer code（1=启用 2=停用）+ {@code statusName} 中文名随行；
  *       {@code sourcePackage}/{@code version} 仅安装行有值（内置 null）；{@code updateAvailable}
  *       来源包级新版标记（null＝未检查过，内置恒 null）。</li>
+ *   <li>使用计数观测面（#261，issue #93 T2 追平）：行尾 {@code loadCount}（装箱 Long——wire
+ *       上 JSON <strong>string</strong> 形态，cartisan-web 全局 Long→ToStringSerializer 同
+ *       TSID id 口径）＋{@code lastLoadedAt}（LocalDateTime ISO）两肢：口径＝load 实际发生
+ *       （智能体 load 工具真实加载一次 +1，指派/启停/清单重建不计数）；provider 存储态
+ *       primitive long——<strong>库行恒有值</strong>（0＝从未被加载过，含新装/新晋行），
+ *       仅内置行 null 不适用（与「从未加载」的 "0"/null 态相区分）。</li>
  *   <li>详情多 {@code frontmatter}（自由键值对象逐字透传——不做形状断言）＋{@code content}
- *       （frontmatter 剥离后正文全文，审核承载面）两字段，位于 statusName 与 operator 两肢之间
- *       （provider 字段序逐字镜像）。</li>
+ *       （frontmatter 剥离后正文全文，审核承载面）＋{@code resources}（<strong>
+ *       {@code Map<String,String>}</strong>——#253 scripts/ 资源面：技能目录相对路径→内容
+ *       全文，与运行时注入面同源；无 scripts／内置恒<strong>空对象</strong>区别于 null）三字段；
+ *       resources 位于 content 与 operator 两肢之间、使用计数两肢殿后（provider 字段序逐字
+ *       镜像）。</li>
  *   <li>写口四端点（T2，#248）：安装 {@code POST /skills/install} 带 {@code {repoUrl,
  *       excludeDirs}} 命令体（excludeDirs 可缺省）、回执＝裸 List（与清单行共形——本次装入的
  *       条目清单）；停用/启用 {@code POST /skills/{id}/disable|enable} <strong>无请求体</strong>
@@ -117,7 +129,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 class AiplatformSkillClientContractTest {
 
-    /** 内置行（provider classpath 合成）：builtin: 柄、来源 1、来源包/版本/操作者/新版标记全 null。 */
+    /**
+     * 内置行（provider classpath 合成）：builtin: 柄、来源 1、来源包/版本/操作者/新版标记/
+     * 使用计数两肢全 null（观测面内置恒不适用——非「从未加载」的 0/null 区分）。
+     */
     private static final String BUILTIN_ROW = """
             {
               "id": "builtin:prd-writing",
@@ -131,11 +146,17 @@ class AiplatformSkillClientContractTest {
               "statusName": "启用",
               "operatorId": null,
               "operatorName": null,
-              "updateAvailable": null
+              "updateAvailable": null,
+              "loadCount": null,
+              "lastLoadedAt": null
             }
             """;
 
-    /** 安装行（库行）：TSID 十进制串柄、来源 2、来源包/装时 commit/治理留痕/新版标记俱全。 */
+    /**
+     * 安装行（库行）：TSID 十进制串柄、来源 2、来源包/装时 commit/治理留痕/新版标记俱全；
+     * 使用计数实值代表面——loadCount JSON <strong>string</strong> 形态（cartisan-web 全局
+     * Long→ToStringSerializer，同 TSID id 口径）、lastLoadedAt ISO 时刻（已加载过）。
+     */
     private static final String INSTALLED_ROW = """
             {
               "id": "3852300001111111",
@@ -149,7 +170,9 @@ class AiplatformSkillClientContractTest {
               "statusName": "停用",
               "operatorId": "700200",
               "operatorName": "运营·技能管理员",
-              "updateAvailable": true
+              "updateAvailable": true,
+              "loadCount": "5",
+              "lastLoadedAt": "2026-09-20T10:00:00"
             }
             """;
 
@@ -172,7 +195,9 @@ class AiplatformSkillClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/skills/{id} 的真实成功响应形状：安装行详情——frontmatter
-     * 自由键值（含 name/description 之外的键，逐字透传）＋正文全文（多段形态代表面）。
+     * 自由键值（含 name/description 之外的键，逐字透传）＋正文全文（多段形态代表面）＋
+     * scripts/ 资源面（#253：相对路径→内容全文实值，位于 content 与 operator 之间）＋
+     * 使用计数两肢实值（JSON string／ISO 时刻）。
      */
     private static final String SKILL_DETAIL_ENVELOPE = """
             {
@@ -195,9 +220,15 @@ class AiplatformSkillClientContractTest {
                   "requires": ["network"]
                 },
                 "content": "# Web Research\\n\\n先检索后作答……\\n\\n## 步骤\\n\\n1. 拆解问题\\n2. 检索来源",
+                "resources": {
+                  "scripts/run-tests.sh": "#!/bin/bash\\nset -e\\ncurl -sf http://example.com | grep ok\\n",
+                  "scripts/summarize.py": "print('summary')\\n"
+                },
                 "operatorId": "700200",
                 "operatorName": "运营·技能管理员",
-                "updateAvailable": false
+                "updateAvailable": false,
+                "loadCount": "5",
+                "lastLoadedAt": "2026-09-20T10:00:00"
               },
               "requestId": "req-s3d4e",
               "errors": null
@@ -236,7 +267,9 @@ class AiplatformSkillClientContractTest {
                   "statusName": "启用",
                   "operatorId": "700200",
                   "operatorName": "运营·技能管理员",
-                  "updateAvailable": null
+                  "updateAvailable": null,
+                  "loadCount": "0",
+                  "lastLoadedAt": null
                 },
                 {
                   "id": "3852300003333333",
@@ -250,7 +283,9 @@ class AiplatformSkillClientContractTest {
                   "statusName": "启用",
                   "operatorId": "700200",
                   "operatorName": "运营·技能管理员",
-                  "updateAvailable": null
+                  "updateAvailable": null,
+                  "loadCount": "0",
+                  "lastLoadedAt": null
                 }
               ],
               "requestId": "req-s7i9a",
@@ -279,7 +314,9 @@ class AiplatformSkillClientContractTest {
                   "statusName": "停用",
                   "operatorId": "700200",
                   "operatorName": "运营·技能管理员",
-                  "updateAvailable": true
+                  "updateAvailable": true,
+                  "loadCount": "5",
+                  "lastLoadedAt": "2026-09-20T10:00:00"
                 },
               "requestId": "req-s9a0c",
               "errors": null
@@ -318,7 +355,9 @@ class AiplatformSkillClientContractTest {
                     "statusName": "启用",
                     "operatorId": "700200",
                     "operatorName": "运营·技能管理员",
-                    "updateAvailable": false
+                    "updateAvailable": false,
+                    "loadCount": "5",
+                    "lastLoadedAt": "2026-09-20T10:00:00"
                   },
                   {
                     "id": "3852300003333333",
@@ -332,7 +371,9 @@ class AiplatformSkillClientContractTest {
                     "statusName": "停用",
                     "operatorId": "700200",
                     "operatorName": "运营·技能管理员",
-                    "updateAvailable": null
+                    "updateAvailable": null,
+                    "loadCount": "0",
+                    "lastLoadedAt": null
                   }
                 ]
               },
@@ -465,7 +506,9 @@ class AiplatformSkillClientContractTest {
                     "statusName": "启用",
                     "operatorId": "700200",
                     "operatorName": "运营·技能管理员",
-                    "updateAvailable": false
+                    "updateAvailable": false,
+                    "loadCount": "5",
+                    "lastLoadedAt": "2026-09-20T10:00:00"
                   },
                   {
                     "id": "3852300004444444",
@@ -479,7 +522,9 @@ class AiplatformSkillClientContractTest {
                     "statusName": "启用",
                     "operatorId": "700200",
                     "operatorName": "运营·技能管理员",
-                    "updateAvailable": false
+                    "updateAvailable": false,
+                    "loadCount": "0",
+                    "lastLoadedAt": null
                   }
                 ]
               },
@@ -517,7 +562,9 @@ class AiplatformSkillClientContractTest {
                     "statusName": "启用",
                     "operatorId": "700200",
                     "operatorName": "运营·技能管理员",
-                    "updateAvailable": false
+                    "updateAvailable": false,
+                    "loadCount": "5",
+                    "lastLoadedAt": "2026-09-20T10:00:00"
                   }
                 ]
               },
@@ -693,7 +740,8 @@ class AiplatformSkillClientContractTest {
     /**
      * aiplatform POST /api/backoffice/skills/drafts/{id}/promote 的真实成功响应形状：回执＝
      * 技能库清单行（新库行）——来源＝3 自产、来源包/版本＝固定虚拟值 self、启用态、操作者＝
-     * 晋升者（含技能 id＝后续指派寻址柄）。
+     * 晋升者（含技能 id＝后续指派寻址柄）；使用计数零基（loadCount "0" JSON string——
+     * provider 存储态 primitive long 恒有值、lastLoadedAt null＝从未被加载过）。
      */
     private static final String DRAFT_PROMOTE_RECEIPT_ENVELOPE = """
             {
@@ -711,7 +759,9 @@ class AiplatformSkillClientContractTest {
                 "statusName": "启用",
                 "operatorId": "700300",
                 "operatorName": "运营·技能审核员",
-                "updateAvailable": null
+                "updateAvailable": null,
+                "loadCount": "0",
+                "lastLoadedAt": null
               },
               "requestId": "req-s30p3",
               "errors": null
@@ -788,7 +838,8 @@ class AiplatformSkillClientContractTest {
         assertThat(skills).hasSize(2);
 
         // 首行：内置行——builtin: 柄原样到达（opaque 串，admin 不解析）、来源 1/内置、
-        // 状态恒启用、来源包/版本/操作者/新版标记全 null 如实绑定（全局 Jackson 含 null）
+        // 状态恒启用、来源包/版本/操作者/新版标记/使用计数两肢全 null 如实绑定（全局 Jackson
+        // 含 null；观测面内置恒 null 不适用——区别于库行「从未加载」的 0/null 态）
         var builtin = skills.get(0);
         assertThat(builtin.id()).isEqualTo(BUILTIN_SKILL_HANDLE);
         assertThat(builtin.name()).isEqualTo("prd-writing");
@@ -802,9 +853,12 @@ class AiplatformSkillClientContractTest {
         assertThat(builtin.operatorId()).isNull();
         assertThat(builtin.operatorName()).isNull();
         assertThat(builtin.updateAvailable()).isNull();
+        assertThat(builtin.loadCount()).isNull();
+        assertThat(builtin.lastLoadedAt()).isNull();
 
         // 次行：安装行——TSID 十进制串柄、来源 2/安装、来源包＋装时 commit、停用态＋
-        // 治理留痕两肢、新版标记 true
+        // 治理留痕两肢、新版标记 true、使用计数实值（loadCount wire JSON string「5」经
+        // Jackson coercion 绑 Long——同 TSID id 口径；lastLoadedAt ISO 时刻）
         var installed = skills.get(1);
         assertThat(installed.id()).isEqualTo(INSTALLED_SKILL_ID);
         assertThat(installed.source()).isEqualTo(2);
@@ -816,6 +870,8 @@ class AiplatformSkillClientContractTest {
         assertThat(installed.operatorId()).isEqualTo("700200");
         assertThat(installed.operatorName()).isEqualTo("运营·技能管理员");
         assertThat(installed.updateAvailable()).isTrue();
+        assertThat(installed.loadCount()).isEqualTo(5L);
+        assertThat(installed.lastLoadedAt()).isEqualTo(LocalDateTime.of(2026, 9, 20, 10, 0, 0));
     }
 
     // ========== 详情（opaque 柄出站 + frontmatter/正文全文）==========
@@ -872,6 +928,68 @@ class AiplatformSkillClientContractTest {
         assertThat(detail.content()).startsWith("# Web Research");
         assertThat(detail.content()).contains("\n\n## 步骤\n\n1. 拆解问题\n2. 检索来源");
         assertThat(detail.updateAvailable()).isFalse();
+
+        // scripts/ 资源面（#253 漂移补齐）：相对路径→内容全文逐字透传（Map<String,String>——
+        // 与运行时注入面同源，脚本也是注入面审核须可读）；多条目代表面
+        assertThat(detail.resources()).hasSize(2);
+        assertThat(detail.resources().get("scripts/run-tests.sh"))
+                .isEqualTo("#!/bin/bash\nset -e\ncurl -sf http://example.com | grep ok\n");
+        assertThat(detail.resources().get("scripts/summarize.py")).isEqualTo("print('summary')\n");
+
+        // 使用计数两肢（语义同清单行）：loadCount wire JSON string 绑 Long、lastLoadedAt ISO 时刻
+        assertThat(detail.loadCount()).isEqualTo(5L);
+        assertThat(detail.lastLoadedAt()).isEqualTo(LocalDateTime.of(2026, 9, 20, 10, 0, 0));
+    }
+
+    /**
+     * aiplatform GET /api/backoffice/skills/{id} 的内置行详情形状（观测面 null/空对象代表面）：
+     * resources <strong>空对象</strong>（内置无 scripts——区别于 null 缺席）、使用计数两肢
+     * null（内置恒不适用——区别于库行「从未加载」的 "0"/null 态）。
+     */
+    private static final String BUILTIN_SKILL_DETAIL_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "builtin:prd-writing",
+                "name": "prd-writing",
+                "description": "撰写或修订 PRD 时使用",
+                "source": 1,
+                "sourceName": "内置",
+                "sourcePackage": null,
+                "version": null,
+                "status": 1,
+                "statusName": "启用",
+                "frontmatter": {
+                  "name": "prd-writing",
+                  "description": "撰写或修订 PRD 时使用"
+                },
+                "content": "# PRD Writing\\n\\n按模板撰写 PRD……",
+                "resources": {},
+                "operatorId": null,
+                "operatorName": null,
+                "updateAvailable": null,
+                "loadCount": null,
+                "lastLoadedAt": null
+              },
+              "requestId": "req-s3d5f",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_builtinDetailEnvelope_when_getDetail_then_emptyResourcesAndNullUsageBound() {
+        var appService = AiplatformWireTestSupport.skillAppServiceWithStubTransport(
+                BUILTIN_SKILL_DETAIL_ENVELOPE, new String[1]);
+
+        AiplatformSkillDetailResponse detail = appService.getDetail(BUILTIN_SKILL_HANDLE);
+
+        // 内置详情观测面：resources 空对象（provider Map.of() 出 {} 在场——无 scripts 的
+        // 「空集」语义，区别于 null 缺席）、使用计数两肢 null（内置恒不适用）
+        assertThat(detail.id()).isEqualTo(BUILTIN_SKILL_HANDLE);
+        assertThat(detail.resources()).isNotNull().isEmpty();
+        assertThat(detail.loadCount()).isNull();
+        assertThat(detail.lastLoadedAt()).isNull();
     }
 
     // ========== 错误透传（SKL_001 数字业务码，不映射）==========
@@ -929,7 +1047,9 @@ class AiplatformSkillClientContractTest {
         assertThat(wireBody[0]).contains("\"excludeDirs\":null");
 
         // 回执＝本次装入的条目清单（与清单行共形）：裸 List 信封正确拆开、两行全字段绑定——
-        // 安装行形态（来源 2、启用态、装者留痕、新版标记未检查过 null）
+        // 安装行形态（来源 2、启用态、装者留痕、新版标记未检查过 null）＋使用计数零基
+        // （loadCount "0" JSON string——provider 存储态 primitive long 恒有值、
+        // lastLoadedAt null＝从未被加载过——「装了但从未被 load」实态）
         assertThat(installed).hasSize(2);
         var first = installed.get(0);
         assertThat(first.id()).isEqualTo("3852300002222222");
@@ -943,10 +1063,14 @@ class AiplatformSkillClientContractTest {
         assertThat(first.operatorId()).isEqualTo("700200");
         assertThat(first.operatorName()).isEqualTo("运营·技能管理员");
         assertThat(first.updateAvailable()).isNull();
+        assertThat(first.loadCount()).isZero();
+        assertThat(first.lastLoadedAt()).isNull();
         var second = installed.get(1);
         assertThat(second.id()).isEqualTo("3852300003333333");
         assertThat(second.name()).isEqualTo("prd-writing");
         assertThat(second.status()).isEqualTo(1);
+        assertThat(second.loadCount()).isZero();
+        assertThat(second.lastLoadedAt()).isNull();
     }
 
     // ========== 停用⇄启用（POST {id}/disable|enable，无请求体）==========
@@ -1641,6 +1765,11 @@ class AiplatformSkillClientContractTest {
         assertThat(receipt.operatorId()).isEqualTo("700300");
         assertThat(receipt.operatorName()).isEqualTo("运营·技能审核员");
         assertThat(receipt.updateAvailable()).isNull();
+
+        // 使用计数零基（新库行从未被 load）：loadCount "0" JSON string 绑 Long、
+        // lastLoadedAt null——与内置行 null/null（不适用）不同态的实态代表面
+        assertThat(receipt.loadCount()).isZero();
+        assertThat(receipt.lastLoadedAt()).isNull();
     }
 
     // ========== 拒绝（POST {id}/reject 带 {reason} 命令体 + 回执＝终态草稿详情直读）==========

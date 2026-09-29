@@ -39,7 +39,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * aiplatform BFF 北向全量冒烟复核（issue #72 T10 六域收口、#80–#85 技能线 T1–T6
  * 逐票扩入 15 端点、#86 七域收口、#90 指派双头预检——技能域第 16 端点、#92 草稿审核面
- * ——技能域第 17–20 端点、#61 冒烟四项之「域内全端点」就绪态）。
+ * ——技能域第 17–20 端点、#93 使用计数观测扩展追平——清单/详情增 loadCount/lastLoadedAt、
+ * 详情另增 resources scripts/ 资源面（#261 观测面＋#253 漂移补齐；纯字段无新端点无新
+ * 权限码，端点计数/码清单不变）、#61 冒烟四项之「域内全端点」就绪态）。
  *
  * <p>七域 54 端点合入后的收口审计，两条腿：</p>
  * <ul>
@@ -67,7 +69,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面：七域 54 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1。 */
+    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）：七域 54 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1。 */
     private static final int EXPECTED_ENDPOINT_COUNT = 54;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";

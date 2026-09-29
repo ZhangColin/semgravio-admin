@@ -1,5 +1,7 @@
 package com.aieducenter.admin.aiplatform.application.dto.response;
 
+import java.time.LocalDateTime;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
@@ -15,6 +17,13 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * Integer code + {@code sourceName}/{@code statusName} 中文名随行（provider 出口提供）；
  * {@code updateAvailable}＝来源包级远端有新版标记（null＝未检查过，内置恒 null——如实出
  * JSON null）。</p>
+ *
+ * <p>使用计数观测面（#261，T2 追平）：{@code loadCount} 装箱 Long——北向 JSON 呈
+ * <strong>string 形态</strong>（cartisan-web 全局 Long→ToStringSerializer，同 TSID id 口径；
+ * 形状如实：null 出 JSON null、实值出 JSON string）；口径＝load 实际发生（智能体 load 工具
+ * 真实加载该技能一次即 +1，指派/启停/清单重建不计数），安装与自产一并覆盖；0＝从未被加载
+ * 过（含新装/新晋行——provider 存储态 primitive long 恒有值）；内置技能恒 null 不适用。
+ * {@code lastLoadedAt} null＝从未被加载过。</p>
  *
  * @since 0.1.0
  */
@@ -68,6 +77,22 @@ public record AiplatformSkillSummaryResponse(
         @Schema(description = "远端有新版标记（来源包级）：定期只读检查远端 HEAD 与装时版本"
                 + "不同即 true——更新永远显式点（POST /update），平台不自动跟新远端；"
                 + "null＝未检查过（内置技能恒 null 不适用）", example = "false")
-        Boolean updateAvailable
+        Boolean updateAvailable,
+
+        /**
+         * 加载次数（使用计数观测面）：load 实际发生口径——智能体 load 工具真实加载该技能
+         * 一次即 +1（指派/启停/清单重建不计数）；安装与自产一并覆盖；0＝从未被加载过；
+         * 内置技能恒 null 不适用。北向 JSON 呈 string 形态（同 id 口径）。
+         */
+        @Schema(description = "加载次数（使用计数观测面）：智能体 load 工具真实加载该技能"
+                + "一次即 +1（口径＝load 实际发生，指派/启停/清单重建不计数）；安装与自产"
+                + "一并覆盖；0＝从未被加载过；内置技能恒 null 不适用（北向 JSON 呈 string 形态）",
+                example = "3")
+        Long loadCount,
+
+        /** 最近加载时刻（使用计数观测面）：null＝从未被加载过（含新装行）；内置恒 null 不适用 */
+        @Schema(description = "最近加载时刻（使用计数观测面）；null＝从未被加载过（含新装行）；"
+                + "内置技能恒 null 不适用")
+        LocalDateTime lastLoadedAt
 ) {
 }

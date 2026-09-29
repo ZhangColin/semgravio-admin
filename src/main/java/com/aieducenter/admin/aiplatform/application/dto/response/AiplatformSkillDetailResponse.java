@@ -1,5 +1,6 @@
 package com.aieducenter.admin.aiplatform.application.dto.response;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -14,6 +15,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * spec #79）；{@code content} 为 SKILL.md 正文全文（不经任何截断/改写）。{@code id}
  * 同清单行 opaque 串两形制；技能不存在（含未寻址内置名/TSID、畸形柄）404 SKL_001
  * ＝数字业务码 7001（provider 裁决，admin 不预检）。</p>
+ *
+ * <p>scripts/ 资源面（#253 漂移补齐，T2 追平）：{@code resources} 为 {@code Map<String,String>}
+ * （技能目录相对路径 → 文件内容全文，与运行时注入面同源——脚本也是注入面，审核须可读）；
+ * 无 scripts／内置技能恒<strong>空对象</strong>（区别于 null）。使用计数观测面（#261）：
+ * {@code loadCount}/{@code lastLoadedAt} 语义与北向形状同清单行（Long 北向 JSON string、
+ * 0＝从未加载、内置恒 null 不适用）。</p>
  *
  * @since 0.1.0
  */
@@ -59,6 +66,15 @@ public record AiplatformSkillDetailResponse(
         @Schema(description = "SKILL.md 正文（frontmatter 剥离后全文，审核承载面）")
         String content,
 
+        /**
+         * scripts/ 资源面：技能目录相对路径 → 文件内容全文（与运行时注入面同源——脚本也是
+         * 注入面，审核须可读）；空对象＝无 scripts／内置技能。
+         */
+        @Schema(description = "scripts/ 资源面：技能目录相对路径 → 文件内容全文（与运行时注入面"
+                + "同源，审核须可读）；空对象＝无 scripts／内置技能",
+                example = "{\"scripts/run-tests.sh\": \"#!/bin/bash\\nset -e\\n\"}")
+        Map<String, String> resources,
+
         /** 最近管理动作操作者 id（安装＝装者、启停＝最近动作者；内置为 null） */
         @Schema(description = "最近管理动作操作者 id（安装＝装者、启停＝最近动作者；"
                 + "内置为 null）", example = "700200")
@@ -72,6 +88,21 @@ public record AiplatformSkillDetailResponse(
         /** 远端有新版标记（来源包级，语义同清单行；null＝未检查过，内置恒 null） */
         @Schema(description = "远端有新版标记（来源包级，语义同清单行——true＝远端 HEAD ≠"
                 + " 装时版本；null＝未检查过，内置技能恒 null 不适用）", example = "false")
-        Boolean updateAvailable
+        Boolean updateAvailable,
+
+        /**
+         * 加载次数（使用计数观测面，语义同清单行）：load 实际发生口径——智能体 load 工具
+         * 真实加载该技能一次即 +1（指派/启停/清单重建不计数）；0＝从未被加载过；内置技能
+         * 恒 null 不适用。北向 JSON 呈 string 形态（同 id 口径）。
+         */
+        @Schema(description = "加载次数（使用计数观测面，语义同清单行——智能体 load 工具真实"
+                + "加载该技能一次即 +1；0＝从未被加载过；内置技能恒 null 不适用；北向 JSON"
+                + "呈 string 形态）", example = "3")
+        Long loadCount,
+
+        /** 最近加载时刻（使用计数观测面）：null＝从未被加载过（含新装行）；内置恒 null 不适用 */
+        @Schema(description = "最近加载时刻（使用计数观测面）；null＝从未被加载过（含新装行）；"
+                + "内置技能恒 null 不适用")
+        LocalDateTime lastLoadedAt
 ) {
 }

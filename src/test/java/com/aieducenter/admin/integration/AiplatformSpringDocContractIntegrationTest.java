@@ -227,6 +227,28 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(exampleText(frontmatter)).isNotBlank();
         assertThat(property("AiplatformSkillDetailResponse", "content")
                 .path("description").asText("")).contains("审核承载面");
+
+        // 使用计数观测面 schema 自描述（#93 T2 追平）：loadCount 口径（load 实际发生、
+        // 指派/启停/清单重建不计数；0＝从未加载；内置恒 null 不适用）＋JSON string 形态提示、
+        // lastLoadedAt 时刻语义
+        JsonNode loadCount = property("AiplatformSkillSummaryResponse", "loadCount");
+        assertThat(loadCount.path("description").asText(""))
+                .contains("load 实际发生")
+                .contains("指派/启停/清单重建不计数")
+                .contains("0＝从未被加载过")
+                .contains("内置技能恒 null 不适用")
+                .contains("string 形态");
+        assertThat(exampleText(loadCount)).isEqualTo("3");
+        assertThat(property("AiplatformSkillSummaryResponse", "lastLoadedAt")
+                .path("description").asText("")).contains("从未被加载过");
+
+        // resources 资源面 schema 自描述（#253 漂移补齐）：相对路径→内容全文、
+        // 空对象＝无 scripts／内置
+        JsonNode resources = property("AiplatformSkillDetailResponse", "resources");
+        assertThat(resources.path("description").asText(""))
+                .contains("内容全文")
+                .contains("空对象＝无 scripts／内置技能");
+        assertThat(exampleText(resources)).isNotBlank();
     }
 
     @Test
