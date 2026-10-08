@@ -23,8 +23,9 @@ public record AiplatformProjectCostResponse(
         /** 总量（五档分列） */
         AiplatformTokenUsageResponse total,
 
-        /** 平台成本（币种分桶；全未配价时空 Map——不伪装 0） */
+        /** 平台成本（币种分桶；含图片生成成本同桶混算；全未配价时空 Map——不伪装 0） */
         @Schema(description = "平台成本（币种分桶直读不折算：键 = ISO 4217 币种码、值 = 金额；"
+                + "token 与图片生成成本〔按张×时点生效单价〕同桶混算不单列；"
                 + "全未配价时为空对象，成本标量缺失不伪装 0——allUnpriced 同行为 true）",
                 example = "{\"USD\": 12.34}")
         Map<String, BigDecimal> cost,

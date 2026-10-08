@@ -24,7 +24,8 @@ public record AiplatformUnpricedUsageResponse(
         List<UnpricedTier> items
 ) {
 
-    /** 未配价档位项（tokenKind Integer code + tokenKindName；1=输入 2=输出 3=缓存读 4=缓存写 5=推理）。 */
+    /** 未配价档位项（tokenKind Integer code + tokenKindName；1=输入 2=输出 3=缓存读 4=缓存写
+     * 5=推理 6=按张——按张档未配价同公式进警示清单，tokens 对该档＝张数）。 */
     public record UnpricedTier(
             String provider,
             String model,

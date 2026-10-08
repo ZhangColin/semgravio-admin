@@ -31,13 +31,14 @@ public record AiplatformProjectCostDetailResponse(
         /** 总量（五档分列） */
         AiplatformTokenUsageResponse total,
 
-        /** 平台成本（币种分桶；全未配价/无事件时空 Map） */
+        /** 平台成本（币种分桶；含图片生成成本同桶混算；全未配价/无事件时空 Map） */
         @Schema(description = "平台成本（币种分桶直读不折算：键 = ISO 4217 币种码、值 = 金额；"
+                + "token 与图片生成成本〔按张×时点生效单价〕同桶混算不单列；"
                 + "无生效单价的分量不进本桶——其集合在 unpriced 呈现，互补不重叠）",
                 example = "{\"USD\": 12.34}")
         Map<String, BigDecimal> cost,
 
-        /** 未配价档位清单（provider/model/档位码序；与 cost 互补不重叠、无 token 计数） */
+        /** 未配价档位清单（provider/model/档位码序；六档含 6=按张；与 cost 互补不重叠、无 token 计数） */
         List<UnpricedTier> unpriced,
 
         /** 分模型聚合（provider + model 为单价表匹配键） */
@@ -47,7 +48,8 @@ public record AiplatformProjectCostDetailResponse(
         List<AgentKindUsage> byAgentKind
 ) {
 
-    /** 未配价标注项（tokenKind Integer code + tokenKindName；档位用量汇总走全局 unpriced 端点）。 */
+    /** 未配价标注项（tokenKind Integer code + tokenKindName，1=输入 … 5=推理 6=按张——按张档
+     * 未配价同公式进清单；档位用量汇总走全局 unpriced 端点，此处无计数）。 */
     public record UnpricedTier(
             String provider,
             String model,

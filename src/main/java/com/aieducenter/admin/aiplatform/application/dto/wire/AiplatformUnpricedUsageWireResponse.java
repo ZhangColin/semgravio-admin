@@ -23,7 +23,8 @@ public record AiplatformUnpricedUsageWireResponse(
 
     /**
      * 未配价档位项（tokenKind 为 Integer code + tokenKindName 随附，1=输入 2=输出 3=缓存读
-     * 4=缓存写 5=推理；tokens 只计无价分量）。
+     * 4=缓存写 5=推理 6=按张——按张档未配价同公式进清单；tokens 只计无价分量，语义随档位：
+     * token 档＝token 数、按张档＝张数）。
      */
     public record UnpricedTier(
             String provider,

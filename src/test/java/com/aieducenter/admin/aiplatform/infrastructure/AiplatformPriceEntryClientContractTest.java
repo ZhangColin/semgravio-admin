@@ -17,26 +17,29 @@ import com.cartisan.web.response.PageResponse;
 
 /**
  * aiplatform 单价表域（清单含历史行 / 原子改价 / 停用——开行不暴露）的 wire 契约测试
- * （对接 aiplatform #160/#165 契约，issue #68）。
+ * （对接 aiplatform #160/#165 契约，issue #68；#288 档位维度扩第 6 档按张——issue #98 追平）。
  *
  * <p>契约事实（2026-09-16 对照 aiplatform 源码 {@code BackofficePriceEntryController} /
  * {@code UnitPriceEntryResponse} / {@code UnitPriceEntryRepriceResponse} /
  * {@code RepricePriceEntryCommand} / {@code MeteringMessage} / {@code BackofficePriceEntrySeamTest}
- * 核实）：</p>
+ * 核实；2026-10-08 对照 {@code TokenKind}（IMAGE(6,"按张")）/{@code MeteringImagePricingTest}
+ * 补第 6 档）：</p>
  * <ul>
  *   <li>三端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}；清单 data 为
  *       {@code PageResponse{items,total,page,size}}（page 1-based、total JSON string——cartisan-web
  *       全局 Long→ToStringSerializer），改价回执 data 为 {@code {closed, opened}} 双行，停用回执
  *       data 为被关行单行。</li>
  *   <li>行字段：{@code id} String（TSID 十进制串）；{@code tokenKind} Integer code（1=输入 2=输出
- *       3=缓存读 4=缓存写 5=推理）+ {@code tokenKindName} 中文名随行；{@code unitPrice} String 精确
+ *       3=缓存读 4=缓存写 5=推理 <strong>6=按张</strong>——#288 图片生成按张计价档，开行/改价/关行
+ *       对六档同一套语义）+ {@code tokenKindName} 中文名随行；{@code unitPrice} String 精确
  *       十进制串（provider {@code stripTrailingZeros().toPlainString()}——直出 JSON 数值会落科学
- *       计数）；{@code effectiveTo} null＝当前行；{@code operatorId/operatorName} 留痕（存量行/
- *       种子脚本种入行为 null）。</li>
+ *       计数；token 档每 token、按张档每张，同一字段承载）；{@code effectiveTo} null＝当前行；
+ *       {@code operatorId/operatorName} 留痕（存量行/种子脚本种入行为 null）。</li>
  *   <li>清单 provider/model 精确等值过滤、均可缺省；排序定死生效起点倒序；page 1-based 直传，
  *       provider clamp（page≥1、size∈[1,100] 默认 20）行为透传。</li>
  *   <li>改价命令体 {@code {unitPrice, currency, effectiveFrom}}：unitPrice BigDecimal→JSON 明文
- *       小数；effectiveFrom Instant→ISO-8601（UTC 带 Z），null 照常序列化在场——「缺省即时」由
+ *       小数（入参侧 number；响应侧读回为十进制字符串——两侧类型有意不对称，照实各自呈现）；
+ *       effectiveFrom Instant→ISO-8601（UTC 带 Z），null 照常序列化在场——「缺省即时」由
  *       provider 裁决（null→now()），BFF 不代填时点。停用无请求体（null body）。</li>
  *   <li>错误透传（数字业务码＝域码 3×1000＋序号）：METER_004→3004（400）、METER_005→3005（400）、
  *       METER_006→3006（404，含畸形 id——provider lenient 解析）、METER_007→3007（409）、
@@ -56,8 +59,10 @@ class AiplatformPriceEntryClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/price-entries 的真实成功响应形状（信封 + PageResponse）：
-     * 生效起点倒序两行——首行当前行（effectiveTo=null、带开行操作者留痕），次行历史行（区间两端
-     * 俱全、存量形制操作者 null）；total 为 JSON string。
+     * 生效起点倒序三行——首行当前行（effectiveTo=null、带开行操作者留痕），次行历史行（区间两端
+     * 俱全、存量形制操作者 null），第三行按张档当前行（tokenKind=6，#288——实值对照 provider
+     * {@code MeteringImagePricingTest} fixture 源码兜底：imgprov/qwen-image 每张 ¥0.18、
+     * 种子脚本口径 effectiveFrom 回溯敞口、无头落空操作者 null）；total 为 JSON string。
      */
     private static final String PRICE_ENTRY_PAGE_ENVELOPE = """
             {
@@ -90,9 +95,22 @@ class AiplatformPriceEntryClientContractTest {
                     "effectiveTo": "2026-08-01T00:00:00Z",
                     "operatorId": null,
                     "operatorName": null
+                  },
+                  {
+                    "id": "3830100004444444",
+                    "provider": "imgprov",
+                    "model": "qwen-image",
+                    "tokenKind": 6,
+                    "tokenKindName": "按张",
+                    "unitPrice": "0.18",
+                    "currency": "CNY",
+                    "effectiveFrom": "2026-01-01T00:00:00Z",
+                    "effectiveTo": null,
+                    "operatorId": null,
+                    "operatorName": null
                   }
                 ],
-                "total": "2",
+                "total": "3",
                 "page": 1,
                 "size": 20
               },
@@ -232,7 +250,7 @@ class AiplatformPriceEntryClientContractTest {
 
         // 信封正确拆开——证明 PRICE_ENTRY_PAGE_TYPEREF 按 ApiResponse<PageResponse<…>> 反序列化；
         // total JSON string→long、分页回显 provider 回报值（1-based）——BFF 不夹取不换算
-        assertThat(page.total()).isEqualTo(2L);
+        assertThat(page.total()).isEqualTo(3L);
         assertThat(page.page()).isEqualTo(1);
         assertThat(page.size()).isEqualTo(20);
 
@@ -259,6 +277,21 @@ class AiplatformPriceEntryClientContractTest {
         assertThat(historical.effectiveTo()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(historical.operatorId()).isNull();
         assertThat(historical.operatorName()).isNull();
+
+        // 第三行：按张档当前行（#288 第 6 档实值）——tokenKind=6 Integer code 直通 + tokenKindName
+        // 「按张」随行（既有口径零枚举改造）、unitPrice 为每张单价（0.18——token 档每 token/按张档
+        // 每张同一字段承载，响应侧恒十进制串）、种子脚本口径回溯起点敞口、无头操作者 null
+        var perImage = page.items().get(2);
+        assertThat(perImage.provider()).isEqualTo("imgprov");
+        assertThat(perImage.model()).isEqualTo("qwen-image");
+        assertThat(perImage.tokenKind()).isEqualTo(6);
+        assertThat(perImage.tokenKindName()).isEqualTo("按张");
+        assertThat(perImage.unitPrice()).isEqualTo("0.18");
+        assertThat(perImage.currency()).isEqualTo("CNY");
+        assertThat(perImage.effectiveFrom()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(perImage.effectiveTo()).isNull();
+        assertThat(perImage.operatorId()).isNull();
+        assertThat(perImage.operatorName()).isNull();
     }
 
     // ========== 原子改价（命令体序列化 + closed/opened 双行回执）==========

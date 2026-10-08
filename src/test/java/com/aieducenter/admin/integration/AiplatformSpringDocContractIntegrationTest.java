@@ -89,6 +89,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       自项目终点类型）＋设计资产包取件端点（下单冻结件直取、<strong>不按支付态门控</strong>、
  *       守卫序、ORD_016＝5016／PRJ_051＝4051 数字码）须在 api-docs 在场；北向 schema 的
  *       deliverableType（三个订单出口面：清单/详情/写回执）同步自描述。</li>
+ *   <li>按张档位第 6 档自描述（issue #98 镜像 aiplatform #288，#95 设计能力线 T3）：单价行
+ *       tokenKind 六档枚举（6=按张——开行/改价/停用对六档同一套语义）＋成本总览图片生成成本
+ *       到场路径（cost 桶同桶混算、张不进五档分解——张与 token 并列不混算）＋unpriced 按张档
+ *       （tokens＝张数）须在 api-docs 在场；北向 schema 的 tokenKind 同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -206,6 +210,47 @@ class AiplatformSpringDocContractIntegrationTest {
                     .as("%s.unitPrice 应附示例", unitPrice.getKey())
                     .isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("swagger 契约：按张档位第 6 档自描述（#98 镜像 aiplatform #288）——tokenKind 六档＋总览图片生成成本到场路径")
+    void given_perImageTier_when_readSchemasAndOperations_then_perImageTierDocumented() throws Exception {
+        // 单价行 tokenKind：六档枚举自描述（1-5 token 档＋6=按张——#288 图片生成按张计价档，
+        // 开行/改价/停用对六档同一套语义），Integer code 直通零 typed enum（tokenKindName 中文名随行）
+        JsonNode tokenKind = property("AiplatformUnitPriceEntryResponse", "tokenKind");
+        assertThat(tokenKind.path("description").asText(""))
+                .as("tokenKind 应自描述六档（含 6=按张，#288）")
+                .contains("1=输入")
+                .contains("6=按张")
+                .contains("同一套语义");
+        assertThat(exampleText(tokenKind))
+                .as("tokenKind 应附示例")
+                .isNotBlank();
+
+        JsonNode paths = apiDocs().path("paths");
+
+        // 单价行清单 @Operation：六档枚举在场＋unitPrice 档位单价语义（token 档每 token/按张档每张）
+        JsonNode entries = paths.path("/api/admin/aiplatform/price-entries").path("get");
+        assertThat(entries.isMissingNode()).as("api-docs 应含单价行清单端点").isFalse();
+        assertThat(entries.path("description").asText(""))
+                .contains("6=按张")
+                .contains("每张");
+
+        // 成本总览 @Operation：图片生成成本到场路径在场——cost 桶同桶混算（按张×时点生效单价，
+        // 与 token 成本不单列）＋张不进 total/byModel/byAgentKind 五档分解（张与 token 并列不混算）
+        JsonNode overview = paths.path("/api/admin/aiplatform/costs/overview").path("get");
+        assertThat(overview.isMissingNode()).as("api-docs 应含成本总览端点").isFalse();
+        assertThat(overview.path("description").asText(""))
+                .contains("图片生成成本")
+                .contains("按张")
+                .contains("并列不混算");
+
+        // unpriced @Operation：六档枚举在场（按张档未配价同公式进警示，tokens 对该档＝张数）
+        JsonNode unpriced = paths.path("/api/admin/aiplatform/costs/unpriced").path("get");
+        assertThat(unpriced.isMissingNode()).as("api-docs 应含 unpriced 端点").isFalse();
+        assertThat(unpriced.path("description").asText(""))
+                .contains("6=按张")
+                .contains("张数");
     }
 
     @Test

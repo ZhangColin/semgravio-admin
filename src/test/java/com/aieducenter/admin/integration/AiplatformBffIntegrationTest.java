@@ -790,15 +790,21 @@ class AiplatformBffIntegrationTest {
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         from, to,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700))));
+                                "openai", "gpt-5.2", 1, "输入", 700),
+                                new AiplatformUnpricedUsageWireResponse.UnpricedTier(
+                                        "imgprov", "qwen-image", 6, "按张", 3))));
 
         AiplatformUnpricedUsageResponse unpriced = costAppService.unpriced(new AiplatformCostQuery(from, to));
 
-        // tokenKind Integer code + tokenKindName + tokens 只计无价分量
-        assertThat(unpriced.items()).hasSize(1);
+        // tokenKind Integer code + tokenKindName + tokens 只计无价分量；按张档（#98 第 6 档）
+        // 直通——tokens 语义对该档＝张数，BFF 零推导零换算
+        assertThat(unpriced.items()).hasSize(2);
         assertThat(unpriced.items().get(0).tokenKind()).isEqualTo(1);
         assertThat(unpriced.items().get(0).tokenKindName()).isEqualTo("输入");
         assertThat(unpriced.items().get(0).tokens()).isEqualTo(700L);
+        assertThat(unpriced.items().get(1).tokenKind()).isEqualTo(6);
+        assertThat(unpriced.items().get(1).tokenKindName()).isEqualTo("按张");
+        assertThat(unpriced.items().get(1).tokens()).isEqualTo(3L);
     }
 
     // ========== 项目成本清单 · query→wire + 分页 1-based 透传 ==========
@@ -905,7 +911,11 @@ class AiplatformBffIntegrationTest {
                         "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
-                        null, null)), 12, 2, 50));
+                        null, null),
+                new AiplatformUnitPriceEntryWireResponse(
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "0.18", "CNY",
+                        Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 50));
 
         PageResponse<AiplatformUnitPriceEntryResponse> page = priceEntryAppService.list(
                 new AiplatformPriceEntryQuery("anthropic", "claude-fable-5"), 2, 50);
@@ -918,7 +928,8 @@ class AiplatformBffIntegrationTest {
                 .isEqualTo(new AiplatformPriceEntryListWireRequest("anthropic", "claude-fable-5"));
 
         // 回显取 provider 回报值；wire → response 逐字段——首行当前行（effectiveTo=null、留痕两肢），
-        // 次行历史行（区间两端俱全、存量形制操作者 null）
+        // 次行历史行（区间两端俱全、存量形制操作者 null），第三行按张档当前行（#98 第 6 档：
+        // tokenKind=6/按张 直通、unitPrice 每张单价十进制串）
         assertThat(page.total()).isEqualTo(12L);
         assertThat(page.page()).isEqualTo(2);
         assertThat(page.size()).isEqualTo(50);
@@ -932,6 +943,12 @@ class AiplatformBffIntegrationTest {
         var historical = page.items().get(1);
         assertThat(historical.effectiveTo()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(historical.operatorId()).isNull();
+        var perImage = page.items().get(2);
+        assertThat(perImage.provider()).isEqualTo("imgprov");
+        assertThat(perImage.tokenKind()).isEqualTo(6);
+        assertThat(perImage.tokenKindName()).isEqualTo("按张");
+        assertThat(perImage.unitPrice()).isEqualTo("0.18");
+        assertThat(perImage.currency()).isEqualTo("CNY");
     }
 
     // ========== 原子改价 · 命令映射 + closed/opened 双行回执映射 ==========

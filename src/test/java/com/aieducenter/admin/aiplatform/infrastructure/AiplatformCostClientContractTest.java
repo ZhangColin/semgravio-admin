@@ -18,12 +18,14 @@ import com.cartisan.web.response.PageResponse;
 
 /**
  * aiplatform 成本域（全局总览 / unpriced 全局警示 / 项目成本清单 / 单项目下钻）的 wire 契约测试
- * （对接 aiplatform #161/#164 契约，issue #67）。
+ * （对接 aiplatform #161/#164 契约，issue #67；#288 按张档位追平——issue #98）。
  *
  * <p>契约事实（2026-09-16 对照 aiplatform 源码 {@code BackofficeCostController} /
  * {@code BackofficeCostOverviewResponse} / {@code BackofficeUnpricedUsageResponse} /
  * {@code BackofficeProjectCostResponse} / {@code BackofficeProjectCostDetailResponse} /
- * {@code MeteringMessage} / {@code ErrorCodePrefix} 核实）：</p>
+ * {@code MeteringMessage} / {@code ErrorCodePrefix} 核实；2026-10-08 对照 {@code TokenKind}
+ * （IMAGE(6,"按张")）/{@code UsageEventAggregationsImpl}（档位展开 KIND_COLUMNS 第六对
+ * (IMAGE, images)——成本换算与未配价对六档同一公式）/{@code MeteringImagePricingTest} 补按张）：</p>
  * <ul>
  *   <li>四端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}；项目成本清单 data 为
  *       {@code PageResponse{items,total,page,size}}（page 1-based、total JSON string——cartisan-web
@@ -32,15 +34,19 @@ import com.cartisan.web.response.PageResponse;
  *       provider 侧可缺省（缺省＝该侧不限），北向<strong>必填</strong>（issue #67：不设默认窗口）、
  *       值逐字透传。from/to 原样回显（北向必填 ⇒ 响应恒有值）。</li>
  *   <li>{@code total}/{@code tokens} 为 TokenUsage 五档（input/output/cacheRead/cacheWrite/reasoning，
- *       primitive long——provider 序列化为 JSON 数字，非 cartisan-web 的 Long 字符串口径）。</li>
+ *       primitive long——provider 序列化为 JSON 数字，非 cartisan-web 的 Long 字符串口径）；
+ *       <strong>按张用量不在五档</strong>（#288 张与 token 并列不混算——按张事件 token 五档为零，
+ *       张数只进成本换算与未配价标注的档位展开）。</li>
  *   <li>{@code cost} 为 {@code Map<币种, BigDecimal>}（键 = ISO 4217 币种码，分桶直读不折算）；
- *       无生效单价的分量不进 cost（不伪装 0），其档位在 unpriced 如实呈现。</li>
+ *       <strong>含图片生成成本</strong>（按张档位行 × 张数、与 token 成本同桶相加不单列——token 与
+ *       按张对六档同一换算公式，混算后 JSON 无从区分按张分量）；无生效单价的分量不进 cost
+ *       （不伪装 0，按张档同口径），其档位在 unpriced 如实呈现。</li>
  *   <li>{@code byModel}/{@code byAgentKind} 分解镜像：byModel＝provider+model+tokens 三字段；
  *       byAgentKind＝agentKind 裸维度串（dims 原值）+ agentKindName 中文名随行（aiplatform#186
  *       已落——主链经智能体配置回解，naming/classify 等辅助标记为 null）+ tokens。</li>
- *   <li>unpriced 档位：全局警示项带 token 计数（tokens long，只计无价分量）；单项目下钻项无 token
- *       计数（bySubject 口径）；tokenKind 为 Integer code（1=输入 2=输出 3=缓存读 4=缓存写 5=推理）
- *       + tokenKindName 随附。</li>
+ *   <li>unpriced 档位：全局警示项带用量计数（tokens long，只计无价分量——token 档＝token 数、
+ *       按张档＝张数）；单项目下钻项无计数（bySubject 口径）；tokenKind 为 Integer code
+ *       （1=输入 2=输出 3=缓存读 4=缓存写 5=推理 <strong>6=按张</strong>）+ tokenKindName 随附。</li>
  *   <li>项目成本清单排序服务端定死成本降序、全未配价项目排后且 allUnpriced=true；分页 provider clamp
  *       （page≥1、size∈[1,100] 默认 20）行为透传、回显 provider 回报值。</li>
  *   <li>错误透传（数字业务码＝域码 3×1000＋序号）：METER_011→3011（400，无效的成本查询参数）。</li>
@@ -108,8 +114,11 @@ class AiplatformCostClientContractTest {
             """;
 
     /**
-     * aiplatform GET /api/backoffice/costs/unpriced 的真实成功响应形状：窗口回显 + 两档未配价
-     * 档位（tokenKind Integer code + tokenKindName + tokens 只计无价分量，JSON 数字）。
+     * aiplatform GET /api/backoffice/costs/unpriced 的真实成功响应形状：窗口回显 + 三档未配价
+     * 档位（tokenKind Integer code + tokenKindName + tokens 只计无价分量，JSON 数字）——前两档
+     * token 档（tokens=token 数），第三档按张档（#288 tokenKind=6，tokens=张数——无生效单价的
+     * 按张分量同公式进警示清单；实值对照 provider {@code MeteringImagePricingTest} fixture
+     * 源码兜底：imgprov/qwen-image 无 IMAGE 行时按张档进 unpriced）。
      */
     private static final String UNPRICED_ENVELOPE = """
             {
@@ -132,6 +141,13 @@ class AiplatformCostClientContractTest {
                     "tokenKind": 5,
                     "tokenKindName": "推理",
                     "tokens": 300
+                  },
+                  {
+                    "provider": "imgprov",
+                    "model": "qwen-image",
+                    "tokenKind": 6,
+                    "tokenKindName": "按张",
+                    "tokens": 3
                   }
                 ]
               },
@@ -311,9 +327,9 @@ class AiplatformCostClientContractTest {
         assertThat(unpriced.from()).isEqualTo(FROM);
         assertThat(unpriced.to()).isEqualTo(TO);
 
-        // 未配价档位：tokenKind Integer code（1=输入 … 5=推理）+ tokenKindName + tokens
+        // 未配价档位：tokenKind Integer code（1=输入 … 5=推理 6=按张）+ tokenKindName + tokens
         // 只计无价分量（JSON 数字——primitive long）
-        assertThat(unpriced.items()).hasSize(2);
+        assertThat(unpriced.items()).hasSize(3);
         var inputTier = unpriced.items().get(0);
         assertThat(inputTier.provider()).isEqualTo("openai");
         assertThat(inputTier.model()).isEqualTo("gpt-5.2");
@@ -324,6 +340,14 @@ class AiplatformCostClientContractTest {
         assertThat(reasoningTier.tokenKind()).isEqualTo(5);
         assertThat(reasoningTier.tokenKindName()).isEqualTo("推理");
         assertThat(reasoningTier.tokens()).isEqualTo(300L);
+        // 按张档（#288 第 6 档实值）：未配价的按张分量同公式进警示清单——tokens 语义对该档＝
+        // 张数（窗口内按张事件 images 汇总，Integer code 直通零枚举改造）
+        var perImageTier = unpriced.items().get(2);
+        assertThat(perImageTier.provider()).isEqualTo("imgprov");
+        assertThat(perImageTier.model()).isEqualTo("qwen-image");
+        assertThat(perImageTier.tokenKind()).isEqualTo(6);
+        assertThat(perImageTier.tokenKindName()).isEqualTo("按张");
+        assertThat(perImageTier.tokens()).isEqualTo(3L);
     }
 
     // ========== 项目成本清单（成本降序分页 + allUnpriced 标记 + 1-based 回显）==========

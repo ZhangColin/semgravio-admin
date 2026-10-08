@@ -43,7 +43,9 @@ public class AiplatformPriceEntryAppService {
     /**
      * 单价行清单（透传 aiplatform，含历史行——价史全貌）——provider/model 精确等值过滤
      * （可缺省＝全量行）；排序服务端定死＝生效起点倒序（新段在前）；effectiveTo 为 null 即
-     * 当前行。行带操作者两列（最近管理动作留痕；存量行/种子脚本种入行落 null）。
+     * 当前行。行带操作者两列（最近管理动作留痕；存量行/种子脚本种入行落 null）。tokenKind
+     * 六档（1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价；Integer code
+     * 直通零 typed enum，tokenKindName 中文名随行）。
      */
     public PageResponse<AiplatformUnitPriceEntryResponse> list(AiplatformPriceEntryQuery query,
                                                                int page, int size) {
@@ -58,6 +60,7 @@ public class AiplatformPriceEntryAppService {
 
     /**
      * 原子改价（透传 aiplatform）——单调用关当前行＋开新行（同事务，中途任一守卫失败两行都不动）。
+     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价）。
      * effectiveFrom 可空＝缺省即时、含未来时点＝预发布（对齐供应商凌晨调价，窗口前旧价仍生效）；
      * 预发布与重叠校验语义归 provider。回执 {@code {closed, opened}} 双行（被关行保留原开行留痕，
      * 新行带改价操作者）。

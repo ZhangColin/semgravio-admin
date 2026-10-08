@@ -45,7 +45,9 @@ public class AiplatformCostAppService {
     /**
      * 平台成本全局总览（透传 aiplatform）——全平台跨项目观测模型开销构成：五档总量 + 平台成本
      * （币种分桶直读不折算）+ 分模型 + 分智能体（agentKind 裸维度串 + agentKindName 随行）。
-     * 空窗/无数据返回全零 total 与空分桶，不是错误。
+     * 空窗/无数据返回全零 total 与空分桶，不是错误。cost 桶含图片生成成本（#288 按张事件张数 ×
+     * 时点生效单价，与 token 成本同桶混算不单列）；按张事件 token 五档为零，不进五档分解
+     * （张与 token 并列不混算）。
      */
     public AiplatformCostOverviewResponse overview(AiplatformCostQuery query) {
         return toOverview(aiplatformClient.getCostOverview(toWindow(query)));
@@ -53,8 +55,8 @@ public class AiplatformCostAppService {
 
     /**
      * unpriced 全局警示（透传 aiplatform，用量驱动）——窗口内有用量且时点无生效单价的
-     * (provider, model, 档位) 按档位汇总 token（只计无价分量）；据此发现漏配价及时补价
-     * （历史成本不漂移）。
+     * (provider, model, 档位) 按档位汇总（只计无价分量——token 档＝token 数、按张档＝张数，
+     * 六档含 6=按张）；据此发现漏配价及时补价（历史成本不漂移）。
      */
     public AiplatformUnpricedUsageResponse unpriced(AiplatformCostQuery query) {
         return toUnpriced(aiplatformClient.getUnpricedUsage(toWindow(query)));
@@ -62,7 +64,8 @@ public class AiplatformCostAppService {
 
     /**
      * 项目成本清单（透传 aiplatform，成本降序分页）——运营扫一眼谁费钱：窗口内有 token 用量的
-     * 各项目成本汇总；全未配价项目排后且 allUnpriced=true 标注；已删项目的历史花费照列。
+     * 各项目成本汇总（cost 桶含图片生成成本同桶混算——#288 六档同一换算公式）；全未配价项目
+     * 排后且 allUnpriced=true 标注；已删项目的历史花费照列。
      */
     public PageResponse<AiplatformProjectCostResponse> listProjectCosts(AiplatformCostQuery query,
                                                                         int page, int size) {

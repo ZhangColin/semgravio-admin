@@ -16,7 +16,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * 不在命令体——经框架 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传落痕新行，
  * 前端无法伪造改价归属。</p>
  *
- * <p>{@code unitPrice} 北向按 JSON 明文小数交接（BigDecimal 语义，前后端均无浮点）；
+ * <p>{@code unitPrice} 北向按 JSON 明文小数交接（BigDecimal 语义，前后端均无浮点；档位单价
+ * 语义随被关行——token 档每 token、按张档每张〔#288 第 6 档行改价同语义，单价即每张价〕）；
  * {@code effectiveFrom} 为 ISO-8601 Instant（UTC 带 Z，如 2026-09-14T16:00:00Z），可空＝
  * 缺省即时（provider 裁决 now()，BFF 不代填）。</p>
  *
@@ -24,9 +25,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 public record AiplatformPriceEntryRepriceCommand(
 
-        /** 新每 token 单价（非负；0＝免费档——合法性归 provider 聚合守卫） */
-        @Schema(description = "新每 token 单价（入参侧为 number；非负，0＝免费档。"
-                + "响应侧读回为十进制字符串——两侧类型有意不对称，照实各自呈现）",
+        /** 新档位单价（token 档每 token、按张档每张；非负；0＝免费档——合法性归 provider 聚合守卫） */
+        @Schema(description = "新档位单价（token 档每 token、按张档每张；入参侧为 number；非负，"
+                + "0＝免费档。响应侧读回为十进制字符串——两侧类型有意不对称，照实各自呈现）",
                 example = "0.00000132")
         BigDecimal unitPrice,
 

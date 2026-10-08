@@ -37,7 +37,8 @@ public record AiplatformProjectCostDetailWireResponse(
 
     /**
      * 未配价标注项（tokenKind 为 Integer code + tokenKindName 随附，1=输入 2=输出 3=缓存读
-     * 4=缓存写 5=推理；bySubject 口径无 token 计数——档位用量汇总走全局 unpriced 端点）。
+     * 4=缓存写 5=推理 6=按张——按张档未配价同公式进清单；bySubject 口径无计数——档位用量
+     * 汇总走全局 unpriced 端点）。
      */
     public record UnpricedTier(
             String provider,

@@ -732,7 +732,9 @@ class AiplatformRbacEnforcementIntegrationTest {
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         costFrom, costTo,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700))));
+                                "openai", "gpt-5.2", 1, "输入", 700),
+                                new AiplatformUnpricedUsageWireResponse.UnpricedTier(
+                                        "imgprov", "qwen-image", 6, "按张", 3))));
         when(aiplatformClient.listProjectCosts(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectCostWireResponse(
                         PROJECT_ID,
@@ -756,8 +758,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                         List.of(new AiplatformProjectCostDetailWireResponse.AgentKindUsage(
                                 "executor", "执行智能体",
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800)))));
-        // 单价表域 mock：清单（当前行 + 历史行）/ 改价双行回执（抓取 RequestContext——操作者透传
-        // 契约证据，同沙箱四动作）/ 停用单行回执
+        // 单价表域 mock：清单（当前行 + 历史行 + 按张档行〔#98 第 6 档〕）/ 改价双行回执（抓取
+        // RequestContext——操作者透传契约证据，同沙箱四动作）/ 停用单行回执
         when(aiplatformClient.listPriceEntries(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformUnitPriceEntryWireResponse(
                         PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
@@ -767,7 +769,11 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
-                        null, null)), 12, 2, 20));
+                        null, null),
+                new AiplatformUnitPriceEntryWireResponse(
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "0.18", "CNY",
+                        Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 20));
         doAnswer(inv -> {
             capture.run();
             return new AiplatformUnitPriceEntryRepriceWireResponse(
@@ -1814,7 +1820,9 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(agentKind.path("agentKind").asText()).isEqualTo("naming");
         assertThat(agentKind.path("agentKindName").isNull()).isTrue();
 
-        // unpriced 全局警示：tokenKind Integer code + tokenKindName + tokens 只计无价分量
+        // unpriced 全局警示：tokenKind Integer code + tokenKindName + tokens 只计无价分量；
+        // 按张档（#98 第 6 档）北向同形——tokenKind 出 JSON number（Integer 非 Long 不走
+        // ToStringSerializer）、tokens 对该档＝张数
         ResponseEntity<String> unpriced = getWithToken(COSTS_ENDPOINT + "/unpriced" + COST_WINDOW_QUERY, token);
         assertThat(unpriced.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode tier = objectMapper.readTree(unpriced.getBody()).path("data").path("items").get(0);
@@ -1822,6 +1830,11 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(tier.path("tokenKind").asInt()).isEqualTo(1);
         assertThat(tier.path("tokenKindName").asText()).isEqualTo("输入");
         assertThat(tier.path("tokens").asLong()).isEqualTo(700L);
+        JsonNode perImageTier = objectMapper.readTree(unpriced.getBody()).path("data").path("items").get(1);
+        assertThat(perImageTier.path("tokenKind").isInt()).isTrue();
+        assertThat(perImageTier.path("tokenKind").asInt()).isEqualTo(6);
+        assertThat(perImageTier.path("tokenKindName").asText()).isEqualTo("按张");
+        assertThat(perImageTier.path("tokens").asLong()).isEqualTo(3L);
     }
 
     @Test
@@ -1941,6 +1954,15 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(historical.path("effectiveTo").asText()).isEqualTo("2026-08-01T00:00:00Z");
         assertThat(historical.path("operatorId").isNull()).isTrue();
         assertThat(historical.path("operatorName").isNull()).isTrue();
+        // 第三行：按张档当前行（#98 第 6 档）——tokenKind 出 JSON number、tokenKindName「按张」、
+        // unitPrice 每张单价 String 十进制串（响应侧口径；改价入参侧 number，两侧有意不对称）
+        JsonNode perImage = data.path("items").get(2);
+        assertThat(perImage.path("tokenKind").isInt()).isTrue();
+        assertThat(perImage.path("tokenKind").asInt()).isEqualTo(6);
+        assertThat(perImage.path("tokenKindName").asText()).isEqualTo("按张");
+        assertThat(perImage.path("unitPrice").asText()).isEqualTo("0.18");
+        assertThat(perImage.path("currency").asText()).isEqualTo("CNY");
+        assertThat(perImage.path("effectiveTo").isNull()).isTrue();
     }
 
     @Test

@@ -64,9 +64,15 @@ public class AiplatformCostController {
                     + "cacheWrite/reasoning，JSON 数字）+ 平台成本（token × 事件时点生效单价，"
                     + "按币种分桶直读不折算、键 = ISO 4217 币种码、值 BigDecimal）+ 分模型 + 分智能体"
                     + "（agentKind 裸维度串原值 + agentKindName 中文名随行——aiplatform#186 已落，"
-                    + "naming/classify 等辅助标记为 null，前端落「—」桶）。与报价脱钩——纯平台付出"
+                    + "naming/classify 等辅助标记为 null，前端落「—」桶）。<strong>cost 桶含图片生成"
+                    + "成本</strong>（aiplatform #288 计量事件新增按张一类：按张事件张数 × 时点生效单价"
+                    + "〔单价表 tokenKind=6 行〕，与 token 成本同桶混算不单列——六档同一换算公式，"
+                    + "混算后响应无从区分按张分量）；按张事件 token 五档为零，<strong>不进 total/"
+                    + "byModel/byAgentKind 的五档分解</strong>（张与 token 并列不混算——张数无独立出口，"
+                    + "仅经 cost 桶与 unpriced 档位呈现）。与报价脱钩——纯平台付出"
                     + "金额，无建议售价推导；改价不溯及（历史事件按当时价，成本不漂移）。无生效单价"
-                    + "的分量不进 cost（不伪装 0），未配价观测走 unpriced 端点。from/to 时间窗半开"
+                    + "的分量不进 cost（不伪装 0，按张档同口径），未配价观测走 unpriced 端点。"
+                    + "from/to 时间窗半开"
                     + "区间 [from, to)、ISO-8601 Instant（UTC 带 Z，如 2026-09-01T00:00:00Z），"
                     + "<strong>北向必填</strong>（不设默认窗口）；空窗/无数据返回全零 total 与空分桶，"
                     + "不是错误。绑定裁决在本服务绑定层（不到 provider）：缺参 400（框架信封）、"
@@ -86,11 +92,13 @@ public class AiplatformCostController {
             scope = AdminScopes.ADMIN
     )
     @Operation(summary = "unpriced 全局警示（用量驱动）——透传 aiplatform",
-            description = "窗口内有 token 用量且事件时点无生效单价的 (provider, model, 档位) 按档位"
-                    + "汇总 token（只计无价分量——同档位部分有价部分无价时只计无价部分）。用量驱动："
+            description = "窗口内有用量且事件时点无生效单价的 (provider, model, 档位) 按档位"
+                    + "汇总（只计无价分量——同档位部分有价部分无价时只计无价部分）。用量驱动："
                     + "已配价档位与无用量档位不出现，静态配价缺口清单不做（无用量＝无实际损失）；据此"
                     + "发现漏配价并及时补价（补价只影响此后事件，历史成本不漂移）。tokenKind 为 Integer"
-                    + " code（1=输入 2=输出 3=缓存读 4=缓存写 5=推理）+ tokenKindName 中文名随行。"
+                    + " code（1=输入 2=输出 3=缓存读 4=缓存写 5=推理 6=按张——按张档未配价同公式进"
+                    + "警示清单）+ tokenKindName 中文名随行（按张档＝「按张」）；tokens 语义随档位："
+                    + "token 档＝token 数、按张档＝张数。"
                     + "from/to 时间窗半开 [from, to)、ISO-8601 Instant（UTC 带 Z），<strong>北向必填</strong>"
                     + "（不设默认窗口）；空窗/无未配价用量返回空 items，不是错误。绑定裁决同总览端点"
                     + "（400 METER_011→3011 透传）。")
@@ -109,7 +117,8 @@ public class AiplatformCostController {
     )
     @Operation(summary = "项目成本清单（窗口聚合，成本降序分页）——透传 aiplatform",
             description = "运营扫一眼谁费钱：窗口内有 token 用量的各项目成本汇总——总量（五档）+"
-                    + " 平台成本（按币种分桶直读不折算、键 = ISO 4217 币种码）。排序服务端定死：成本"
+                    + " 平台成本（按币种分桶直读不折算、键 = ISO 4217 币种码；含图片生成成本同桶"
+                    + "混算——按张×时点生效单价与 token 成本不单列）。排序服务端定死：成本"
                     + "降序（排序标量＝币种桶金额直加，单价表单币种时＝精确），全未配价项目（有用量但"
                     + "无任何已配价分量，成本标量缺失）排后且 allUnpriced=true 标注，同序按 projectId"
                     + " 升序稳定。用量驱动：无用量项目不出现在清单（空窗＝空清单 200）；已删项目的历史"
@@ -136,9 +145,10 @@ public class AiplatformCostController {
     )
     @Operation(summary = "单项目成本下钻（byModel/byAgentKind 分解）——透传 aiplatform",
             description = "单项目成本构成分解，复用 bySubject 聚合口径（与全局总览/项目清单同一换算"
-                    + "规则）：总量（五档）+ 平台成本（币种分桶直读不折算）+ 未配价标注清单（窗口内有"
-                    + "用量且时点无生效价的 provider/model/档位，与 cost 互补不重叠；bySubject 口径无"
-                    + " token 计数——档位用量汇总走全局 unpriced 端点）+ 分模型 + 分智能体"
+                    + "规则）：总量（五档）+ 平台成本（币种分桶直读不折算；含图片生成成本同桶混算——"
+                    + "按张×时点生效单价与 token 成本不单列）+ 未配价标注清单（窗口内有"
+                    + "用量且时点无生效价的 provider/model/档位——六档含 6=按张，与 cost 互补不重叠；"
+                    + "bySubject 口径无计数——档位用量汇总走全局 unpriced 端点）+ 分模型 + 分智能体"
                     + "（agentKind 裸维度串原值 + agentKindName 随行）。projectId = 计量 subject 原值"
                     + "（写侧口径 projectId 十进制串，provider 不解释存在性）：无用量/查无此号返回"
                     + "全零 total 与空结构（明确空态，非错误、不 404）。from/to 时间窗半开 [from, to)、"

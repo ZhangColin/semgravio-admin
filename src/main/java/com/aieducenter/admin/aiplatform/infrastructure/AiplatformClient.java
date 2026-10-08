@@ -859,7 +859,10 @@ public class AiplatformClient {
     /**
      * 平台成本全局总览（透传 aiplatform）——全平台跨项目观测模型开销构成：五档总量 + 平台成本
      * （token × 事件时点生效单价，币种分桶直读不折算）+ 分模型 + 分智能体（agentKind 裸维度串
-     * + agentKindName 随行——aiplatform#186 已落）。
+     * + agentKindName 随行——aiplatform#186 已落）。cost 桶含图片生成成本（#288 按张事件张数 ×
+     * 时点生效单价〔tokenKind=6 单价行〕，与 token 成本同桶混算不单列——provider 六档档位展开
+     * 同一换算公式）；按张事件 token 五档为零，不进 total/byModel/byAgentKind 五档分解
+     * （张与 token 并列不混算）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/costs/overview}（#161 成本运营）：返回
      * {@code ApiResponse<BackofficeCostOverviewResponse>}。空窗/无数据返回全零 total 与空分桶
@@ -887,8 +890,9 @@ public class AiplatformClient {
     }
 
     /**
-     * unpriced 全局警示（透传 aiplatform，用量驱动）——窗口内有 token 用量且事件时点无生效单价
-     * 的 (provider, model, 档位) 按档位汇总 token（只计无价分量）。静态配价缺口不做（无用量＝
+     * unpriced 全局警示（透传 aiplatform，用量驱动）——窗口内有用量且事件时点无生效单价
+     * 的 (provider, model, 档位) 按档位汇总（只计无价分量——token 档＝token 数、按张档＝张数，
+     * 六档含 6=按张同公式）。静态配价缺口不做（无用量＝
      * 无实际损失）；据此发现漏配价并及时补价（历史成本不漂移）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/costs/unpriced}（#161）：返回
@@ -972,7 +976,8 @@ public class AiplatformClient {
     }
 
     /**
-     * 分页查询单价行清单（透传 aiplatform，含历史行——价史全貌）。
+     * 分页查询单价行清单（透传 aiplatform，含历史行——价史全貌）。tokenKind 六档
+     * （1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/price-entries}（#160 已冻结）：返回
      * {@code ApiResponse<PageResponse<UnitPriceEntryResponse>>}。provider/model 均为匹配键成分＝
@@ -1009,9 +1014,11 @@ public class AiplatformClient {
 
     /**
      * 原子改价（透传 aiplatform）——单调用关当前行＋开新行（同事务，中途任一守卫失败两行都不动）。
+     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价）。
      *
      * <p>对接 aiplatform {@code POST /api/backoffice/price-entries/{id}/reprice}（#160）：请求体
-     * {@code {unitPrice, currency, effectiveFrom}} 逐字镜像（unitPrice BigDecimal→JSON 明文小数；
+     * {@code {unitPrice, currency, effectiveFrom}} 逐字镜像（unitPrice BigDecimal→JSON 明文小数
+     * ——入参侧 number，响应侧读回十进制字符串，两侧类型有意不对称照实各自呈现；
      * effectiveFrom 可空＝缺省即时、含未来时点＝预发布——预发布与重叠校验语义由 provider 承担，
      * BFF 不代填时点不预判），返回 {@code ApiResponse<UnitPriceEntryRepriceResponse>}——
      * {@code {closed, opened}} 双行回执（被关行落 effectiveTo＝新起点且保留其原开行留痕，新行

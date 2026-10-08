@@ -13,7 +13,8 @@ import java.time.Instant;
  * ISO-8601（UTC 带 Z），null 字段照常序列化在场（全局 Jackson 含 null）——「缺省即时」由
  * provider 裁决（{@code null → Instant.now()}），BFF 不代填时点。</p>
  *
- * @param unitPrice     新每 token 单价（非负；0＝免费档——合法性归 provider 聚合守卫 METER_004）
+ * @param unitPrice     新档位单价（token 档每 token、按张档每张〔#288 第 6 档行改价同语义〕；
+ *                      非负；0＝免费档——合法性归 provider 聚合守卫 METER_004）
  * @param currency      新币种（ISO 4217 代码，如 USD——非 ISO 归 provider METER_010）
  * @param effectiveFrom 新行生效起点（可空＝缺省即时；含未来时点＝预发布，对齐供应商凌晨调价；
  *                      须不早于被关行起点，否则 provider METER_005）
