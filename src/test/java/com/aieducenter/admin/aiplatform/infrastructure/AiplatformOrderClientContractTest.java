@@ -21,7 +21,8 @@ import com.cartisan.web.response.PageResponse;
 
 /**
  * aiplatform 订单域读路径（清单/详情/源码包，issue #64）＋写路径三操作（报价/改价、运营取消、
- * 重试归档，issue #70）的 wire 契约测试。
+ * 重试归档，issue #70）＋设计资产包取件（issue #96，#95 设计能力线 T1——交付物类型字段对
+ * ＋design-package 二进制端点）的 wire 契约测试。
  *
  * <p>契约事实（对照 aiplatform 源码 {@code BackofficeOrderController} /
  * {@code BackofficeOrderSummaryResponse} / {@code BackofficeOrderDetailResponse} /
@@ -32,12 +33,22 @@ import com.cartisan.web.response.PageResponse;
  *       清单 data 为 {@code PageResponse{items,total,page,size}}（page 1-based）。</li>
  *   <li>owner 摘要两肢（aiplatform #243 起，issue #76）：{@code ownerExternalId}（OIDC sub——
  *       账号档案读口的寻址键）+ {@code ownerDisplayName}；下单账号可空/跨 BC 软引用缺档为 null。</li>
+ *   <li>交付物类型字段对（#96 镜像 provider #297/#298，issue #95 设计能力线 T1）：
+ *       {@code deliverableType} Integer code（1=设计 2=系统 3=系统＋设计，下单冻结自项目终点
+ *       类型）+ {@code deliverableTypeName} 中文名——provider 三个订单出口 DTO（清单行/详情/
+ *       写路径用户面回执 OrderResponse）均已配对新增、位于 statusName 邻位（amount 前），
+ *       admin 三镜像同步（Integer code 直通不建 typed enum，对齐 tokenKind 先例——provider
+ *       枚举非本应用领域枚举）。</li>
  *   <li>清单 {@code status} 多选为<strong>逗号分隔单值</strong>（{@code status=1,5}）——aiplatform
  *       签名协议按 query 参数名去重，重复参数只有末值入签（区别于 payment 的重复参数展开）。</li>
  *   <li>金额 {@code Long}（分）、{@code status} Integer code + {@code statusName} 中文名、
  *       时间 ISO——类型绑定靠真实 Jackson 反序列化钉死。</li>
  *   <li>源码包<strong>无信封</strong>：{@code application/gzip} 二进制 + Content-Disposition
  *       文件名，经 cartisan-openapi {@code download}（cartisan-boot#30）保全原始字节与响应头。</li>
+ *   <li>设计资产包同款二进制无信封（#96 镜像 provider #298）：直取下单冻结时物化的设计资产包
+ *       （交付物按单定格，此后改稿不漂移）、<strong>不按支付态门控</strong>；错误族＝订单不存在
+ *       ORD_001→5001（404）、系统单交付物不含设计资产包 ORD_016→5016（404）、冻结件缺失
+ *       PRJ_051→4051（404，跨域码 4×1000＋51）、读取失败 WSP_002→1002（500）原样透传。</li>
  *   <li>分页（spec #62 平台分页统一决议目标态）：北向 1-based 直传、回显 provider 回报值，
  *       全链零 ±1 换算（区别于 payment 的 page-1）。</li>
  *   <li>写路径三操作共用回执 {@code ApiResponse<OrderResponse>}（provider <strong>用户面</strong>
@@ -81,6 +92,8 @@ class AiplatformOrderClientContractTest {
                     "ownerDisplayName": "文野",
                     "status": 3,
                     "statusName": "已支付",
+                    "deliverableType": 3,
+                    "deliverableTypeName": "系统＋设计",
                     "amount": "1999000",
                     "currency": "CNY",
                     "createdAt": "2026-09-10T14:20:00",
@@ -94,6 +107,8 @@ class AiplatformOrderClientContractTest {
                     "ownerDisplayName": null,
                     "status": 1,
                     "statusName": "待报价",
+                    "deliverableType": 1,
+                    "deliverableTypeName": "设计",
                     "amount": null,
                     "currency": null,
                     "createdAt": "2026-09-14T18:30:00",
@@ -122,6 +137,8 @@ class AiplatformOrderClientContractTest {
                 "ownerDisplayName": "文野",
                 "status": 2,
                 "statusName": "已报价",
+                "deliverableType": 1,
+                "deliverableTypeName": "设计",
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
@@ -191,6 +208,31 @@ class AiplatformOrderClientContractTest {
 
     private static final String SOURCE_DISPOSITION = "attachment; filename=\"3829492001234567-source.tar.gz\"";
 
+    /** 设计资产包的 Content-Disposition 原值（provider {@code BinaryResponses.attachment}：{orderId}-design.tar.gz）。 */
+    private static final String DESIGN_DISPOSITION = "attachment; filename=\"3829492001234567-design.tar.gz\"";
+
+    /** 设计资产包守卫①：系统单交付物是源码包——HTTP 404 + 信封 code=5016（ORD_016 数字业务码）。 */
+    private static final String ORD_016_ERROR_ENVELOPE = """
+            {
+              "code": 5016,
+              "message": "该订单的交付物不含设计资产包（系统单交付物是源码包）",
+              "data": null,
+              "requestId": "req-a1b2c3",
+              "errors": null
+            }
+            """;
+
+    /** 设计资产包守卫②：冻结件缺失不以空产物顶替——HTTP 404 + 信封 code=4051（PRJ_051，域码 4×1000＋51）。 */
+    private static final String PRJ_051_ERROR_ENVELOPE = """
+            {
+              "code": 4051,
+              "message": "设计资产包不存在（下单冻结件缺失）",
+              "data": null,
+              "requestId": "req-b2c3d4",
+              "errors": null
+            }
+            """;
+
     /**
      * aiplatform POST /api/backoffice/orders/{id}/quote 的真实成功响应形状（<strong>改价</strong>
      * 场景——已报价态重复提交）：用户面同构 OrderResponse，现值取最新价目行、价目历史新→旧
@@ -206,6 +248,8 @@ class AiplatformOrderClientContractTest {
                 "projectId": "3829492007654321",
                 "status": 2,
                 "statusName": "已报价",
+                "deliverableType": 3,
+                "deliverableTypeName": "系统＋设计",
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
@@ -246,6 +290,8 @@ class AiplatformOrderClientContractTest {
                 "projectId": "3829492007654321",
                 "status": 5,
                 "statusName": "已取消",
+                "deliverableType": 2,
+                "deliverableTypeName": "系统",
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
@@ -279,6 +325,8 @@ class AiplatformOrderClientContractTest {
                 "projectId": "3829492007654321",
                 "status": 4,
                 "statusName": "已归档",
+                "deliverableType": 3,
+                "deliverableTypeName": "系统＋设计",
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
@@ -387,6 +435,9 @@ class AiplatformOrderClientContractTest {
         assertThat(paid.ownerDisplayName()).isEqualTo("文野");
         assertThat(paid.status()).isEqualTo(3);
         assertThat(paid.statusName()).isEqualTo("已支付");
+        // 交付物类型字段对（#96）：Integer code 直通（不建 typed enum）+ 中文名随行
+        assertThat(paid.deliverableType()).isEqualTo(3);
+        assertThat(paid.deliverableTypeName()).isEqualTo("系统＋设计");
         assertThat(paid.amount()).isEqualTo(1999000L);
         assertThat(paid.currency()).isEqualTo("CNY");
         assertThat(paid.createdAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 14, 20, 0));
@@ -396,6 +447,9 @@ class AiplatformOrderClientContractTest {
         var pending = page.items().get(1);
         assertThat(pending.status()).isEqualTo(1);
         assertThat(pending.statusName()).isEqualTo("待报价");
+        // 类型对在待报价态已有值（下单冻结，早于报价——区别于 amount 的待报价 NULL）
+        assertThat(pending.deliverableType()).isEqualTo(1);
+        assertThat(pending.deliverableTypeName()).isEqualTo("设计");
         assertThat(pending.amount()).isNull();
         assertThat(pending.currency()).isNull();
         assertThat(pending.quotedAt()).isNull();
@@ -439,6 +493,9 @@ class AiplatformOrderClientContractTest {
         assertThat(detail.ownerExternalId()).isEqualTo("auth0|65f2c8a1");
         assertThat(detail.status()).isEqualTo(2);
         assertThat(detail.statusName()).isEqualTo("已报价");
+        // 交付物类型字段对（#96）：设计单——PRD 快照即含设计物清单章、取件走 design-package
+        assertThat(detail.deliverableType()).isEqualTo(1);
+        assertThat(detail.deliverableTypeName()).isEqualTo("设计");
         assertThat(detail.amount()).isEqualTo(2199000L);
         assertThat(detail.note()).isEqualTo("含加急费用");
         assertThat(detail.prdSnapshot()).startsWith("# PRD");
@@ -526,6 +583,66 @@ class AiplatformOrderClientContractTest {
                 });
     }
 
+    // ========== 设计资产包（#96：二进制无信封，下单冻结件直取，字节与响应头保全）==========
+
+    @Test
+    void given_tarGzBinaryResponse_when_downloadDesignPackage_then_bytesAndHeadersPreserved() {
+        String[] wireUrl = new String[1];
+        HttpHeaders providerHeaders = HttpHeaders.of(Map.of(
+                "Content-Type", List.of("application/gzip"),
+                "Content-Disposition", List.of(DESIGN_DISPOSITION)), (a, b) -> true);
+        var appService = AiplatformWireTestSupport.orderAppServiceWithStubTransport(
+                null, new BinaryResponse(200, providerHeaders, TAR_GZ_BYTES), wireUrl);
+
+        var pkg = appService.getDesignPackage("3829492001234567");
+
+        // 出站路径逐字镜像 provider backoffice 路由（对偶 source-package）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/orders/3829492001234567/design-package");
+
+        // gzip 字节逐位相等（含 0xff/0xfe/NUL——ofString 解码损坏的回归锚点），内存中转无信封
+        assertThat(pkg.content()).containsExactly(TAR_GZ_BYTES);
+        // provider 响应头 raw 值透传（不打解析、不重构文件名——design 后缀区别于 source）
+        assertThat(pkg.contentType()).isEqualTo("application/gzip");
+        assertThat(pkg.contentDisposition()).isEqualTo(DESIGN_DISPOSITION);
+    }
+
+    @Test
+    void given_ord016ErrorEnvelope_when_downloadDesignPackage_then_passThroughWithoutMapping() {
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.orderAppServiceWithErrorTransport(
+                404, ORD_016_ERROR_ENVELOPE, wireUrl);
+
+        // 守卫序第二环（订单存在之后）：系统单交付物是源码包——ORD_016 如实（5016），
+        // 不以空产物顶替不换码
+        assertThatThrownBy(() -> appService.getDesignPackage("3829492001234567"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(404);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5016);
+                    assertThat(upstream.getMessage()).isEqualTo("该订单的交付物不含设计资产包（系统单交付物是源码包）");
+                });
+    }
+
+    @Test
+    void given_prj051ErrorEnvelope_when_downloadDesignPackage_then_crossDomainCodePassesThrough() {
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.orderAppServiceWithErrorTransport(
+                404, PRJ_051_ERROR_ENVELOPE, wireUrl);
+
+        // 守卫序第三环：冻结件读取缺失——PRJ_051 来自项目域（域码 4×1000＋51），经订单域端点
+        // 透传（与重试归档的 PRJ_013 同款跨域码先例），BFF 不重编码不翻译
+        assertThatThrownBy(() -> appService.getDesignPackage("3829492001234567"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(404);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4051);
+                    assertThat(upstream.getMessage()).isEqualTo("设计资产包不存在（下单冻结件缺失）");
+                });
+    }
+
     // ========== 报价/改价（命令体序列化 + 用户面同构回执）==========
 
     @Test
@@ -571,6 +688,9 @@ class AiplatformOrderClientContractTest {
         assertThat(receipt.projectId()).isEqualTo("3829492007654321");
         assertThat(receipt.status()).isEqualTo(2);
         assertThat(receipt.statusName()).isEqualTo("已报价");
+        // 交付物类型字段对（#96）：写路径用户面回执 OrderResponse 同步携带（provider 出口已配对）
+        assertThat(receipt.deliverableType()).isEqualTo(3);
+        assertThat(receipt.deliverableTypeName()).isEqualTo("系统＋设计");
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.currency()).isEqualTo("CNY");
         assertThat(receipt.note()).isEqualTo("含加急费用");
@@ -616,6 +736,9 @@ class AiplatformOrderClientContractTest {
         // 已取消终态回执：status 5 + cancelledAt 落定；报价事实（金额/价目行）保留在回执上
         assertThat(receipt.status()).isEqualTo(5);
         assertThat(receipt.statusName()).isEqualTo("已取消");
+        // 类型三值全覆盖之「系统」单（取消回执 fixture）——Integer code 直通
+        assertThat(receipt.deliverableType()).isEqualTo(2);
+        assertThat(receipt.deliverableTypeName()).isEqualTo("系统");
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.priceEntries()).hasSize(1);
         assertThat(receipt.cancelledAt()).isEqualTo(LocalDateTime.of(2026, 9, 16, 15, 0, 0));

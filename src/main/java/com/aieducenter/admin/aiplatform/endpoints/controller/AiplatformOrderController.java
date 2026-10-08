@@ -7,6 +7,7 @@ import com.aieducenter.admin.aiplatform.application.AiplatformOrderAppService;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
 import com.aieducenter.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformDesignPackageResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderSummaryResponse;
@@ -32,7 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AI 平台订单控制器——BFF 读路径（清单/详情/源码包，issue #64）＋写路径三操作
- * （报价/改价、运营取消、重试归档，issue #70）。
+ * （报价/改价、运营取消、重试归档，issue #70）＋设计面增量（交付物类型字段对＋设计资产包
+ * 取件端点，issue #96 镜像 provider #297/#298，#95 设计能力线 T1）。
  *
  * <p>北向 {@code /api/admin/aiplatform/orders/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/orders/**}（#155/#156/#29/#157/#158 已冻结）——查询参数名、缺省值、
@@ -82,7 +84,11 @@ public class AiplatformOrderController {
                     + "page 1 基（缺省 1）、size 缺省 20（provider 上界 100），clamp 由 provider 执行、"
                     + "回显 provider 回报值。绑定裁决两段：非整数 code/非法时间在本服务绑定层 400（框架信封）；"
                     + "数值但未知的 code 由 provider 裁决 400 ORD_010（数字业务码 5010）透传。"
-                    + "行带 ownerDisplayName（下单账号缺档为 null）。")
+                    + "行带 ownerDisplayName（下单账号缺档为 null）＋交付物类型字段对"
+                    + " deliverableType/deliverableTypeName（#96：1=设计 2=系统 3=系统＋设计，"
+                    + "下单冻结自项目终点类型此后不随项目变更——清单加类型列、下载按钮按类型"
+                    + "二选一：设计面走 /{id}/design-package、系统单走 /{id}/source-package；"
+                    + "无类型筛选维度（设计单量小，裁决已备案））。")
     public ApiResponse<PageResponse<AiplatformOrderSummaryResponse>> orders(
             @RequestParam(required = false) List<Integer> status,
             @RequestParam(required = false)
@@ -105,7 +111,9 @@ public class AiplatformOrderController {
             scope = AdminScopes.ADMIN
     )
     @Operation(summary = "订单详情（含 append-only 价目历史）——透传 aiplatform",
-            description = "报价依据全量：状态、金额+最新备注、价目历史（append-only 全量，新→旧，"
+            description = "报价依据全量：状态、交付物类型（deliverableType/deliverableTypeName，"
+                    + "#96：1=设计 2=系统 3=系统＋设计——下单冻结自项目终点类型，设计单 PRD 快照"
+                    + "即含设计物清单章）、金额+最新备注、价目历史（append-only 全量，新→旧，"
                     + "每条带操作者——存量行操作者为空）、PRD 快照正文（下单冻结）、项目名、下单用户昵称、"
                     + "状态时点组（含取消/归档操作者留痕两肢）。金额 Long（分）。订单不存在 404 ORD_001"
                     + "（数字业务码 5001）。")
@@ -126,6 +134,34 @@ public class AiplatformOrderController {
                     + "订单不存在 404 ORD_001（数字业务码 5001）；打包失败 500 WSP_002。")
     public ResponseEntity<byte[]> sourcePackage(@PathVariable String id) {
         AiplatformSourcePackageResponse pkg = orderAppService.getSourcePackage(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, pkg.contentType())
+                .header(HttpHeaders.CONTENT_DISPOSITION, pkg.contentDisposition())
+                .body(pkg.content());
+    }
+
+    // 不挂 @ErrorCodes 同上：ORD_016/PRJ_051 等码以 description 文档化（忠实透传、零加戏）
+    @GetMapping("/{id}/design-package")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:order:read",
+            name = "AI 平台 / 订单查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "订单设计资产包（tar.gz 二进制流，下单冻结件直取，无 ApiResponse 信封）——透传 aiplatform",
+            description = "设计面交付取件（#96 镜像 provider #298，对偶源码包端点）：直取该单下单冻结时"
+                    + "物化的设计资产包（选件式 tar：选定稿自包含形态＋DESIGN.md 设计规范＋帧衍生资产，"
+                    + "落选稿不入；系统＋设计单＝统一部件容器）。交付物包按单定格——交付时拿到冻结时的"
+                    + "样子，此后改稿/再定稿不漂移（区别于源码包的实时打包）。<strong>不按支付态门控</strong>："
+                    + "后台是交付与排障面，用户支付门只盖用户面（未支付/已取消照取；取消残留不清理＝"
+                    + "本端点正本）。Content-Type=application/gzip + Content-Disposition 文件名均取"
+                    + " provider 原值透传。守卫序＝订单存在 → 交付物类型 → 冻结件读取：订单不存在"
+                    + "（含畸形 id）404 ORD_001（数字业务码 5001）；系统单交付物不含设计资产包 404"
+                    + " ORD_016（5016，如实——交付物是源码包）；冻结件缺失 404 <strong>PRJ_051</strong>"
+                    + "（4051，跨域码原样透传——不以空产物顶替）；读取失败 500 WSP_002（1002）。"
+                    + "权限复用 order:read（对偶 source-package 同码）。")
+    public ResponseEntity<byte[]> designPackage(@PathVariable String id) {
+        AiplatformDesignPackageResponse pkg = orderAppService.getDesignPackage(id);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, pkg.contentType())
                 .header(HttpHeaders.CONTENT_DISPOSITION, pkg.contentDisposition())

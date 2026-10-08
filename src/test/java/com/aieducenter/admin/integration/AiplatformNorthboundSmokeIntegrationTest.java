@@ -41,21 +41,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 逐票扩入 15 端点、#86 七域收口、#90 指派双头预检——技能域第 16 端点、#92 草稿审核面
  * ——技能域第 17–20 端点、#93 使用计数观测扩展追平——清单/详情增 loadCount/lastLoadedAt、
  * 详情另增 resources scripts/ 资源面（#261 观测面＋#253 漂移补齐；纯字段无新端点无新
- * 权限码，端点计数/码清单不变）、#61 冒烟四项之「域内全端点」就绪态）。
+ * 权限码，端点计数/码清单不变）、#96 设计能力线 T1——订单域设计资产包取件第 55 端点
+ * （镜像 provider #298，交付物类型字段对纯字段不加端点）、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>七域 54 端点合入后的收口审计，两条腿：</p>
+ * <p>七域 55 端点合入后的收口审计，两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
  *       十个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
  *       下既不缺端点也不多端点，方法逐一路径一致）——admin-web 按 api-docs 对接（spec #62
- *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 54 显式断言。</li>
+ *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 55 显式断言。</li>
  *   <li><b>权限注解与权限码清单一致</b>：每个北向映射方法恰一个 {@code @RequirePermission}；
  *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线十一码
  *       read/install/disable/enable/uninstall/assign/update＋agent-config:read/update
  *       ＋agent-tool:read/toggle——留痕读面复用 read；#90 指派双头预检复用 skill:assign；
  *       #92 草稿审核面三码 skill-draft:read/promote/reject——两读端点复用 read、
- *       promote/reject 各一码，共三十三码）。注解计数 == 54（一端点一码，
- *       无裸奔端点）。与 {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）
+ *       promote/reject 各一码，共三十三码）。注解计数 == 55（一端点一码，
+ *       无裸奔端点；#96 design-package 复用 order:read 不新增码）。与
+ *       {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）
  *       互补——此处钉静态清单完整性，防后续增删端点时清单漂移。</li>
  * </ul>
  *
@@ -69,8 +71,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）：七域 54 端点 = 订单 6 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 54;
+    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）：七域 55 端点 = 订单 7 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 55;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -135,8 +137,8 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 54 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all54AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 55 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all55AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
@@ -149,7 +151,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
         // drafts get＋drafts/{id} get＋promote post＋reject post，+4 对）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("十 controller 映射（路径×方法）对应为 54（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面）")
+        assertThat(endpointPairCount).as("十 controller 映射（路径×方法）对应为 55（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -177,7 +179,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、33 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read）、注解计数=54")
+    @DisplayName("权限注解复核：每映射方法恰一码、33 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read）、注解计数=55")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -198,7 +200,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 54（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 55（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
                 .as("distinct 权限码集合应与权限码清单精确一致（十读 + 二十三写，不缺不多）")

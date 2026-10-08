@@ -362,6 +362,37 @@ public class AiplatformClient {
     }
 
     /**
+     * 下载订单设计资产包（透传 aiplatform，issue #96 镜像 #298——对偶源码包端点）——tar.gz
+     * 二进制流，<strong>直取下单冻结时物化的设计资产包</strong>（选件式 tar：选定稿自包含
+     * 形态＋DESIGN.md 设计规范＋帧衍生资产，落选稿不入；系统＋设计单＝统一部件容器）——
+     * 交付物包按单定格，此后改稿/再定稿不漂移。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/orders/{id}/design-package}：<strong>无
+     * ApiResponse 信封</strong>（{@code application/gzip} + Content-Disposition 文件名
+     * {@code {orderId}-design.tar.gz}），经 cartisan-openapi {@link OpenApiClient#download}
+     * 取回原始字节 + 响应头——ofByteArray 保全 gzip 字节。内存中转、不落盘。
+     * <strong>不按支付态门控</strong>：后台是交付与排障面，用户支付门只盖用户面（未支付/
+     * 已取消照取）。守卫序＝订单存在 → 交付物类型 → 冻结件读取：订单不存在（含畸形 id）
+     * 404 ORD_001（数字业务码 5001）；系统单交付物不含设计资产包 404 ORD_016（5016，
+     * 如实——交付物是源码包）；冻结件缺失 404 <strong>PRJ_051</strong>（4051，跨域码
+     * 4×1000＋51——不以空产物顶替）；读取失败 500 WSP_002（1002）——错误信封在 body 里，
+     * {@code download} 内部抛 {@link OpenApiClientException}，此处同款翻译透传。</p>
+     *
+     * @param id 订单标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_001）
+     * @return 二进制响应载体（HTTP 状态 + 响应头 raw 值 + 原始字节）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 ORD_001/ORD_016/PRJ_051、500 WSP_002 等，不做映射）
+     */
+    public BinaryResponse downloadDesignPackage(String id) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(id) + "/design-package";
+        log.debug("AiplatformClient.downloadDesignPackage: {}", url);
+        try {
+            return openApiClient.download(url);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
      * 提交报价/改价（透传 aiplatform）——「已报价态重复提交＝改价」语义由 provider 承担
      * （待报价态首次提交＝报价→已报价；已报价态重复提交＝改价，状态不变、append-only 价目行
      * 留痕、订单现值取最新行），BFF 不解释不预判。

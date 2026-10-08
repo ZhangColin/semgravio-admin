@@ -185,7 +185,7 @@ class AiplatformBffIntegrationTest {
                 new PageResponse<>(List.of(
                         new AiplatformOrderSummaryWireResponse(
                                 "3829492001234567", "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野",
-                                3, "已支付", 1999000L, "CNY",
+                                3, "已支付", 3, "系统＋设计", 1999000L, "CNY",
                                 LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                                 LocalDateTime.of(2026, 9, 11, 9, 0, 0))), 42, 3, 20));
 
@@ -213,6 +213,9 @@ class AiplatformBffIntegrationTest {
         assertThat(row.id()).isEqualTo("3829492001234567");
         assertThat(row.status()).isEqualTo(3);
         assertThat(row.statusName()).isEqualTo("已支付");
+        // 交付物类型字段对（#96）：wire → response 逐字段（Integer code + 中文名）
+        assertThat(row.deliverableType()).isEqualTo(3);
+        assertThat(row.deliverableTypeName()).isEqualTo("系统＋设计");
         assertThat(row.amount()).isEqualTo(1999000L);
         assertThat(row.currency()).isEqualTo("CNY");
         assertThat(row.createdAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 14, 20, 0));
@@ -256,6 +259,26 @@ class AiplatformBffIntegrationTest {
         assertThat(pkg.contentDisposition()).isEqualTo("attachment; filename=\"3829492001234567-source.tar.gz\"");
     }
 
+    // ========== 设计资产包 · 二进制载体保全（#96，对偶源码包）==========
+
+    @Test
+    void given_tarGzFromDownstream_when_getDesignPackage_then_bytesAndRawHeadersPreserved() {
+        byte[] tarGz = {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00};
+        HttpHeaders providerHeaders = HttpHeaders.of(Map.of(
+                "Content-Type", List.of("application/gzip"),
+                "Content-Disposition", List.of("attachment; filename=\"3829492001234567-design.tar.gz\"")),
+                (a, b) -> true);
+        when(aiplatformClient.downloadDesignPackage("3829492001234567"))
+                .thenReturn(new BinaryResponse(200, providerHeaders, tarGz));
+
+        var pkg = orderAppService.getDesignPackage("3829492001234567");
+
+        // 字节逐位保全 + provider 响应头 raw 值透传（design 后缀区别于 source——下单冻结件直取）
+        assertThat(pkg.content()).containsExactly(tarGz);
+        assertThat(pkg.contentType()).isEqualTo("application/gzip");
+        assertThat(pkg.contentDisposition()).isEqualTo("attachment; filename=\"3829492001234567-design.tar.gz\"");
+    }
+
     // ========== 写路径三操作 · 命令映射 + 用户面同构回执映射 ==========
 
     @Test
@@ -283,6 +306,9 @@ class AiplatformBffIntegrationTest {
         // 价目历史五字段（无操作者留痕——用户面同构回执）
         assertThat(receipt.status()).isEqualTo(2);
         assertThat(receipt.statusName()).isEqualTo("已报价");
+        // 交付物类型字段对（#96）：写回执 OrderResponse 同步镜像
+        assertThat(receipt.deliverableType()).isEqualTo(3);
+        assertThat(receipt.deliverableTypeName()).isEqualTo("系统＋设计");
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.note()).isEqualTo("含加急费用");
         assertThat(receipt.quotedAt()).isEqualTo(LocalDateTime.of(2026, 9, 11, 9, 0, 0));
@@ -367,6 +393,7 @@ class AiplatformBffIntegrationTest {
             List<AiplatformOrderWireResponse.PriceEntry> priceEntries) {
         return new AiplatformOrderWireResponse(
                 "3829492001234567", "3829492007654321", status, statusName,
+                3, "系统＋设计",
                 2199000L, "CNY", "含加急费用", LocalDateTime.of(2026, 9, 11, 9, 0, 0),
                 priceEntries, LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);

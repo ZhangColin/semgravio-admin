@@ -84,6 +84,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       SKL_009/015/016/017/018 数字码须在 api-docs 在场；北向 schema 的草稿行血统三件/
  *       scanVerdict/status 三态、详情 scanFindings（空列表＝无发现）与终态留痕四字段、
  *       拒绝命令体 reason（可选绑定不前置拦截）同步自描述。</li>
+ *   <li>订单设计面三处 @Operation 自描述（issue #96 镜像 aiplatform #297/#298，#95 设计
+ *       能力线 T1）：清单/详情的交付物类型三值语义（1=设计 2=系统 3=系统＋设计、下单冻结
+ *       自项目终点类型）＋设计资产包取件端点（下单冻结件直取、<strong>不按支付态门控</strong>、
+ *       守卫序、ORD_016＝5016／PRJ_051＝4051 数字码）须在 api-docs 在场；北向 schema 的
+ *       deliverableType（三个订单出口面：清单/详情/写回执）同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -773,6 +778,73 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("SKL_018")
                 .contains("不前置拦截");
         assertThat(exampleText(reason)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("swagger 契约：订单设计面三处 @Operation 自描述（#96，类型三值语义 + 冻结件直取不按支付态门控 + ORD_016/PRJ_051 数字码在场）")
+    void given_orderDesignSurfaces_when_readOperations_then_descriptionsSelfDescribed() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：交付物类型字段对在场（类型列）＋取件二选一＋无类型筛选维度（裁决已备案）
+        JsonNode list = paths.path("/api/admin/aiplatform/orders").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含订单清单端点").isFalse();
+        assertThat(list.path("description").asText(""))
+                .contains("交付物类型字段对")
+                .contains("deliverableType/deliverableTypeName")
+                .contains("1=设计 2=系统 3=系统＋设计")
+                .contains("下单冻结自项目终点类型")
+                .contains("下载按钮按类型二选一")
+                .contains("design-package")
+                .contains("source-package")
+                .contains("无类型筛选维度");
+
+        // 详情：基本信息类型 tag 数据面＋设计单 PRD 快照即含设计物清单章
+        JsonNode detail = paths.path("/api/admin/aiplatform/orders/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含订单详情端点").isFalse();
+        assertThat(detail.path("description").asText(""))
+                .contains("交付物类型")
+                .contains("deliverableType/deliverableTypeName")
+                .contains("1=设计 2=系统 3=系统＋设计")
+                .contains("设计单 PRD 快照即含设计物清单章");
+
+        // 设计资产包端点（#96 新增）：下单冻结件直取＋不按支付态门控＋守卫序＋错误族数字码
+        JsonNode design = paths.path("/api/admin/aiplatform/orders/{id}/design-package").path("get");
+        assertThat(design.isMissingNode()).as("api-docs 应含设计资产包端点").isFalse();
+        assertThat(design.path("summary").asText(""))
+                .contains("设计资产包")
+                .contains("下单冻结件直取")
+                .contains("无 ApiResponse 信封");
+        assertThat(design.path("description").asText(""))
+                .contains("对偶源码包")
+                .contains("选件式 tar")
+                .contains("DESIGN.md")
+                .contains("按单定格")
+                .contains("不按支付态门控")
+                .contains("未支付/已取消照取")
+                .contains("守卫序")
+                .contains("ORD_001").contains("5001")
+                .contains("ORD_016").contains("5016")
+                .contains("PRJ_051").contains("4051")
+                .contains("WSP_002").contains("1002")
+                .contains("provider 原值透传")
+                .contains("复用 order:read");
+
+        // 交付物类型 schema 自描述（三个订单出口面同款）：三值语义＋冻结口径＋取件指向
+        for (String schema : List.of("AiplatformOrderSummaryResponse",
+                "AiplatformOrderDetailResponse", "AiplatformOrderResponse")) {
+            JsonNode type = property(schema, "deliverableType");
+            assertThat(type.path("description").asText(""))
+                    .as("%s.deliverableType 应写明三值语义与冻结口径", schema)
+                    .contains("1=设计 2=系统 3=系统＋设计")
+                    .contains("下单冻结自项目终点类型")
+                    .contains("不随项目变更");
+            assertThat(exampleText(type)).as("%s.deliverableType 应附示例", schema).isNotBlank();
+        }
+        // 清单/详情两承载面另写明取件端点二选一（写回执面不写——回执无取件语义）
+        assertThat(property("AiplatformOrderSummaryResponse", "deliverableType")
+                .path("description").asText(""))
+                .contains("design-package")
+                .contains("source-package");
     }
 
     // ---------- 装载 ----------

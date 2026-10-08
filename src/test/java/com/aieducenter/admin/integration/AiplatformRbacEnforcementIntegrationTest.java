@@ -104,7 +104,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 文件树/文件内容/文件包 + #80 技能线 T1 技能清单/详情 + #81 技能线 T2
  * 安装/停用⇄启用/卸载写口 + #82 技能线 T3 槽位指派读写 + #83 技能线 T4 显式更新＋更新留痕读面 +
  * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关 +
- * #90 指派双头预检——技能域第 16 端点 + #92 草稿审核面——技能域第 17–20 端点）
+ * #90 指派双头预检——技能域第 16 端点 + #92 草稿审核面——技能域第 17–20 端点 +
+ * #96 设计能力线 T1——订单设计资产包取件（复用 order:read，交付物类型字段对随清单/详情/
+ * 写回执北向断言））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -161,6 +163,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String ORDERS_ENDPOINT = "/api/admin/aiplatform/orders";
     private static final String ORDER_DETAIL_ENDPOINT = ORDERS_ENDPOINT + "/" + ORDER_ID;
     private static final String SOURCE_PACKAGE_ENDPOINT = ORDER_DETAIL_ENDPOINT + "/source-package";
+    private static final String DESIGN_PACKAGE_ENDPOINT = ORDER_DETAIL_ENDPOINT + "/design-package";
     private static final String ORDER_QUOTE_PERMISSION = "admin:aiplatform:order:quote";
     private static final String ORDER_CANCEL_PERMISSION = "admin:aiplatform:order:cancel";
     private static final String ORDER_RETRY_ARCHIVE_PERMISSION = "admin:aiplatform:order:retry-archive";
@@ -586,12 +589,12 @@ class AiplatformRbacEnforcementIntegrationTest {
         when(aiplatformClient.listOrders(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(
                 List.of(new AiplatformOrderSummaryWireResponse(
                         ORDER_ID, "3829492007654321", "英语学习助手", EXTERNAL_ID, "文野",
-                        3, "已支付", 1999000L, "CNY",
+                        3, "已支付", 3, "系统＋设计", 1999000L, "CNY",
                         LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                         LocalDateTime.of(2026, 9, 11, 9, 0, 0))), 42, 3, 20));
         when(aiplatformClient.getOrder(eq(ORDER_ID))).thenReturn(new AiplatformOrderDetailWireResponse(
                 ORDER_ID, "3829492007654321", "英语学习助手", EXTERNAL_ID, "文野",
-                2, "已报价", 2199000L, "CNY", "含加急费用",
+                2, "已报价", 1, "设计", 2199000L, "CNY", "含加急费用",
                 List.of(new AiplatformPriceEntryWireResponse(
                         "3829492011111111", 2199000L, "CNY", "含加急费用",
                         "1234567890123456", "报价运营", LocalDateTime.of(2026, 9, 12, 10, 0, 0))),
@@ -602,6 +605,13 @@ class AiplatformRbacEnforcementIntegrationTest {
                 java.net.http.HttpHeaders.of(Map.of(
                         "Content-Type", List.of("application/gzip"),
                         "Content-Disposition", List.of("attachment; filename=\"" + ORDER_ID + "-source.tar.gz\"")),
+                        (a, b) -> true),
+                new byte[] {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00}));
+        // 设计资产包 mock（#96 T1）：对偶源码包——design 后缀冻结件（不按支付态门控，交付裁决归 provider）
+        when(aiplatformClient.downloadDesignPackage(eq(ORDER_ID))).thenReturn(new BinaryResponse(200,
+                java.net.http.HttpHeaders.of(Map.of(
+                        "Content-Type", List.of("application/gzip"),
+                        "Content-Disposition", List.of("attachment; filename=\"" + ORDER_ID + "-design.tar.gz\"")),
                         (a, b) -> true),
                 new byte[] {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00}));
         when(aiplatformClient.listProjects(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
@@ -1056,6 +1066,7 @@ class AiplatformRbacEnforcementIntegrationTest {
             LocalDateTime cancelledAt, LocalDateTime paidAt, LocalDateTime archivedAt) {
         return new AiplatformOrderWireResponse(
                 ORDER_ID, "3829492007654321", status, statusName,
+                2, "系统",
                 2199000L, "CNY", "含加急费用", LocalDateTime.of(2026, 9, 11, 9, 0, 0),
                 List.of(new AiplatformOrderWireResponse.PriceEntry(
                         "3829492011111111", 2199000L, "CNY", "含加急费用",
@@ -1176,6 +1187,10 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(row.path("id").asText()).isEqualTo(ORDER_ID);
         assertThat(row.path("status").asInt()).isEqualTo(3);
         assertThat(row.path("statusName").asText()).isEqualTo("已支付");
+        // 交付物类型字段对（#96）：北向出 JSON number（Integer code 非 Long——ToStringSerializer
+        // 只覆盖包装 Long）+ 中文名随行（前端直读 *Name，ADR-0009）
+        assertThat(row.path("deliverableType").asInt()).isEqualTo(3);
+        assertThat(row.path("deliverableTypeName").asText()).isEqualTo("系统＋设计");
         assertThat(row.path("amount").asLong()).isEqualTo(1999000L);
         assertThat(row.path("currency").asText()).isEqualTo("CNY");
         assertThat(row.path("createdAt").asText()).isEqualTo("2026-09-10T14:20:00");
@@ -1192,6 +1207,9 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("id").asText()).isEqualTo(ORDER_ID);
         assertThat(data.path("status").asInt()).isEqualTo(2);
         assertThat(data.path("statusName").asText()).isEqualTo("已报价");
+        // 交付物类型字段对（#96）：设计单——详情基本信息 tag 数据面
+        assertThat(data.path("deliverableType").asInt()).isEqualTo(1);
+        assertThat(data.path("deliverableTypeName").asText()).isEqualTo("设计");
         assertThat(data.path("amount").asLong()).isEqualTo(2199000L);
         assertThat(data.path("note").asText()).isEqualTo("含加急费用");
         assertThat(data.path("prdSnapshot").asText()).startsWith("# PRD");
@@ -1221,19 +1239,37 @@ class AiplatformRbacEnforcementIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管且缺少权限 → 订单三端点 403（独立权限码 order:read）")
+    @DisplayName("非超管且拥有 order:read → 设计资产包 200，gzip 字节 + provider 响应头透传（无信封，#96）")
+    void given_nonSuperAdminWithOrderRead_when_downloadDesignPackage_then_200BinaryWithProviderHeaders() {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<byte[]> response = getBinaryWithToken(DESIGN_PACKAGE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 无 ApiResponse 信封：body 即 tar.gz 字节流（含非法 UTF-8 字节，逐位透传——下单冻结件直取）
+        assertThat(response.getBody())
+                .containsExactly((byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00);
+        // Content-Type / Content-Disposition 取 provider 原值（design 后缀区别于 source）
+        assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE)).isEqualTo("application/gzip");
+        assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                .isEqualTo("attachment; filename=\"" + ORDER_ID + "-design.tar.gz\"");
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 订单四端点 403（独立权限码 order:read——design-package 复用同码）")
     void given_nonSuperAdminWithoutPermission_when_orderEndpoints_then_403() {
         String token = login(usernameWithoutPermission);
         assertThat(getWithToken(ORDERS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(getWithToken(ORDER_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(getWithToken(SOURCE_PACKAGE_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(DESIGN_PACKAGE_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
-    @DisplayName("未登录访问订单清单/源码包返回 401")
+    @DisplayName("未登录访问订单清单/源码包/设计资产包返回 401")
     void given_unauthenticated_when_orderEndpoints_then_401() {
         assertThat(getWithToken(ORDERS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(getWithToken(SOURCE_PACKAGE_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(DESIGN_PACKAGE_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
@@ -1270,6 +1306,9 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(quoted.path("id").asText()).isEqualTo(ORDER_ID);
         assertThat(quoted.path("status").asInt()).isEqualTo(2);
         assertThat(quoted.path("statusName").asText()).isEqualTo("已报价");
+        // 交付物类型字段对（#96）：写回执同步镜像（用户面 OrderResponse 已配对）
+        assertThat(quoted.path("deliverableType").asInt()).isEqualTo(2);
+        assertThat(quoted.path("deliverableTypeName").asText()).isEqualTo("系统");
         assertThat(quoted.path("amount").asLong()).isEqualTo(2199000L);
         assertThat(quoted.path("note").asText()).isEqualTo("含加急费用");
         assertThat(quoted.path("quotedAt").asText()).isEqualTo("2026-09-11T09:00:00");

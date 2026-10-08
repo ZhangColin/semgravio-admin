@@ -5,6 +5,7 @@ import java.util.List;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.aieducenter.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
 import com.aieducenter.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
+import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformDesignPackageResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderDetailResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderResponse;
 import com.aieducenter.admin.aiplatform.application.dto.response.AiplatformOrderSummaryResponse;
@@ -25,8 +26,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
 /**
- * aiplatform 订单域 BFF 应用服务——订单读路径聚合（清单四维检索 / 详情含价目历史 / 源码包）
- * ＋写路径三操作（报价/改价、运营取消、重试归档，issue #70）。
+ * aiplatform 订单域 BFF 应用服务——订单读路径聚合（清单四维检索 / 详情含价目历史 / 源码包
+ * ＋设计资产包，issue #96 设计能力线 T1）＋写路径三操作（报价/改价、运营取消、重试归档，
+ * issue #70）。
  *
  * <p>admin 作为 BFF：调接口 + DTO 转换，不持业务逻辑、不持订单数据、不记业务审计（审计归
  * aiplatform）。下游错误已由 {@link AiplatformClient} 统一翻译为 {@link AiplatformUpstreamException}
@@ -89,6 +91,22 @@ public class AiplatformOrderAppService {
     }
 
     /**
+     * 下载订单设计资产包（透传 aiplatform，issue #96 镜像 #298——对偶源码包端点）——tar.gz
+     * 二进制流 + provider 响应头 raw 值；直取下单冻结时物化的冻结件（区别于源码包的实时
+     * 打包——交付物按单定格），不按支付态门控。
+     */
+    public AiplatformDesignPackageResponse getDesignPackage(String id) {
+        BinaryResponse binary = aiplatformClient.downloadDesignPackage(id);
+        // 同源码包：HttpHeaders 大小写不敏感取值；provider 契约恒带两头——缺头兜底为通用
+        // 二进制附件（HTTP 合法性，非契约发明）
+        String contentType = binary.headers().firstValue(HttpHeaders.CONTENT_TYPE)
+                .orElse(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        String contentDisposition = binary.headers().firstValue(HttpHeaders.CONTENT_DISPOSITION)
+                .orElse("attachment");
+        return new AiplatformDesignPackageResponse(binary.body(), contentType, contentDisposition);
+    }
+
+    /**
      * 提交报价/改价（透传 aiplatform，issue #70）——「已报价态重复提交＝改价」语义由 provider
      * 承担（状态不变、append-only 价目行留痕、订单现值取最新行），BFF 不解释不预判。回执＝
      * provider 用户面同构 OrderResponse（金额/备注取最新价目行＋改价历史新→旧）。
@@ -120,7 +138,9 @@ public class AiplatformOrderAppService {
         return new AiplatformOrderSummaryResponse(
                 wire.id(), wire.projectId(), wire.projectName(),
                 wire.ownerExternalId(), wire.ownerDisplayName(),
-                wire.status(), wire.statusName(), wire.amount(), wire.currency(),
+                wire.status(), wire.statusName(),
+                wire.deliverableType(), wire.deliverableTypeName(),
+                wire.amount(), wire.currency(),
                 wire.createdAt(), wire.quotedAt());
     }
 
@@ -128,7 +148,9 @@ public class AiplatformOrderAppService {
         return new AiplatformOrderDetailResponse(
                 wire.id(), wire.projectId(), wire.projectName(),
                 wire.ownerExternalId(), wire.ownerDisplayName(),
-                wire.status(), wire.statusName(), wire.amount(), wire.currency(), wire.note(),
+                wire.status(), wire.statusName(),
+                wire.deliverableType(), wire.deliverableTypeName(),
+                wire.amount(), wire.currency(), wire.note(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()
                         .map(AiplatformOrderAppService::toPriceEntry)
                         .toList(),
@@ -148,6 +170,7 @@ public class AiplatformOrderAppService {
     private static AiplatformOrderResponse toReceipt(AiplatformOrderWireResponse wire) {
         return new AiplatformOrderResponse(
                 wire.id(), wire.projectId(), wire.status(), wire.statusName(),
+                wire.deliverableType(), wire.deliverableTypeName(),
                 wire.amount(), wire.currency(), wire.note(), wire.quotedAt(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()
                         .map(AiplatformOrderAppService::toReceiptEntry)

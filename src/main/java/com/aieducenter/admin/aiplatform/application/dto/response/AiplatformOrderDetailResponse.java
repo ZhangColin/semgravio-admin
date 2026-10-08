@@ -3,12 +3,16 @@ package com.aieducenter.admin.aiplatform.application.dto.response;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * AI 平台订单详情——北向出口，逐字镜像 aiplatform {@code BackofficeOrderDetailResponse}
- * （22 字段 + 内嵌价目历史），无增删字段、无换型（spec #62 忠实透传）。
+ * （24 字段 + 内嵌价目历史，含 #297/#298 交付物类型字段对），无增删字段、无换型（spec #62
+ * 忠实透传）。
  *
- * <p>报价依据全量事实：PRD 快照正文、价目历史（append-only，新 → 旧，带操作者留痕）、
- * 全部状态时点。取消/归档操作者两肢为 admin 侧管理员标识，存量行/无头 NULL。</p>
+ * <p>报价依据全量事实：PRD 快照正文（设计单快照即含设计物清单章）、交付物类型、价目历史
+ * （append-only，新 → 旧，带操作者留痕）、全部状态时点。取消/归档操作者两肢为 admin 侧
+ * 管理员标识，存量行/无头 NULL。</p>
  *
  * @since 0.1.0
  */
@@ -34,6 +38,15 @@ public record AiplatformOrderDetailResponse(
 
         /** 状态中文名（provider 出口提供） */
         String statusName,
+
+        /** 交付物类型（1=设计 2=系统 3=系统＋设计；下单冻结自项目终点类型，此后不随项目变更——设计单 PRD 快照即含设计物清单章、取件走 /{id}/design-package） */
+        @Schema(description = "交付物类型 code（1=设计 2=系统 3=系统＋设计；下单冻结自项目终点类型，"
+                + "此后不随项目变更——设计单 PRD 快照即含设计物清单章、设计资产包取件走 "
+                + "/{id}/design-package、系统单走 /{id}/source-package）", example = "1")
+        Integer deliverableType,
+
+        /** 交付物类型中文名（前端直读展示，基本信息 tag） */
+        String deliverableTypeName,
 
         /** 当前总价（分；待报价 NULL） */
         Long amount,

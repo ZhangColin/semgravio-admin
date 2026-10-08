@@ -5,8 +5,8 @@ import java.util.List;
 
 /**
  * aiplatform 订单写路径回执的 wire 镜像——与 aiplatform {@code OrderResponse}（用户面
- * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装）字段同构（13 字段，含内嵌改价历史），
- * 逐字镜像、无增删。报价/取消/重试归档三写操作共用本回执。
+ * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装）字段同构（15 字段，含内嵌改价历史
+ * ＋#298 交付物类型字段对），逐字镜像、无增删。报价/取消/重试归档三写操作共用本回执。
  *
  * <p>与 {@link AiplatformOrderDetailWireResponse}（后台详情 21 字段）的差异：无
  * projectName/ownerDisplayName/prdSnapshot/取消归档操作者留痕两肢——回执是 provider 的
@@ -28,6 +28,16 @@ public record AiplatformOrderWireResponse(
 
         /** 状态中文名（provider 出口提供） */
         String statusName,
+
+        /**
+         * 交付物类型（1=设计 2=系统 3=系统＋设计；#297 下单冻结自项目终点类型，此后不随项目
+         * 变更）。Integer code 直通不建 typed enum（provider 枚举非本应用领域枚举，对齐
+         * tokenKind 先例）——provider 用户面回执同步携带（#298），admin 镜像随行。
+         */
+        Integer deliverableType,
+
+        /** 交付物类型中文名（provider 出口提供） */
+        String deliverableTypeName,
 
         /** 当前总价（分；待报价 NULL，改价取最新价目行） */
         Long amount,
