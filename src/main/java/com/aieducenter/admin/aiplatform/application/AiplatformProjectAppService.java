@@ -80,7 +80,10 @@ public class AiplatformProjectAppService {
 
     /**
      * 项目对话史（透传 aiplatform）——对话面全量同序（id 升序＝对话序），kind Integer code +
-     * kindName 中文名（provider 出口提供，aiplatform#186）随行。
+     * kindName 中文名（provider 出口提供，aiplatform#186）随行；sessionSource 会话来源对随行
+     * （aiplatform #298——对话史含设计会话）：2=设计会话（判据＝收尾卡携 drafts 稿清单）、
+     * null=主会话缺省照透（含作用域改稿发言——无结构标记不标注；存储不同构降级口径归 provider
+     * 读口单点，BFF 不推导）。
      */
     public List<AiplatformConversationEntryResponse> getConversation(String id) {
         return aiplatformClient.getConversation(id).stream()
@@ -177,7 +180,8 @@ public class AiplatformProjectAppService {
     private static AiplatformConversationEntryResponse toConversationEntry(
             AiplatformConversationEntryWireResponse wire) {
         return new AiplatformConversationEntryResponse(
-                wire.id(), wire.kind(), wire.kindName(), wire.runId(), wire.text(),
+                wire.id(), wire.kind(), wire.kindName(), wire.sessionSource(), wire.sessionSourceName(),
+                wire.runId(), wire.text(),
                 wire.question(), wire.closing(), wire.attachments(), wire.quote(),
                 wire.answered(), wire.at());
     }

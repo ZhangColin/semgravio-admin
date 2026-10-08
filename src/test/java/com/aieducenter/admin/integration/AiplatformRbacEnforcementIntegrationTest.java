@@ -630,12 +630,18 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new AiplatformProjectDetailWireResponse.CostSummary(Map.of("CNY", new BigDecimal("12.3456")), true)));
         when(aiplatformClient.getConversation(eq(PROJECT_ID))).thenReturn(List.of(
                 new AiplatformConversationEntryWireResponse(
-                        90001L, 1, "用户发言", null, "首页加一个轮播图",
+                        90001L, 1, "用户发言", null, null, null, "首页加一个轮播图",
                         null, null, null, null, false, LocalDateTime.of(2026, 9, 12, 10, 0, 0)),
                 new AiplatformConversationEntryWireResponse(
-                        90003L, 5, "收尾卡", "run-abc123", null,
+                        90003L, 5, "收尾卡", null, null, "run-abc123", null,
                         null, Map.of("runId", "run-abc123", "commitHash", VERSION_HASH), null, null, false,
-                        LocalDateTime.of(2026, 9, 12, 11, 30, 0))));
+                        LocalDateTime.of(2026, 9, 12, 11, 30, 0)),
+                new AiplatformConversationEntryWireResponse(
+                        90005L, 5, "收尾卡", 2, "设计会话", "run-d1", null,
+                        null, Map.of("summary", "完成设计物：活动海报", "drafts",
+                                List.of(Map.of("item", "活动海报", "media", "image", "path", "/design/poster.png"))),
+                        null, null, false,
+                        LocalDateTime.of(2026, 9, 12, 12, 30, 0))));
         when(aiplatformClient.getPrd(eq(PROJECT_ID))).thenReturn(new AiplatformPrdWireResponse(
                 PROJECT_ID, "# PRD\n\n做一个英语学习助手……", Instant.parse("2026-09-12T08:30:00Z")));
         when(aiplatformClient.listVersions(eq(PROJECT_ID))).thenReturn(List.of(new AiplatformVersionWireResponse(
@@ -1484,10 +1490,19 @@ class AiplatformRbacEnforcementIntegrationTest {
         ResponseEntity<String> conversation = getWithToken(CONVERSATION_ENDPOINT, token);
         assertThat(conversation.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode entries = objectMapper.readTree(conversation.getBody()).path("data");
-        assertThat(entries.size()).isEqualTo(2);
+        assertThat(entries.size()).isEqualTo(3);
         assertThat(entries.get(0).path("kind").asInt()).isEqualTo(1);
         assertThat(entries.get(0).path("kindName").asText()).isEqualTo("用户发言");
         assertThat(entries.get(1).path("closing").path("commitHash").asText()).isEqualTo(VERSION_HASH);
+        // 会话来源对北向形状（#298）：主会话条目 sessionSource/sessionSourceName 出 JSON null
+        // （全局 Jackson 含 null——断言 isNull 而非缺省，不臆造 0/默认值）；设计会话收尾卡
+        // （closing 携 drafts）2=设计会话 + 中文名随行
+        assertThat(entries.get(0).path("sessionSource").isNull()).isTrue();
+        assertThat(entries.get(0).path("sessionSourceName").isNull()).isTrue();
+        assertThat(entries.get(1).path("sessionSource").isNull()).isTrue();
+        assertThat(entries.get(1).path("sessionSourceName").isNull()).isTrue();
+        assertThat(entries.get(2).path("sessionSource").asInt()).isEqualTo(2);
+        assertThat(entries.get(2).path("sessionSourceName").asText()).isEqualTo("设计会话");
 
         // PRD：markdown 正文 + updatedAt（Instant，ISO-8601 UTC 带 Z）
         ResponseEntity<String> prd = getWithToken(PRD_ENDPOINT, token);

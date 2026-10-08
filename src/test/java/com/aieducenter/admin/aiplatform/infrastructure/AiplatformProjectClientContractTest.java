@@ -159,8 +159,11 @@ class AiplatformProjectClientContractTest {
     /**
      * aiplatform GET /api/backoffice/projects/{id}/conversation 的真实成功响应形状（data 裸 List）：
      * 用户发言（带圈注附件）/问答卡（挂起待答）/收尾卡（run-finish 载荷）/报价卡（quote 载荷，
-     * provider #203 报价感知后新增肢）四条，id 升序＝对话序。kindName 随行——aiplatform#186 已落
-     * （f01d984），BFF 透传 provider 值。
+     * provider #203 报价感知后新增肢）/设计会话收尾卡（closing 携 drafts 稿清单——#298 会话来源
+     * 标识判据）五条，id 升序＝对话序。kindName 随行——aiplatform#186 已落（f01d984），BFF 透传
+     * provider 值。sessionSource 两态（#298）：设计收尾卡＝2＋sessionSourceName 中文名随行；其余
+     * null＝主会话缺省（provider 出口显式 null——sessionSourceOf 推导单点，含编码收尾卡无 drafts
+     * 即 null）。
      */
     private static final String CONVERSATION_ENVELOPE = """
             {
@@ -171,6 +174,8 @@ class AiplatformProjectClientContractTest {
                   "id": "90001",
                   "kind": 1,
                   "kindName": "用户发言",
+                  "sessionSource": null,
+                  "sessionSourceName": null,
                   "runId": null,
                   "text": "首页加一个轮播图",
                   "question": null,
@@ -185,6 +190,8 @@ class AiplatformProjectClientContractTest {
                   "id": "90002",
                   "kind": 3,
                   "kindName": "问答卡",
+                  "sessionSource": null,
+                  "sessionSourceName": null,
                   "runId": null,
                   "text": null,
                   "question": {"questionId": "q-77", "prompt": "轮播图要几张？", "options": ["3 张", "5 张"]},
@@ -197,6 +204,8 @@ class AiplatformProjectClientContractTest {
                   "id": "90003",
                   "kind": 5,
                   "kindName": "收尾卡",
+                  "sessionSource": null,
+                  "sessionSourceName": null,
                   "runId": "run-abc123",
                   "text": null,
                   "question": null,
@@ -209,6 +218,8 @@ class AiplatformProjectClientContractTest {
                   "id": "90004",
                   "kind": 7,
                   "kindName": "报价卡",
+                  "sessionSource": null,
+                  "sessionSourceName": null,
                   "runId": null,
                   "text": null,
                   "question": null,
@@ -217,6 +228,22 @@ class AiplatformProjectClientContractTest {
                   "quote": {"orderId": "3897654321098765432", "event": "quoted"},
                   "answered": false,
                   "at": "2026-09-12T12:00:00"
+                },
+                {
+                  "id": "90005",
+                  "kind": 5,
+                  "kindName": "收尾卡",
+                  "sessionSource": 2,
+                  "sessionSourceName": "设计会话",
+                  "runId": "run-d1",
+                  "text": null,
+                  "question": null,
+                  "closing": {"summary": "完成设计物：活动海报", "prdChanged": false, "systemChanged": false,
+                    "files": [], "durationMs": 60000,
+                    "drafts": [{"item": "活动海报", "media": "image", "path": "/design/poster.png"}]},
+                  "attachments": null,
+                  "answered": false,
+                  "at": "2026-09-12T12:30:00"
                 }
               ],
               "requestId": "req-7a8b9c",
@@ -591,7 +618,7 @@ class AiplatformProjectClientContractTest {
                 "http://stub-aiplatform/api/backoffice/projects/3829492007654321/conversation");
 
         // 全量同序（id 升序＝对话序）
-        assertThat(entries).hasSize(4);
+        assertThat(entries).hasSize(5);
 
         // 用户发言（kind=1）：kindName 中文名随行（aiplatform#186 已落——provider 出口提供，BFF 透传）；
         // id 为 Long（provider Long→JSON string 出口、反序列化回 Long）；圈注附件数组原样
@@ -599,6 +626,9 @@ class AiplatformProjectClientContractTest {
         assertThat(user.id()).isEqualTo(90001L);
         assertThat(user.kind()).isEqualTo(1);
         assertThat(user.kindName()).isEqualTo("用户发言");
+        // 会话来源（#298）：主会话缺省＝null 照透（不臆造 0/默认值——null 是缺省态非标识值位）
+        assertThat(user.sessionSource()).isNull();
+        assertThat(user.sessionSourceName()).isNull();
         assertThat(user.runId()).isNull();
         assertThat(user.text()).isEqualTo("首页加一个轮播图");
         assertThat(user.question()).isNull();
@@ -619,10 +649,13 @@ class AiplatformProjectClientContractTest {
                 .containsEntry("prompt", "轮播图要几张？");
         assertThat(question.answered()).isFalse();
 
-        // 收尾卡（kind=5）：run-finish 收口扩载同载荷（版本详情锚定的权威事实）
+        // 收尾卡（kind=5）：run-finish 收口扩载同载荷（版本详情锚定的权威事实）；
+        // 编码收尾卡无 drafts 稿清单 → sessionSource null＝主会话缺省（#298 判据）
         var closing = entries.get(2);
         assertThat(closing.kind()).isEqualTo(5);
         assertThat(closing.kindName()).isEqualTo("收尾卡");
+        assertThat(closing.sessionSource()).isNull();
+        assertThat(closing.sessionSourceName()).isNull();
         assertThat(closing.runId()).isEqualTo("run-abc123");
         assertThat(closing.closing())
                 .containsEntry("runId", "run-abc123")
@@ -633,9 +666,21 @@ class AiplatformProjectClientContractTest {
         var quote = entries.get(3);
         assertThat(quote.kind()).isEqualTo(7);
         assertThat(quote.kindName()).isEqualTo("报价卡");
+        assertThat(quote.sessionSource()).isNull();
         assertThat(quote.quote())
                 .containsEntry("orderId", "3897654321098765432")
                 .containsEntry("event", "quoted");
+
+        // 设计会话收尾卡（kind=5 + closing 携 drafts 稿清单，provider #298 判据——首产/改稿/定稿
+        // 收尾卡 ⇔ 设计会话）：sessionSource=2 实值 + sessionSourceName 中文名随行（provider 出口
+        // 提供，BFF 透传）；drafts 载荷 Map 原样（BFF 不解读内部结构）
+        var designClosing = entries.get(4);
+        assertThat(designClosing.kind()).isEqualTo(5);
+        assertThat(designClosing.sessionSource()).isEqualTo(2);
+        assertThat(designClosing.sessionSourceName()).isEqualTo("设计会话");
+        assertThat(designClosing.closing())
+                .containsEntry("summary", "完成设计物：活动海报")
+                .containsKey("drafts");
     }
 
     // ========== PRD（Instant 秒精度）==========

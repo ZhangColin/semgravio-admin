@@ -13,6 +13,11 @@ import java.util.Map;
  * 5=收尾卡 6=平台轻引导 7=报价卡）+ {@code kindName} 中文名随行（aiplatform#186 已落——2026-09-15 对照
  * provider 源码 f01d984 核实：backoffice 出口已配 *Name，BFF 透传 provider 值、不做本地映射；
  * 2026-09-23 对照 provider 800ad9e（#203 报价感知）补 {@code quote} 载荷肢）。
+ * {@code sessionSource}/{@code sessionSourceName} 会话来源对（2026-10-08 对照 provider #298 补——
+ * 2=设计会话〔每设计物一个独立会话流〕；判据＝收尾卡携 {@code drafts} 稿清单〔首产/改稿/定稿收尾卡〕；
+ * null＝主会话缺省——含作用域改稿发言〔无结构标记不标注〕；设计会话完整稿本在智能体会话存储
+ * 〔与主会话存储不同构的降级口径〕；用户面前端可忽略此字段）。provider 读口按结构标记推导
+ * （设计收尾卡 ⇔ 2），null 是缺省态非标识值位——照透不臆造默认值。
  * {@code question}/{@code closing}/{@code quote} 为事件载荷 JSON 原样（{@code Map} 逐字透传、
  * BFF 不解读）；{@code closing} 是版本详情锚定的权威事实（#88 同载荷）；{@code quote} 为
  * 报价卡载荷（仅事件＋订单引用，不含金额——视镜语义，aiplatform ADR-0017）。</p>
@@ -29,6 +34,17 @@ public record AiplatformConversationEntryWireResponse(
 
         /** 条目类型中文名（provider 出口提供，aiplatform#186） */
         String kindName,
+
+        /**
+         * 会话来源标识（provider #298）：2=设计会话（每设计物一个——判据＝收尾卡携 drafts 稿清单：
+         * 首产/改稿/定稿收尾卡）、null=主会话缺省（作用域改稿发言无结构标记不标注、设计会话
+         * 完整稿本在智能体会话存储——存储不同构降级口径）。后台对话史按来源分组或标注；
+         * 用户面前端可忽略。
+         */
+        Integer sessionSource,
+
+        /** 会话来源中文名（provider 出口提供，sessionSource=null 时同 null） */
+        String sessionSourceName,
 
         /** 锚定编码 run（用户发言/收尾卡等无 run 语境为 null） */
         String runId,

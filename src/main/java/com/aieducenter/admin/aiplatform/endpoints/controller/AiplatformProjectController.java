@@ -120,12 +120,16 @@ public class AiplatformProjectController {
             name = "AI 平台 / 项目查看",
             scope = AdminScopes.ADMIN
     )
-    @Operation(summary = "项目对话史（全量同序）——透传 aiplatform",
+    @Operation(summary = "项目对话史（全量同序，含设计会话）——透传 aiplatform",
             description = "还原用户与系统的交互过程：用户发言/智能体回复/问答卡/问答作答/收尾卡/"
                     + "平台轻引导，按写入序（id 升序＝对话序）全量返回；过程明细（解说段/动作卡流水）"
                     + "不在其中。kind Integer code（1=用户发言 2=智能体回复 3=问答卡 4=问答作答 "
                     + "5=收尾卡 6=平台轻引导）+ kindName 中文名随行（aiplatform#186 已落——provider "
-                    + "出口提供，BFF 透传）。question＝question-raised 事件载荷原样（answered=false "
+                    + "出口提供，BFF 透传）。sessionSource 会话来源标识（#298）：2=设计会话"
+                    + "（每设计物一个——判据＝收尾卡携 drafts 稿清单：首产/改稿/定稿收尾卡）、"
+                    + "null=主会话缺省——对话史 tab 按来源分组或标注；作用域改稿发言无结构标记"
+                    + "不标注、设计会话完整稿本在智能体会话存储（存储不同构降级口径）、用户面"
+                    + "前端可忽略此字段。question＝question-raised 事件载荷原样（answered=false "
                     + "即挂起待答）；closing＝run-finish 收口扩载同载荷（版本详情锚定的权威事实）；"
                     + "attachments＝圈注附件数组——载荷 JSON 原样透传。归档项目照读（对话区只读终态）。"
                     + "项目不存在 404 PRJ_001（数字业务码 4001）。")

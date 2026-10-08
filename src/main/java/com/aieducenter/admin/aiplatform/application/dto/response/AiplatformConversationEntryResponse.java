@@ -12,7 +12,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
  *
  * <p>{@code kind} 为 Integer code（1=用户发言 2=智能体回复 3=问答卡 4=问答作答 5=收尾卡
  * 6=平台轻引导 7=报价卡）+ {@code kindName} 中文名随行（aiplatform#186 已落，provider 出口提供、
- * BFF 透传不臆造映射）。{@code question}/{@code closing}/{@code quote} 为事件载荷 JSON 原样透传；
+ * BFF 透传不臆造映射）。{@code sessionSource}/{@code sessionSourceName} 会话来源对
+ * （aiplatform #298——对话史含设计会话）：2=设计会话〔每设计物一个独立会话流〕；判据＝
+ * 收尾卡携 {@code drafts} 稿清单〔首产/改稿/定稿收尾卡〕；null＝主会话缺省〔含作用域改稿发言——
+ * 无结构标记不标注；设计会话完整稿本在智能体会话存储，与主会话存储不同构的降级口径〕；
+ * 用户面前端可忽略此字段。{@code question}/{@code closing}/{@code quote} 为事件载荷 JSON 原样透传；
  * {@code quote} 为报价卡载荷（aiplatform #203 报价感知，视镜语义不含金额——ADR-0017）。</p>
  *
  * @since 0.1.0
@@ -27,6 +31,24 @@ public record AiplatformConversationEntryResponse(
 
         /** 条目类型中文名（provider 出口提供，aiplatform#186） */
         String kindName,
+
+        /**
+         * 会话来源标识（provider #298）：2=设计会话（每设计物一个——判据＝收尾卡携 drafts 稿清单：
+         * 首产/改稿/定稿收尾卡）、null=主会话缺省（作用域改稿发言无结构标记不标注、设计会话
+         * 完整稿本在智能体会话存储——存储不同构降级口径）。后台对话史按来源分组或标注；
+         * 用户面前端可忽略。
+         */
+        @Schema(description = "会话来源标识（#298）：2=设计会话（每设计物一个——判据＝收尾卡携 "
+                + "drafts 稿清单：首产/改稿/定稿收尾卡）、null=主会话缺省（作用域改稿发言无"
+                + "结构标记不标注、设计会话完整稿本在智能体会话存储——存储不同构降级口径）。"
+                + "后台对话史按来源分组或标注；用户面前端可忽略",
+                example = "2")
+        Integer sessionSource,
+
+        /** 会话来源中文名（provider 出口提供，sessionSource=null 时同 null） */
+        @Schema(description = "会话来源中文名（2=设计会话；主会话缺省为 null——不臆造归属）",
+                example = "设计会话")
+        String sessionSourceName,
 
         /** 锚定编码 run（无 run 语境为 null） */
         String runId,

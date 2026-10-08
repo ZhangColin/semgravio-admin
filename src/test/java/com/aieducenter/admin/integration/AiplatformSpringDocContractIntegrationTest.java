@@ -159,6 +159,26 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(entry.path("properties").path("quote").path("description").asText(""))
                 .as("quote 载荷说明须注明不含金额")
                 .contains("不含金额");
+        // sessionSource 专项（#298 会话来源标识）：说明须自描述判据（2=设计会话＋drafts 判据＋
+        // null=主会话缺省＋用户面前端可忽略），示例须两态语义可用（2）；sessionSourceName 中文名随行
+        String sourceDescription = entry.path("properties").path("sessionSource").path("description").asText("");
+        assertThat(entry.path("properties").path("sessionSource").isMissingNode())
+                .as("AiplatformConversationEntryResponse.sessionSource 缺字段（契约漂移，#298）")
+                .isFalse();
+        assertThat(entry.path("properties").path("sessionSourceName").isMissingNode())
+                .as("AiplatformConversationEntryResponse.sessionSourceName 缺字段（契约漂移，#298）")
+                .isFalse();
+        assertThat(sourceDescription)
+                .as("sessionSource 说明须携 #298 判据原文（设计会话语义＋drafts 判据＋null 缺省）")
+                .contains("设计会话")
+                .contains("drafts")
+                .contains("主会话缺省");
+        assertThat(exampleText(entry.path("properties").path("sessionSource")))
+                .as("sessionSource 应附示例")
+                .isNotBlank();
+        assertThat(entry.path("properties").path("sessionSourceName").path("description").asText(""))
+                .as("sessionSourceName 应有结构说明（中文名随行）")
+                .isNotBlank();
     }
 
     @Test
