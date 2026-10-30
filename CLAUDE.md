@@ -152,7 +152,7 @@ Five canonical roles, label string == role name. See `docs/agents/triage-labels.
 
 ### Domain docs
 
-Single-context — root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+Single-context — root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
 
 ## 平台架构上下文
@@ -165,4 +165,4 @@ Single-context — root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 - 经 cartisan-openapi 签名调用各能力域；前端不直连各域（经本 BFF 聚合）。
 - 现有 RBAC（AdminUser/Role/Menu + sys_admin_*）已建、继续用。架构仓原列的三个已知 bug **均已修**（行为由 `RbacEnforcementIntegrationTest` / `BreakGlassAccountProtectionIntegrationTest` 钉住）：① Sa-Token 统一用默认 loginType `"login"`、`StpInterface` 无条件返回 admin 权限（[ADR-0001](docs/adr/0001-admin-uses-default-sa-token-login-type.md)）；② 超管 bypass 走框架 `AuthorizationBypassResolver` SPI（app 注入 `isSuperAdmin`，[ADR-0002](docs/adr/0002-super-admin-bypass-is-framework-gap.md)）；③ 内置 admin 按保留 ID=1 不可删/不可禁（破窗守卫，V4 已 drop `system` 列，[ADR-0003](docs/adr/0003-break-glass-reserved-id.md)）。
 
-本项目自己的设计演进 → 本项目的 CONTEXT.md + docs/adr/。
+本项目自己的设计演进 → 本项目的 GLOSSARY.md + docs/adr/。
