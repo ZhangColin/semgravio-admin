@@ -55,7 +55,7 @@ admin 作为 BFF **忠实按 payment 真实契约中转**（逐字镜像 payment
 ## Out of Scope
 
 - **payment 仓任何改动**（契约已干净，admin 单方面对齐）。
-- **admin-web 前端改动**（[web #54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 独立跟踪，同批部署）。
+- **admin-web 前端改动**（[web #54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 独立跟踪，同批部署）。
 - **北向新增字段**（`approvedAt`/`auditAgreed`/`auditRemark` 等）——零加戏，展现需求后置。
 - 跨仓契约门禁 / OpenAPI 生成 wire DTO（defer）。
 - 分↔元换算、金额展示格式化（前端职责）。
@@ -67,4 +67,4 @@ admin 作为 BFF **忠实按 payment 真实契约中转**（逐字镜像 payment
 - 本 spec 与同 issue 的 Agent Brief 互补：Brief 是实现契约，本 spec 补全叙事与验收背景；冲突时以 Brief 的 acceptance criteria 为准。
 - ADR-0011 与 CONTEXT.md 术语条目已随本次 triage 落地（未提交，随实现 PR 一起走）。
 - 时序：admin PR 先行（契约测试钉形状）→ web #54 跟进 → 同批部署。金额筛选前端已按分提交（`yuanToCents` 先行），query 侧零行为变化。
-- 关联：[#50](https://github.com/ZhangColin/aieducenter-admin/issues/50)、[payment #21](https://github.com/ZhangColin/aieducenter-payment/issues/21)、[ADR-0009](../blob/develop/docs/adr/0009-bff-enum-response-carries-display-name.md)、[ADR-0010](../blob/develop/docs/adr/0010-platform-pagination-protocol.md)。
+- 关联：[#50](https://github.com/ZhangColin/semgravio-admin/issues/50)、[payment #21](https://github.com/ZhangColin/semgravio-payment/issues/21)、[ADR-0009](../blob/develop/docs/adr/0009-bff-enum-response-carries-display-name.md)、[ADR-0010](../blob/develop/docs/adr/0010-platform-pagination-protocol.md)。

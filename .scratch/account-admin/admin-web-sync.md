@@ -1,6 +1,6 @@
 # admin-web 同步稿：平台账号管理 UI（配合 admin BFF #49）
 
-> 来源：admin [issue #49](https://github.com/ZhangColin/aieducenter-admin/issues/49) grill 定稿（spec：`.scratch/account-admin/spec.md`）。
+> 来源：admin [issue #49](https://github.com/ZhangColin/semgravio-admin/issues/49) grill 定稿（spec：`.scratch/account-admin/spec.md`）。
 > 这是 admin-web 侧需配合做的 UI 清单。后端契约（DTO 字段）最终以 identity #67–#72 实现为准。
 
 ## 背景
@@ -46,7 +46,7 @@ admin 后端在建「平台账号管理」BFF（消费 identity 的 `/api/accoun
 
 ## 明确不做（勿在 UI 里出现）
 
-- ❌ **密码相关**：重置密码 / 清密码 / 强制改密——admin 不处理终端用户密码（合规边界，admin [ADR-0008](https://github.com/ZhangColin/aieducenter-admin/blob/develop/docs/adr/0008-admin-does-not-handle-end-user-passwords.md)）。identity 提供这三个端点，但 admin 不暴露、前端也不要做入口。
+- ❌ **密码相关**：重置密码 / 清密码 / 强制改密——admin 不处理终端用户密码（合规边界，admin [ADR-0008](https://github.com/ZhangColin/semgravio-admin/blob/develop/docs/adr/0008-admin-does-not-handle-end-user-passwords.md)）。identity 提供这三个端点，但 admin 不暴露、前端也不要做入口。
 - ❌ **会话列表视图**：identity 无会话列表端点；强制下线仅一个「一键下线」按钮。
 - ❌ **账号仪表盘/统计**：v1 不做（需求由后台反向提）。
 - ❌ **创建账号/注册**：identity 域职责，非后台。

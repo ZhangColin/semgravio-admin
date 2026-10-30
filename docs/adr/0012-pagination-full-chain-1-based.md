@@ -1,6 +1,6 @@
 # 分页全链 1-based：±1 换算唯一收 cartisan-boot（supersede ADR-0010）
 
-**日期**：2026-09-16　|　**状态**：已接受　|　**议题**：[#73](https://github.com/ZhangColin/aieducenter-admin/issues/73)
+**日期**：2026-09-16　|　**状态**：已接受　|　**议题**：[#73](https://github.com/ZhangColin/semgravio-admin/issues/73)
 
 **决策**：平台分页协议改为**全链 1-based**——请求 `page` 与响应 `page` 同语义（第 1 页是 1）。所有 ±1 换算
 **唯一收 cartisan-boot** 两个出口，业务仓（含本仓）主代码零手工换算：
@@ -54,6 +54,6 @@ identity e5e0a56/#78、aiplatform ac93504/#187-194——2026-09-16 对照服务�
   各域响应信封形状一并钉死（payment/identity 为 `ApiResponse<PageResponse>` 信封、app-registry 裸
   `PageResponse`）。
 
-**关联**：supersede [ADR-0010](0010-platform-pagination-protocol.md)；[#73](https://github.com/ZhangColin/aieducenter-admin/issues/73)
+**关联**：supersede [ADR-0010](0010-platform-pagination-protocol.md)；[#73](https://github.com/ZhangColin/semgravio-admin/issues/73)
 （本仓收口）；admin-web #55（前端同窗切换）；identity #78 / payment #22 / app-registry #24 /
 aiplatform #187-194（服务侧迁移）。

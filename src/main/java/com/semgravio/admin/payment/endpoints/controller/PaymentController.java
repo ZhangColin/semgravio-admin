@@ -1,0 +1,332 @@
+package com.semgravio.admin.payment.endpoints.controller;
+
+import com.semgravio.admin.constants.AdminScopes;
+import com.semgravio.admin.payment.application.PaymentManagementAppService;
+import com.semgravio.admin.payment.application.dto.command.RefundAuditCommand;
+import com.semgravio.admin.payment.application.dto.query.OperationLogQuery;
+import com.semgravio.admin.payment.application.dto.query.PaymentLogQuery;
+import com.semgravio.admin.payment.application.dto.query.PaymentOrderQuery;
+import com.semgravio.admin.payment.application.dto.query.RefundOrderQuery;
+import com.semgravio.admin.payment.application.dto.response.AnomaliesResponse;
+import com.semgravio.admin.payment.application.dto.response.BusinessSystemStatsResponse;
+import com.semgravio.admin.payment.application.dto.response.ChannelStatsResponse;
+import com.semgravio.admin.payment.application.dto.response.GatewayHealthResponse;
+import com.semgravio.admin.payment.application.dto.response.OperationLogSummaryResponse;
+import com.semgravio.admin.payment.application.dto.response.OperationsActivityResponse;
+import com.semgravio.admin.payment.application.dto.response.OperationsAuditResponse;
+import com.semgravio.admin.payment.application.dto.response.OrderLifecycleResponse;
+import com.semgravio.admin.payment.application.dto.response.OrderStatusDistributionResponse;
+import com.semgravio.admin.payment.application.dto.response.PaymentLogSummaryResponse;
+import com.semgravio.admin.payment.application.dto.response.PaymentOrderDetailResponse;
+import com.semgravio.admin.payment.application.dto.response.PaymentOverviewResponse;
+import com.semgravio.admin.payment.application.dto.response.PaymentOrderSummaryResponse;
+import com.semgravio.admin.payment.application.dto.response.RefundOrderDetailResponse;
+import com.semgravio.admin.payment.application.dto.response.RefundOrderSummaryResponse;
+import com.cartisan.core.context.RequestContext;
+import com.cartisan.security.annotation.RequireAuth;
+import com.cartisan.security.annotation.RequirePermission;
+import com.cartisan.web.request.Pagination;
+import com.cartisan.web.response.ApiResponse;
+import com.cartisan.web.response.PageResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 支付管理控制器——BFF 读路径，聚合 payment 能力域。
+ *
+ * @since 0.1.0
+ */
+@RestController
+@RequestMapping("/api/admin/payment")
+@Validated
+@Tag(name = "Admin Payment", description = "支付管理")
+public class PaymentController {
+
+    private final PaymentManagementAppService paymentAppService;
+
+    public PaymentController(PaymentManagementAppService paymentAppService) {
+        this.paymentAppService = paymentAppService;
+    }
+
+    @GetMapping("/payments")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "分页查询支付订单列表")
+    public ApiResponse<PageResponse<PaymentOrderSummaryResponse>> listPayments(
+            PaymentOrderQuery query,
+            Pagination pagination) {
+        return ApiResponse.ok(paymentAppService.list(query, pagination));
+    }
+
+    @GetMapping("/refunds")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "分页查询退款订单列表")
+    public ApiResponse<PageResponse<RefundOrderSummaryResponse>> listRefunds(
+            RefundOrderQuery query,
+            Pagination pagination) {
+        return ApiResponse.ok(paymentAppService.listRefunds(query, pagination));
+    }
+
+    @GetMapping("/payment-logs")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "分页查询通道交互日志（PaymentLog：与银行/通道网关的机机交互留痕）")
+    public ApiResponse<PageResponse<PaymentLogSummaryResponse>> listPaymentLogs(
+            PaymentLogQuery query,
+            Pagination pagination) {
+        return ApiResponse.ok(paymentAppService.listPaymentLogs(query, pagination));
+    }
+
+    @GetMapping("/operation-logs")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "分页查询订单操作记录（OperationLog：行为者对订单的操作留痕）")
+    public ApiResponse<PageResponse<OperationLogSummaryResponse>> listOperationLogs(
+            OperationLogQuery query,
+            Pagination pagination) {
+        return ApiResponse.ok(paymentAppService.listOperationLogs(query, pagination));
+    }
+
+    @GetMapping("/payments/{paymentOrderNo}")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "查询支付订单详情")
+    public ApiResponse<PaymentOrderDetailResponse> getPaymentDetail(
+            @PathVariable String paymentOrderNo) {
+        return ApiResponse.ok(paymentAppService.getPaymentDetail(paymentOrderNo));
+    }
+
+    @GetMapping("/refunds/{refundOrderNo}")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "查询退款订单详情")
+    public ApiResponse<RefundOrderDetailResponse> getRefundDetail(
+            @PathVariable String refundOrderNo) {
+        return ApiResponse.ok(paymentAppService.getRefundDetail(refundOrderNo));
+    }
+
+    @GetMapping("/orders/{orderNo}/lifecycle")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "查询订单生命周期（语义事件扁平列表——按时间合并的 PaymentLog + OperationLog 时间线）")
+    public ApiResponse<List<OrderLifecycleResponse>> getLifecycle(
+            @PathVariable String orderNo) {
+        return ApiResponse.ok(paymentAppService.getLifecycle(orderNo));
+    }
+
+    @GetMapping("/stats/payments/overview")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "支付总览统计（tier-1）——透传 payment：笔数·金额·成功率·净额 + 趋势（时间窗口 from/to 必填）")
+    public ApiResponse<PaymentOverviewResponse> getPaymentOverview(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String granularity) {
+        // payment overview 要求 from/to 必填、granularity 可选；admin 如实接收并转发，不内置默认窗口（issue #51）。
+        return ApiResponse.ok(paymentAppService.getPaymentOverview(from, to, granularity));
+    }
+
+    @GetMapping("/stats/orders/status-distribution")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "订单状态分布统计（tier-1）——透传 payment：各状态在途笔数·金额 + 退款待审核积压")
+    public ApiResponse<OrderStatusDistributionResponse> getOrderStatusDistribution() {
+        return ApiResponse.ok(paymentAppService.getOrderStatusDistribution());
+    }
+
+    @GetMapping("/stats/gateway/health")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "通道健康统计（tier-1）——透传 payment：各银行接口调用次数·成功率·平均耗时·返回码分布（时间窗口 from/to 必填）")
+    public ApiResponse<GatewayHealthResponse> getGatewayHealth(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ApiResponse.ok(paymentAppService.getGatewayHealth(from, to));
+    }
+
+    @GetMapping("/stats/operations/audit")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "审核统计（tier-1）——透传 payment：审核笔数·通过率·平均审核时长 + 按审核人聚合（时间窗口 from/to 必填）")
+    public ApiResponse<OperationsAuditResponse> getOperationsAudit(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ApiResponse.ok(paymentAppService.getOperationsAudit(from, to));
+    }
+
+    @GetMapping("/stats/by-business-system")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "按业务系统细分统计（tier-2）——透传 payment：各业务系统支付/退款笔数·金额·成功率·退款率（时间窗口 from/to 必填）")
+    public ApiResponse<BusinessSystemStatsResponse> getByBusinessSystem(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ApiResponse.ok(paymentAppService.getByBusinessSystem(from, to));
+    }
+
+    @GetMapping("/stats/by-channel")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "按通道细分统计（tier-2）——透传 payment：按 payMode / accessType 聚合的支付笔数·金额·成功率（时间窗口 from/to 必填）")
+    public ApiResponse<ChannelStatsResponse> getByChannel(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ApiResponse.ok(paymentAppService.getByChannel(from, to));
+    }
+
+    @GetMapping("/stats/anomalies")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "异常监控统计（tier-2）——透传 payment：长时滞留 PENDING/REFUNDING 订单 + 近期失败计数")
+    public ApiResponse<AnomaliesResponse> getAnomalies() {
+        return ApiResponse.ok(paymentAppService.getAnomalies());
+    }
+
+    @GetMapping("/stats/operations/activity")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:read",
+            name = "支付管理 / 查看",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "操作员活动统计（tier-2）——透传 payment：各操作员操作类型·笔数 + 通知重发次数（时间窗口 from/to 必填）")
+    public ApiResponse<OperationsActivityResponse> getOperationsActivity(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ApiResponse.ok(paymentAppService.getOperationsActivity(from, to));
+    }
+
+    @PostMapping("/refunds/{refundOrderNo}/audit")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:refund:audit",
+            name = "支付管理 / 退款审核",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "审核退款（approve/reject）——操作者身份从 RequestContext 透传，审计归 payment")
+    public ApiResponse<RefundOrderDetailResponse> auditRefund(
+            @PathVariable String refundOrderNo,
+            @Valid @RequestBody RefundAuditCommand command) {
+        // 操作者身份从 RequestContext 透传到 payment 请求体（零 Sa-Token/零 DB/零新注解）：
+        // auditorId/auditorName 不来自前端、不可伪造；payment 落 OperationLog（auditType=MANUAL）。
+        return ApiResponse.ok(paymentAppService.auditRefund(
+                refundOrderNo, command, RequestContext.getUserId(), RequestContext.getUserName()));
+    }
+
+    @PostMapping("/payments/{paymentOrderNo}/query")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:bank:query",
+            name = "支付管理 / 主动查行",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "主动查行——透传 payment 向银行查询并同步本地状态为银行真相")
+    public ApiResponse<PaymentOrderDetailResponse> queryPayment(
+            @PathVariable String paymentOrderNo) {
+        // 无请求体、无操作者身份透传：payment POST /payments/{no}/query 仅取路径参数，
+        // 触发银行查询 + 本地状态对齐（频控/审计归 payment）。admin 仅按本权限码放行。
+        return ApiResponse.ok(paymentAppService.queryPayment(paymentOrderNo));
+    }
+
+    @PostMapping("/payments/{paymentOrderNo}/notifications/resend")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:notification:resend",
+            name = "支付管理 / 通知重发",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "重发支付结果通知——补发漏投到业务系统，不改订单状态；操作者身份从 RequestContext 透传")
+    public ApiResponse<PaymentOrderDetailResponse> resendPaymentNotification(
+            @PathVariable String paymentOrderNo) {
+        // 复用 T4 操作者身份透传范式：前端不发请求体（重发无决策意图），操作者身份由服务端从
+        // RequestContext 注入（operatorId/operatorName 不可伪造）；payment 落 OperationLog（NOTIFY_RESEND），
+        // 不改订单状态（补发投递，非施加状态——payment ADR-0001）。
+        return ApiResponse.ok(paymentAppService.resendPaymentNotification(
+                paymentOrderNo, RequestContext.getUserId(), RequestContext.getUserName()));
+    }
+
+    @PostMapping("/refunds/{refundOrderNo}/notifications/resend")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:payment:notification:resend",
+            name = "支付管理 / 通知重发",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "重发退款结果通知——补发漏投到业务系统，不改订单状态；操作者身份从 RequestContext 透传")
+    public ApiResponse<RefundOrderDetailResponse> resendRefundNotification(
+            @PathVariable String refundOrderNo) {
+        // 复用 T4 操作者身份透传范式：操作者身份由服务端从 RequestContext 注入；payment 落
+        // OperationLog（NOTIFY_RESEND），不改订单状态。两个重发端点共用同一权限码。
+        return ApiResponse.ok(paymentAppService.resendRefundNotification(
+                refundOrderNo, RequestContext.getUserId(), RequestContext.getUserName()));
+    }
+}

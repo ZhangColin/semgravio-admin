@@ -3,7 +3,7 @@
 ## Agent Brief
 
 **Category:** bug
-**Summary:** admin payment BFF 的 wire 镜像 DTO / 北向 Response / 北向 Query 与 payment 真实契约对齐——金额 Long（分）、lifecycle 语义形状与信封、status-distribution 嵌套 refundBacklog、删 ghost 字段。决策已定稿 [ADR-0011](../blob/develop/docs/adr/0011-bff-amount-long-cents-and-verbatim-provider-mirror.md)，原则：**逐字镜像 provider 源码（`aieducenter-payment` 仓 `application/dto/response|query/*.java`），零加戏**。
+**Summary:** admin payment BFF 的 wire 镜像 DTO / 北向 Response / 北向 Query 与 payment 真实契约对齐——金额 Long（分）、lifecycle 语义形状与信封、status-distribution 嵌套 refundBacklog、删 ghost 字段。决策已定稿 [ADR-0011](../blob/develop/docs/adr/0011-bff-amount-long-cents-and-verbatim-provider-mirror.md)，原则：**逐字镜像 provider 源码（`semgravio-payment` 仓 `application/dto/response|query/*.java`），零加戏**。
 
 **Current behavior:**
 - **lifecycle 完全坏**：admin wire 预期 `(orderNo, events)` 包装信封 + 平表 union 事件（`logType`/`returnCode`/`targetType` 等 18 字段）；payment 实返 `ApiResponse<List<OrderLifecycleResponse>>` **扁平事件数组**（无 orderNo），事件为语义 9 字段 `(id, source, createdAt, action, actionName, outcome, performer, performerSystem, detail)`，`source` token 值为 `GATEWAY`/`OPERATION`。typeres 按包装 record 反序列化数组 → Jackson `MismatchedInputException`，**每次调用运行时报错**。
@@ -37,7 +37,7 @@
 **Out of scope:**
 - **payment 侧任何改动**（已核实其契约干净：金额全 long 分、BigDecimal 仅比率——本 issue 是 admin 单方面对齐）。
 - 北向**新增**任何 payment 实有字段（如退款 `approvedAt`/`auditAgreed`/`auditRemark`）——第一轮接入零加戏，展现需求联调后从 UI 起单独提（ADR-0011 §4）。
-- admin-web 前端改动（[web #54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 独立跟踪）。
+- admin-web 前端改动（[web #54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 独立跟踪）。
 - 跨仓契约门禁 / OpenAPI 生成 wire DTO（defer：发现漂移再开票重新对接）。
 - 分↔元换算、金额展示格式化（前端职责）。
 

@@ -1,7 +1,7 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:25432/aieducenter_test
-    username: aiedu_test
+    url: jdbc:postgresql://localhost:25432/semgravio_test
+    username: semgravio_test
     password: test123
     driver-class-name: org.postgresql.Driver
 

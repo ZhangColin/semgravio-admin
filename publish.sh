@@ -8,7 +8,7 @@ set -e
 # ═══════════════════════════════════════════════════════════════
 SERVER_USER="root"
 SERVER_HOST="43.140.211.9"
-SERVER_PATH="/opt/hcy/aieducenter_admin"
+SERVER_PATH="/opt/hcy/semgravio_admin"
 SERVER_PASSWORD="Hcy@20260327"
 # ═══════════════════════════════════════════════════════════════
 
@@ -45,7 +45,7 @@ echo -e "${BLUE}部署路径: ${SERVER_PATH}${NC}"
 echo ""
 
 # 准备部署文件（只打包必要文件）
-JAR_NAME="aieducenter-admin-server-1.0.0-SNAPSHOT.jar"
+JAR_NAME="semgravio-admin-server-1.0.0-SNAPSHOT.jar"
 JAR_FILE="target/$JAR_NAME"
 DEPLOY_FILES=(Dockerfile docker-compose.prod.yml deploy.sh .env.production)
 

@@ -2,7 +2,7 @@
 
 - **状态**：Accepted；已实现（2026-08-03）
 - **日期**：2026-08-03
-- **关联**：[issue #24](https://github.com/ZhangColin/aieducenter-admin/issues/24)（REQ-14）；前序 [ADR-0003](0003-break-glass-reserved-id.md)（破窗/超管守卫原挂 `markAsDeleted`，本 ADR 迁移其执行点）；框架侧软删文档/约定降级由 [cartisan-boot#10](https://github.com/ZhangColin/cartisan-boot/issues/10) 独立跟踪
+- **关联**：[issue #24](https://github.com/ZhangColin/semgravio-admin/issues/24)（REQ-14）；前序 [ADR-0003](0003-break-glass-reserved-id.md)（破窗/超管守卫原挂 `markAsDeleted`，本 ADR 迁移其执行点）；框架侧软删文档/约定降级由 [cartisan-boot#10](https://github.com/ZhangColin/cartisan-boot/issues/10) 独立跟踪
 
 ## 背景
 
@@ -45,4 +45,4 @@ REQ-14：用户软删后其 `sys_admin_user_roles` 关联行残留，`AdminRoleR
 ## 参见
 
 - 工作原则 memory：`framework-gaps-raise-requirement`。
-- 复现与验收：[issue #24](https://github.com/ZhangColin/aieducenter-admin/issues/24)。
+- 复现与验收：[issue #24](https://github.com/ZhangColin/semgravio-admin/issues/24)。

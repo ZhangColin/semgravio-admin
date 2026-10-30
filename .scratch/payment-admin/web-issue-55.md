@@ -4,7 +4,7 @@
 
 ## 背景
 
-admin BFF 后端正在做 wire DTO 与 payment 真实契约对齐（[ZhangColin/aieducenter-admin#55](https://github.com/ZhangColin/aieducenter-admin/issues/55)，决策见其 [ADR-0011](https://github.com/ZhangColin/aieducenter-admin/blob/develop/docs/adr/0011-bff-amount-long-cents-and-verbatim-provider-mirror.md)）。北向 JSON 形状有破坏性变更，需要 web 配合。**权威形状以 admin 仓 `*ContractTest` 钉住的为准**（分、string）。
+admin BFF 后端正在做 wire DTO 与 payment 真实契约对齐（[ZhangColin/semgravio-admin#55](https://github.com/ZhangColin/semgravio-admin/issues/55)，决策见其 [ADR-0011](https://github.com/ZhangColin/semgravio-admin/blob/develop/docs/adr/0011-bff-amount-long-cents-and-verbatim-provider-mirror.md)）。北向 JSON 形状有破坏性变更，需要 web 配合。**权威形状以 admin 仓 `*ContractTest` 钉住的为准**（分、string）。
 
 ## 变更点
 

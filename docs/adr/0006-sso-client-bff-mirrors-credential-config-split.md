@@ -2,7 +2,7 @@
 
 - **状态**：Proposed（设计已 grill 定稿，待实现）
 - **日期**：2026-08-10
-- **关联**：[issue #33](https://github.com/ZhangColin/aieducenter-admin/issues/33)；下游 [app-registry ADR-0005](../../aieducenter-app-registry/docs/adr/0005-sso-client-config-credential-separation.md)（凭证/配置职责分离，commit `d9e1444`）；[CONTEXT.md](../../CONTEXT.md)「SSO 凭证 vs 配置」「重置 vs 轮换」术语
+- **关联**：[issue #33](https://github.com/ZhangColin/semgravio-admin/issues/33)；下游 [app-registry ADR-0005](../../semgravio-app-registry/docs/adr/0005-sso-client-config-credential-separation.md)（凭证/配置职责分离，commit `d9e1444`）；[CONTEXT.md](../../CONTEXT.md)「SSO 凭证 vs 配置」「重置 vs 轮换」术语
 
 ## 背景
 
@@ -44,6 +44,6 @@ admin 现有 BFF 端点 `POST /api/admin/apps/{id}/sso-client`（body `{redirect
 
 ## 参见
 
-- 下游决策：[app-registry ADR-0005](../../aieducenter-app-registry/docs/adr/0005-sso-client-config-credential-separation.md)。
+- 下游决策：[app-registry ADR-0005](../../semgravio-app-registry/docs/adr/0005-sso-client-config-credential-separation.md)。
 - 术语：[CONTEXT.md](../../CONTEXT.md)「SSO 凭证 vs 配置」「重置 vs 轮换」。
 - 参照：admin 现有 `POST /api/admin/apps/{id}/api-key` 同为 create-or-reset 语义（无则生成、有则重置、一次性返明文）。

@@ -65,7 +65,7 @@
 ## Implementation Decisions
 
 **上下文与边界**
-- 新增 `payment` 子包（`com.aieducenter.admin.payment`），落 admin 现有单上下文；**暂不**引入 `CONTEXT-MAP` 多上下文拆分。
+- 新增 `payment` 子包（`com.semgravio.admin.payment`），落 admin 现有单上下文；**暂不**引入 `CONTEXT-MAP` 多上下文拆分。
 - **支付管理上下文 ≠ 财务上下文**：前者运营写操作 + 运营看板；后者只读收入确认（未建）。
 - admin 角色 = BFF（调接口 + DTO 转换 + 聚合），不持业务逻辑、不记业务审计。
 
@@ -100,7 +100,7 @@ ID：directory=80；leaves=100/110/120/130/140。支付/退款详情**不种菜�
 - `admin:payment:refund:audit` —— 退款审核。
 - `admin:payment:notification:resend` —— 支付/退款通知重发。
 - `admin:payment:bank:query` —— 主动查行（若暴露）。
-- **不做** menu `buttons` 字段（REQ-9 搁置，[issue #18](https://github.com/ZhangColin/aieducenter-admin/issues/18)）；前端按 `/auth/current` 的 permission claims 自控按钮显隐。
+- **不做** menu `buttons` 字段（REQ-9 搁置，[issue #18](https://github.com/ZhangColin/semgravio-admin/issues/18)）；前端按 `/auth/current` 的 permission claims 自控按钮显隐。
 
 **操作者身份透传**
 - 写请求体放 `auditorId = RequestContext.getUserId()` / `auditorName = RequestContext.getUserName()`（cartisan-core，`SecurityFilter` 填充）。**零 Sa-Token、零 DB、零新注解**（`@CurrentUser` 不存在，已提 [cartisan-boot #18](https://github.com/ZhangColin/cartisan-boot/issues/18)）。
@@ -140,7 +140,7 @@ ID：directory=80；leaves=100/110/120/130/140。支付/退款详情**不种菜�
 
 ## Further Notes
 
-- **契约源**：[issue #37](https://github.com/ZhangColin/aieducenter-admin/issues/37)（payment 提供的消费视角契约范围）。各端点最终字段以 payment 实现时的契约为准。
+- **契约源**：[issue #37](https://github.com/ZhangColin/semgravio-admin/issues/37)（payment 提供的消费视角契约范围）。各端点最终字段以 payment 实现时的契约为准。
 - **联调前提**：payment 仓 #9–#18 落地后方可联调；**设计与 BFF 搭建可先于其进行**（client/appservice 可先写、用 mock 验，待 payment 就绪再接真）。
 - **术语**：见 [`CONTEXT.md`](../../CONTEXT.md)「支付管理上下文 / admin 是 BFF / BFF 不记审计 / BFF 仪表盘跨服务聚合 / 详情页弹窗优先 / 退款审核 / 通知重发 / 支付管理菜单」。
 - **相关 ADR**：[0004 菜单照 Soybean](../../docs/adr/0004-menu-model-follows-soybean.md)、[0005 物理删除](../../docs/adr/0005-soft-delete-to-physical-delete.md)、[0007 BFF 出站客户端裸 @Component](../../docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)。

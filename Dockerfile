@@ -11,7 +11,7 @@ RUN apk add --no-cache tzdata && \
     apk del tzdata
 
 # 复制构建好的 JAR
-COPY target/aieducenter-admin-server-1.0.0-SNAPSHOT.jar app.jar
+COPY target/semgravio-admin-server-1.0.0-SNAPSHOT.jar app.jar
 
 EXPOSE 8081
 

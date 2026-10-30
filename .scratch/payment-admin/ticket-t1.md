@@ -8,7 +8,7 @@
 
 订单详情抽屉的生命周期时间线从「每次调用报错」恢复可用。payment 实返 `ApiResponse<List<OrderLifecycleResponse>>`——**扁平事件数组、无 orderNo 包装**（orderNo 是路径参数），事件为语义 9 字段 `(id, source, createdAt, action, actionName, outcome, performer, performerSystem, detail)`，`source` token 值 `GATEWAY`/`OPERATION`。admin wire 信封、客户端方法 typeres、应用层映射、北向 Response 全部按此重写、逐字镜像（零加戏）；订单不存在 → 404 的翻译行为保持。当前端点零测试覆盖（漏网根源），本票补 lifecycle 契约测试，挂既有传输替换 seam（子类化 `OpenApiClient` 仅替换 HTTP 传输，其余全真实）。
 
-对照基准：兄弟仓 aieducenter-payment 的 `OrderLifecycleResponse`（语义 9 字段）与 lifecycle 端点控制器签名。
+对照基准：兄弟仓 semgravio-payment 的 `OrderLifecycleResponse`（语义 9 字段）与 lifecycle 端点控制器签名。
 
 ## Acceptance criteria
 
@@ -23,4 +23,4 @@
 
 None — can start immediately.
 
-前端联动：[aieducenter-admin-web#54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 变更点 2（timeline 组件按语义 9 字段重写渲染模型）。
+前端联动：[semgravio-admin-web#54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 变更点 2（timeline 组件按语义 9 字段重写渲染模型）。

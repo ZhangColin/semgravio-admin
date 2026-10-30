@@ -42,7 +42,7 @@
 ## Implementation Decisions
 
 **上下文与边界**
-- 新增 `account` 子包（`com.aieducenter.admin.account`），落 admin 现有单上下文；不引入多上下文拆分。
+- 新增 `account` 子包（`com.semgravio.admin.account`），落 admin 现有单上下文；不引入多上下文拆分。
 - **账号管理上下文 ≠ Operator 管理（系统管理）**：管的是终端用户账号（Account，凭据在 identity），不是后台员工（Operator，凭据在本应用）。
 - admin 角色 = BFF（调接口 + DTO 转换 + 聚合），不持业务逻辑、不持账号数据、不记业务审计。
 
@@ -105,7 +105,7 @@ ID：directory=81；leaf=150（避已用 10/20/30/40/50/60/70/80/90-已删/100-1
 
 ## Further Notes
 
-- **契约源**：admin [issue #49](https://github.com/ZhangColin/aieducenter-admin/issues/49) / identity [spec #66](https://github.com/ZhangColin/aieducenter-identity/issues/66)。各端点最终字段以 identity #67–#72 实现契约为准。
+- **契约源**：admin [issue #49](https://github.com/ZhangColin/semgravio-admin/issues/49) / identity [spec #66](https://github.com/ZhangColin/semgravio-identity/issues/66)。各端点最终字段以 identity #67–#72 实现契约为准。
 - **联调前提**：identity #67–#72 落地（尤其 frontier #67 gate+详情、#70 搜索）后方可联调；**设计与 BFF 搭建可先于其进行**（client / appservice 可先写、用 mock 验，待 identity 就绪再接真）。
 - **术语**：见 [`CONTEXT.md`](../../CONTEXT.md)「平台账号 (Account)」「账号管理上下文」「admin 是 BFF」「BFF 不记业务审计」「详情页 = 弹窗/抽屉优先」。
 - **相关 ADR**：[0004 菜单照 Soybean](../../docs/adr/0004-menu-model-follows-soybean.md)、[0007 BFF 出站客户端裸 @Component](../../docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)、[0008 admin 不处理终端用户密码](../../docs/adr/0008-admin-does-not-handle-end-user-passwords.md)。

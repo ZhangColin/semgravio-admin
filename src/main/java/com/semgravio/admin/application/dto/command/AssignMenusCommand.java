@@ -1,0 +1,17 @@
+package com.semgravio.admin.application.dto.command;
+
+import java.util.List;
+
+/**
+ * 分配菜单命令。
+ *
+ * <p>允许传空集 = 清空该角色的全部菜单（服务层 clear-then-add）。</p>
+ *
+ * @since 0.1.0
+ */
+public record AssignMenusCommand(
+
+        List<Long> menuIds
+
+) {
+}

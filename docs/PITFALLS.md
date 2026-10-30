@@ -374,13 +374,13 @@ public class ConversationController {
 
 ```java
 // ✅ 显式指定 bean 名称，避免与 Spring Boot 自动配置冲突
-@Component("aieducenterRequestContextFilter")
+@Component("semgravioRequestContextFilter")
 public class RequestContextFilter extends OncePerRequestFilter {
     // ...
 }
 ```
 
-**命名建议**：使用项目前缀，如 `aieducenter{ClassName}` 或 `{context}{ClassName}`。
+**命名建议**：使用项目前缀，如 `semgravio{ClassName}` 或 `{context}{ClassName}`。
 
 ---
 
@@ -567,7 +567,7 @@ BACKEND_URL=https://api.example.com pnpm build
 ```ts
 // next.config.ts
 const nextConfig: NextConfig = {
-  transpilePackages: ['@aieducenter/ui', '@aieducenter/api-client', '@aieducenter/shared'],
+  transpilePackages: ['@semgravio/ui', '@semgravio/api-client', '@semgravio/shared'],
 }
 ```
 
@@ -611,7 +611,7 @@ const nextConfig: NextConfig = {
 ```json
 {
   "dependencies": {
-    "@aieducenter/ui": "workspace:*"  // 开发期自动链接
+    "@semgravio/ui": "workspace:*"  // 开发期自动链接
   }
 }
 ```
@@ -627,7 +627,7 @@ const nextConfig: NextConfig = {
 ```json
 // F01-04 阶段
 {
-  "name": "@aieducenter/ui",
+  "name": "@semgravio/ui",
   "exports": { ".": "./src/index.ts" }
   // ❌ 不添加 React peerDependencies
 
@@ -728,12 +728,12 @@ sed -i '' 's|from "@/lib"|from "../lib/utils"|g' *.tsx
 
 ### 规则 FRONT-008：packages/ui 必须导出 CSS 文件
 
-**问题**：web/admin 无法 `import '@aieducenter/ui/src/index.css'`，报错 `Package path ./src/index.css is not exported`。
+**问题**：web/admin 无法 `import '@semgravio/ui/src/index.css'`，报错 `Package path ./src/index.css is not exported`。
 
 **正确做法**：
 ```json
 {
-  "name": "@aieducenter/ui",
+  "name": "@semgravio/ui",
   "exports": {
     ".": "./src/index.ts",
     "./src/index.css": "./src/index.css"  // 必须显式导出

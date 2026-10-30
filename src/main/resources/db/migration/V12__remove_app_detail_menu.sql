@@ -6,7 +6,7 @@
 -- Context: Admin (sys_)
 -- ============================================================================
 -- Background (issue #31):
---   前端 aieducenter-admin-web 已将应用详情从独立路由 /app/list/:id 改为列表页内
+--   前端 semgravio-admin-web 已将应用详情从独立路由 /app/list/:id 改为列表页内
 --   720px Modal 弹窗（前端 issue #32），app_detail 路由完全移除。V11 种子的
 --   app_detail 菜单不再被任何前端路由消费 → GET /menus/my 会返回悬空路由，需清理。
 --

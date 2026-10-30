@@ -1,6 +1,6 @@
 # admin 不处理终端用户密码（仅管账号状态 + 会话）
 
-identity（[spec #66](https://github.com/ZhangColin/aieducenter-identity/issues/66)，对接见 admin [issue #49](https://github.com/ZhangColin/aieducenter-admin/issues/49)）为终端用户账号提供了三个密码端点：`POST /reset-password {newPassword}`（**admin 传入**新密码，即 admin 持有明文、可凭它登录该账号）、`POST /clear-password`、`POST /force-change-password {enable}`。
+identity（[spec #66](https://github.com/ZhangColin/semgravio-identity/issues/66)，对接见 admin [issue #49](https://github.com/ZhangColin/semgravio-admin/issues/49)）为终端用户账号提供了三个密码端点：`POST /reset-password {newPassword}`（**admin 传入**新密码，即 admin 持有明文、可凭它登录该账号）、`POST /clear-password`、`POST /force-change-password {enable}`。
 
 **决策**：admin-console **一个密码端点都不暴露**。账号管理 BFF（`account` 子包 / `AccountClient`）只消费 identity 的**账号状态 + 会话**类端点——搜索、管理详情、封号(disable)、解封(activate)、解锁(unlock)、强制下线(sessions/revoke)，共 6 个。密码生命周期（重置/清除/强制改密）**完全归 identity**（用户自务 + 验证流程）。
 

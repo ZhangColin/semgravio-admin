@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/aieducenter
+    url: jdbc:postgresql://localhost:5432/semgravio
     username: your_username
     password: your_password
   data:

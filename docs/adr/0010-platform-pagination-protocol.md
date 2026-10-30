@@ -9,7 +9,7 @@
 
 **为什么**：三个域共用同一 `PageResponse` 外壳却若各持一种 `page` 语义，前端每接一个域都要重猜一次（admin-web #50 对接 account 时即因此踩坑、写出错向的 `accountTransform` +1 适配）。反向统一（全平台改「响应 0-based」）要动 system-manage + payment 全部端点与测试，代价不可接受——既有主流即「请求 0-based / 响应 1-based」，正向归一成本最低。
 
-**现状核实**（[#56](https://github.com/ZhangColin/aieducenter-admin/issues/56) triage 逐环验证，2026-08-17）：三域**本已全部符合**协议，无需任何生产行为变更——
+**现状核实**（[#56](https://github.com/ZhangColin/semgravio-admin/issues/56) triage 逐环验证，2026-08-17）：三域**本已全部符合**协议，无需任何生产行为变更——
 
 | 域 | 请求 `page` | 响应 `page` |
 |---|---|---|
@@ -27,4 +27,4 @@
 - 能力域新列表端点：请求 0-based（`@PageableDefault`）+ 回显 `getPageNumber()+1`，与 identity #70 / payment 各端点同款；不符合即向该域能力域提 issue，不在 BFF 臆造换算。
 - 前端：请求侧 `-1`（1-based UI → 0-based 请求）是本协议的固有适配，保留；响应侧 `pageNum` 直读 1-based（admin-web `ad09607` 后账号页与 payment/system-manage 同惯例）。
 
-**关联**：[#56](https://github.com/ZhangColin/aieducenter-admin/issues/56)（拍板 + 前提纠正 + 测试修正）、admin-web REQ-18（需求源，[admin-web #50](https://github.com/ZhangColin/aieducenter-admin-web/issues/50) 对接发现）、[identity #70](https://github.com/ZhangColin/aieducenter-identity/issues/70)（identity 列表契约冻结）。
+**关联**：[#56](https://github.com/ZhangColin/semgravio-admin/issues/56)（拍板 + 前提纠正 + 测试修正）、admin-web REQ-18（需求源，[admin-web #50](https://github.com/ZhangColin/semgravio-admin-web/issues/50) 对接发现）、[identity #70](https://github.com/ZhangColin/semgravio-identity/issues/70)（identity 列表契约冻结）。

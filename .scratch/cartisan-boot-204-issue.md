@@ -1,8 +1,8 @@
 ## 背景
 
-在 aieducenter-admin（[issue #53](https://github.com/ZhangColin/aieducenter-admin/issues/53)，账号管理：管理详情 + 状态操作 封号/解封/解锁）对接 identity 后台管理签名 API 时，发现 `cartisan-openapi` 的 `OpenApiClient` 无法消费 **HTTP 204 No Content（空 body）** 的下游响应。
+在 semgravio-admin（[issue #53](https://github.com/ZhangColin/semgravio-admin/issues/53)，账号管理：管理详情 + 状态操作 封号/解封/解锁）对接 identity 后台管理签名 API 时，发现 `cartisan-openapi` 的 `OpenApiClient` 无法消费 **HTTP 204 No Content（空 body）** 的下游响应。
 
-identity（[issue #66](https://github.com/ZhangColin/aieducenter-identity/issues/66)）的三个管理写端点 `POST /api/account/{userId}/disable` / `activate` / `unlock` 返回 `ResponseEntity.noContent().build()`（raw 204、空 body），由 identity 测试 `status().isNoContent()` 钉死契约。
+identity（[issue #66](https://github.com/ZhangColin/semgravio-identity/issues/66)）的三个管理写端点 `POST /api/account/{userId}/disable` / `activate` / `unlock` 返回 `ResponseEntity.noContent().build()`（raw 204、空 body），由 identity 测试 `status().isNoContent()` 钉死契约。
 
 ## 问题：`OpenApiClient` 对空 body 无条件反序列化 → 抛异常
 
@@ -20,11 +20,11 @@ return objectMapper.readValue(response.body(), responseType);   // ← 空 body 
 
 ### 为什么 app-registry 的 `VOID_TYPEREF` 没踩到
 
-aieducenter-admin 的 `AppRegistryClient` 用 `TypeReference<ApiResponse<Void>>` 消费"void"端点看似没事，是因为 app-registry 的 disable/enable 端点实际返回 `ApiResponse<AppResponse>`（**200 + 信封**，非 204）。identity 才是 admin 对接的第一个**真正返回 raw 204** 的下游。
+semgravio-admin 的 `AppRegistryClient` 用 `TypeReference<ApiResponse<Void>>` 消费"void"端点看似没事，是因为 app-registry 的 disable/enable 端点实际返回 `ApiResponse<AppResponse>`（**200 + 信封**，非 204）。identity 才是 admin 对接的第一个**真正返回 raw 204** 的下游。
 
 ## 是否阻塞下游
 
-**阻塞。** aieducenter-admin #53 的三个写端点（disable/activate/unlock，identity 全返 204）无法用现有 `OpenApiClient` 实现——一调就抛。admin 不能改本仓库以外的代码，只能在此提 issue 等框架修。
+**阻塞。** semgravio-admin #53 的三个写端点（disable/activate/unlock，identity 全返 204）无法用现有 `OpenApiClient` 实现——一调就抛。admin 不能改本仓库以外的代码，只能在此提 issue 等框架修。
 
 ## 建议方案（择一或组合）
 
@@ -49,5 +49,5 @@ aieducenter-admin 的 `AppRegistryClient` 用 `TypeReference<ApiResponse<Void>>`
 
 ## 关联
 
-- 触发上下文：aieducenter-admin [issue #53](https://github.com/ZhangColin/aieducenter-admin/issues/53)（账号管理状态操作）
-- 下游契约：identity [issue #66](https://github.com/ZhangColin/aieducenter-identity/issues/66)（后台管理签名 API，#67 详情 / #68 封号 / #69 解封·解锁·踢人，端点均返 204）
+- 触发上下文：semgravio-admin [issue #53](https://github.com/ZhangColin/semgravio-admin/issues/53)（账号管理状态操作）
+- 下游契约：identity [issue #66](https://github.com/ZhangColin/semgravio-identity/issues/66)（后台管理签名 API，#67 详情 / #68 封号 / #69 解封·解锁·踢人，端点均返 204）

@@ -1,6 +1,6 @@
 # BFF 金额出口用 Long（分）+ 北向形状逐字镜像 provider 契约（零加戏）
 
-**决策**（[#55](https://github.com/ZhangColin/aieducenter-admin/issues/55) grill 定稿，2026-08-17）：
+**决策**（[#55](https://github.com/ZhangColin/semgravio-admin/issues/55) grill 定稿，2026-08-17）：
 
 1. **金额一律 `Long`（分）**：BFF 对某能力域的 wire 镜像 DTO、北向 Response、北向 Query 中的金额字段全部 `Long`（分），与 provider 同型透传、零换算。**比率/均值字段**（`successRate`/`refundRate`/`approvalRate`/`avgAuditDurationMinutes`/`avgExecutionTimeMs` 等）保持 `BigDecimal`——provider 亦如此，金额与比率不同型是 provider 契约本身的决定。
 2. **接受框架 Long→JSON string 序列化**：cartisan-web 全局对 `Long`/`long` 注册 `ToStringSerializer`，故北向金额在 JSON 里是 string（`"amount": "9900"`），与 `auditorId` 等既有 Long 字段同形态。前端按 string 处理（防精度丢失），算术入口统一转 `Number`。**不**为了"金额看起来像数字"而在 BFF 把 Long 包成 BigDecimal 出 number——那是为序列化形态服务的类型谎言。
@@ -18,4 +18,4 @@
 - admin-web 联动改 typings/组件（独立 issue 于 web 仓）。
 - 平台级横切，兄弟 BFF 子上下文（account、未来钱包/Token计量）继承。
 
-**关联**：[#55](https://github.com/ZhangColin/aieducenter-admin/issues/55)、[#50](https://github.com/ZhangColin/aieducenter-admin/issues/50)（枚举 Integer + *Name，ADR-0009）、[payment #21](https://github.com/ZhangColin/aieducenter-payment/issues/21)（payMode/accessType/paymentChannel 已补齐，ghost 解除）、[ADR-0009](0009-bff-enum-response-carries-display-name.md)、[ADR-0010](0010-platform-pagination-protocol.md)；架构仓 CONTEXT § 枚举出口约定。
+**关联**：[#55](https://github.com/ZhangColin/semgravio-admin/issues/55)、[#50](https://github.com/ZhangColin/semgravio-admin/issues/50)（枚举 Integer + *Name，ADR-0009）、[payment #21](https://github.com/ZhangColin/semgravio-payment/issues/21)（payMode/accessType/paymentChannel 已补齐，ghost 解除）、[ADR-0009](0009-bff-enum-response-carries-display-name.md)、[ADR-0010](0010-platform-pagination-protocol.md)；架构仓 CONTEXT § 枚举出口约定。

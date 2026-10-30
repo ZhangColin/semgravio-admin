@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: aieducenter-admin
+    name: semgravio-admin
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
   flyway:

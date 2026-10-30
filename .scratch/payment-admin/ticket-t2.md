@@ -8,7 +8,7 @@
 
 订单列表/详情的金额全链 `BigDecimal → Long`（分）——wire 镜像 DTO、北向 Response、北向 Query 金额区间同型，零换算（前端已按分提交与展示）。payment 侧金额本就是 `Long`（分），此为 admin 单方面类型对齐；比率类字段不在本票（订单列表/详情无比率字段）。北向 Query javadoc「金额暂以元承」立场作废、更正为分。北向 JSON 中金额随之变 string 形态（框架全局 Long→`ToStringSerializer`，ADR-0011 接受），契约测试 fixture 用 `"9900"` string 钉住。
 
-对照基准：兄弟仓 aieducenter-payment 的 `PaymentOrderResponse.amount`（`Long`，分）与其列表 Query 的 `amountMin/Max`（`Long`）。
+对照基准：兄弟仓 semgravio-payment 的 `PaymentOrderResponse.amount`（`Long`，分）与其列表 Query 的 `amountMin/Max`（`Long`）。
 
 ## Acceptance criteria
 
@@ -21,4 +21,4 @@
 
 None — can start immediately.
 
-前端联动：[aieducenter-admin-web#54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 变更点 1（订单列表/详情金额 typings `number → string`）。
+前端联动：[semgravio-admin-web#54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 变更点 1（订单列表/详情金额 typings `number → string`）。

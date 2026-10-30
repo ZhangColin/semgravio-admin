@@ -8,7 +8,7 @@
 
 退款上下文对齐 payment 真实契约：① `refundAmount` 及北向 Query 的退款金额区间 `BigDecimal → Long`（分），零换算；② 清除 ghost 字段——出口 wire 与北向 summary/detail 删 `auditorId`/`auditedAt`（payment 从不发送、恒 null）；③ **北向 Query 的 `auditorId` 筛选保留**（payment `RefundOrderQuery` 支持按审核人筛选）。**不**新增 payment 实有而未暴露的字段（`approvedAt`/`auditAgreed`/`auditRemark` 等）——零加戏，展现需求联调后从 UI 起另提（ADR-0011 §4）。
 
-对照基准：兄弟仓 aieducenter-payment 的 `RefundOrderResponse`（无 `auditorId`/`auditedAt`，`refundAmount` 为 `Long`）与 `RefundOrderQuery`（有 `auditorId` 筛选、金额区间为 `Long`）。
+对照基准：兄弟仓 semgravio-payment 的 `RefundOrderResponse`（无 `auditorId`/`auditedAt`，`refundAmount` 为 `Long`）与 `RefundOrderQuery`（有 `auditorId` 筛选、金额区间为 `Long`）。
 
 ## Acceptance criteria
 
@@ -22,4 +22,4 @@
 
 None — can start immediately.
 
-前端联动：[aieducenter-admin-web#54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 变更点 4（退款列表/详情删两字段；`auditorId` 筛选保留）+ 变更点 1（金额 string）。
+前端联动：[semgravio-admin-web#54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 变更点 4（退款列表/详情删两字段；`auditorId` 筛选保留）+ 变更点 1（金额 string）。

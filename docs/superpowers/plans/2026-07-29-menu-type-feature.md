@@ -34,8 +34,8 @@
 ## File Structure
 
 **Create:**
-- `src/main/java/com/aieducenter/admin/application/MenuTreeAssembler.java` — 纯函数树组装（排序 / 祖先链补全 / 裁剪空 GROUP 与悬空 DIVIDER）。状态无关，静态方法。
-- `src/test/java/com/aieducenter/admin/application/MenuTreeAssemblerTest.java` — 纯单测：排序、祖先补全、裁剪（空 GROUP、悬空 DIVIDER、级联）、管理视图不裁。
+- `src/main/java/com/semgravio/admin/application/MenuTreeAssembler.java` — 纯函数树组装（排序 / 祖先链补全 / 裁剪空 GROUP 与悬空 DIVIDER）。状态无关，静态方法。
+- `src/test/java/com/semgravio/admin/application/MenuTreeAssemblerTest.java` — 纯单测：排序、祖先补全、裁剪（空 GROUP、悬空 DIVIDER、级联）、管理视图不裁。
 
 **Modify:**
 - `domain/dto/response/MenuResponse.java` — 加 `type`（MenuType）字段 + 7 参次级构造函数（默认 MENU，保持现有 8 处调用点兼容）。
@@ -83,10 +83,10 @@ void given_menuResponse_when_serialize_then_type_is_integer_code() throws Except
 
 - [ ] **Step 3: 实现** — 给 `MenuResponse` 加 `type` 字段 + 次级构造函数：
 ```java
-package com.aieducenter.admin.application.dto.response;
+package com.semgravio.admin.application.dto.response;
 
 import java.util.List;
-import com.aieducenter.admin.domain.enums.MenuType;
+import com.semgravio.admin.domain.enums.MenuType;
 
 public record MenuResponse(
         Long id, String name, String path, String icon, Long parentId, Integer sortOrder,
@@ -107,8 +107,8 @@ MapStruct 自动映射 `AdminMenu.type`→`MenuResponse.type`（同名同类型�
 
 - [ ] **Step 6: Commit**
 ```bash
-git add src/main/java/com/aieducenter/admin/application/dto/response/MenuResponse.java \
-        src/test/java/com/aieducenter/admin/integration/AdminMenuTreeTest.java
+git add src/main/java/com/semgravio/admin/application/dto/response/MenuResponse.java \
+        src/test/java/com/semgravio/admin/integration/AdminMenuTreeTest.java
 git commit -m "feat(admin): T1 菜单响应暴露 type 字段（GROUP/MENU/DIVIDER 整数 code）
 
 MenuResponse 增 type（MenuType），经全局 BaseEnumSerializer 序列化为整数 code。
@@ -178,7 +178,7 @@ MENU_TYPE_PATH_MISMATCH(400, "ADMIN_014_3", "MENU 类型菜单必须有路径"),
 - [ ] **Step 4: 改 AdminMenu 聚合** — 引入 `require`，重构构造与 mutator：
 ```java
 import static com.cartisan.core.util.Assertions.require;
-import com.aieducenter.admin.domain.error.AdminMessage;
+import com.semgravio.admin.domain.error.AdminMessage;
 // ...
 // path 字段：去掉 @Setter，仅 @Getter（关闭不变量旁路）
 @Getter @Column(name = "path", length = 255) private String path;
@@ -231,7 +231,7 @@ private void applyTypeAndPath(MenuType type, String path) {
 - [ ] **Step 7: 给 command 加 type** —
 ```java
 // CreateMenuCommand.java
-import com.aieducenter.admin.domain.enums.MenuType;
+import com.semgravio.admin.domain.enums.MenuType;
 public record CreateMenuCommand(
         @NotBlank @Size(max = 50) String name,
         @Size(max = 255) String path,
@@ -320,12 +320,12 @@ void given_filtered_leaf_without_parent_when_assemble_then_ancestor_chain_comple
 
 - [ ] **Step 3: 实现 `MenuTreeAssembler`** —
 ```java
-package com.aieducenter.admin.application;
+package com.semgravio.admin.application;
 
 import java.util.*;
 import cn.hutool.core.collection.CollUtil;
-import com.aieducenter.admin.domain.aggregate.AdminMenu;
-import com.aieducenter.admin.domain.enums.MenuType;
+import com.semgravio.admin.domain.aggregate.AdminMenu;
+import com.semgravio.admin.domain.enums.MenuType;
 
 /** 菜单树组装（纯函数）：排序 + （过滤视图下）祖先链补全 + 裁剪空 GROUP / 悬空 DIVIDER。 */
 public final class MenuTreeAssembler {

@@ -2,7 +2,7 @@
 
 - **状态**：Accepted；待实现（REQ-8，issue #11）
 - **日期**：2026-07-31
-- **关联**：[issue #11](https://github.com/ZhangColin/aieducenter-admin/issues/11) REQ-8；**推翻 REQ-1**（[issue #1](https://github.com/ZhangColin/aieducenter-admin/issues/1)）与 CONTEXT.md 旧「菜单树与节点类型」术语；**作废 REQ-6** Material Symbols 图标约定；术语见 [CONTEXT.md「菜单」](../../CONTEXT.md)
+- **关联**：[issue #11](https://github.com/ZhangColin/semgravio-admin/issues/11) REQ-8；**推翻 REQ-1**（[issue #1](https://github.com/ZhangColin/semgravio-admin/issues/1)）与 CONTEXT.md 旧「菜单树与节点类型」术语；**作废 REQ-6** Material Symbols 图标约定；术语见 [CONTEXT.md「菜单」](../../CONTEXT.md)
 
 ## 背景
 
@@ -36,5 +36,5 @@ REQ-1（几天前刚交付）把菜单类型定为 **`MENU`(1)/`GROUP`(2)/`DIVID
 ## 参见
 
 - [CONTEXT.md「菜单 = Soybean 路由生成器数据源」](../../CONTEXT.md)
-- REQ-1：[issue #1](https://github.com/ZhangColin/aieducenter-admin/issues/1)（被本 ADR 推翻）
+- REQ-1：[issue #1](https://github.com/ZhangColin/semgravio-admin/issues/1)（被本 ADR 推翻）
 - 完整需求：前端仓 `docs/backend-requirements/REQ-8-soybean-system-mgmt-full-alignment.md`

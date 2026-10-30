@@ -1,4 +1,4 @@
-# aieducenter-admin
+# semgravio-admin
 
 管理后台网关后端。基于 cartisan-boot 框架开发。
 
@@ -66,7 +66,7 @@
 
 ### 包结构规范
 ```
-com.aieducenter.{context}
+com.semgravio.{context}
 ├── package-info.java           # 上下文说明（@BoundedContext 注解）
 ├── domain/                     # 领域层
 │   ├── aggregate/              # 聚合根

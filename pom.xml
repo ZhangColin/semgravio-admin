@@ -11,11 +11,11 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <groupId>com.aieducenter</groupId>
-    <artifactId>aieducenter-admin</artifactId>
+    <groupId>com.semgravio</groupId>
+    <artifactId>semgravio-admin</artifactId>
     <version>1.0.0-SNAPSHOT</version>
-    <name>aieducenter-admin</name>
-    <description>海创元智研云平台 - 管理后台网关</description>
+    <name>semgravio-admin</name>
+    <description>语义引力 - 管理后台网关</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -23,18 +23,6 @@
         <postgresql.version>42.7.4</postgresql.version>
         <pitest.junit5.plugin.version>1.2.3</pitest.junit5.plugin.version>
     </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>com.cartisan</groupId>
-                <artifactId>cartisan-dependencies</artifactId>
-                <version>0.1.0-SNAPSHOT</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -161,7 +149,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>3.4.1</version>
                 <configuration>
-                    <mainClass>com.aieducenter.AdminApplication</mainClass>
+                    <mainClass>com.semgravio.AdminApplication</mainClass>
                     <jvmArguments>--enable-preview</jvmArguments>
                 </configuration>
             </plugin>
@@ -178,10 +166,10 @@
                 </dependencies>
                 <configuration>
                     <targetClasses>
-                        <param>com.aieducenter.admin.*</param>
+                        <param>com.semgravio.admin.*</param>
                     </targetClasses>
                     <targetTests>
-                        <param>com.aieducenter.admin.*</param>
+                        <param>com.semgravio.admin.*</param>
                     </targetTests>
                     <mutators>DEFAULTS</mutators>
                     <outputFormats>HTML,XML</outputFormats>

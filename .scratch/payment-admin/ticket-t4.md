@@ -8,7 +8,7 @@
 
 统计端点对齐 payment 真实契约：① 全部 stats 端点（overview / status-distribution / channel / business-system / operations-audit / anomalies / gateway-health 等）wire 镜像 DTO 与北向 Response 的**金额**字段 `BigDecimal → Long`（分）；**比率/均值字段保持 `BigDecimal`**（`successRate`/`refundRate`/`approvalRate`/`avgAuditDurationMinutes`/`avgExecutionTimeMs`——payment 亦如此，金额与比率分型是 provider 契约）。② status-distribution 的扁平 `refundPendingAuditCount` → 嵌套 `refundBacklog{ pendingCount, pendingAmount }` 逐字镜像，分桶 `count`/`amount` 对齐 Long——**待审核积压金额首次透出**（此前字段名+嵌套双不符恒 null）。
 
-对照基准：兄弟仓 aieducenter-payment 的 `StatusDistributionResponse`（嵌套 `Backlog(pendingCount, pendingAmount)`、分桶 `long count, long amount`）、`PaymentOverviewResponse`（金额一律 long、比率 BigDecimal）及各 stats Response。
+对照基准：兄弟仓 semgravio-payment 的 `StatusDistributionResponse`（嵌套 `Backlog(pendingCount, pendingAmount)`、分桶 `long count, long amount`）、`PaymentOverviewResponse`（金额一律 long、比率 BigDecimal）及各 stats Response。
 
 ## Acceptance criteria
 
@@ -21,4 +21,4 @@
 
 None — can start immediately.
 
-前端联动：[aieducenter-admin-web#54](https://github.com/ZhangColin/aieducenter-admin-web/issues/54) 变更点 3（refundBacklog 嵌套、积压金额可用）+ 变更点 1/5（金额 string、比率不变）。
+前端联动：[semgravio-admin-web#54](https://github.com/ZhangColin/semgravio-admin-web/issues/54) 变更点 3（refundBacklog 嵌套、积压金额可用）+ 变更点 1/5（金额 string、比率不变）。
