@@ -1,0 +1,134 @@
+package com.semgravio.admin.application;
+
+import java.time.Instant;
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.semgravio.admin.application.dto.command.AdminUserLoginCommand;
+import com.semgravio.admin.application.dto.command.UpdatePasswordCommand;
+import com.semgravio.admin.application.dto.command.ResetPasswordCommand;
+import com.semgravio.admin.application.dto.response.AdminUserResponse;
+import com.semgravio.admin.application.dto.response.CurrentUserResponse;
+import com.semgravio.admin.application.mapper.AdminUserMapper;
+import com.semgravio.admin.domain.aggregate.AdminUser;
+import com.semgravio.admin.domain.repository.AdminUserRepository;
+import com.semgravio.admin.domain.service.PasswordEncoderService;
+import com.cartisan.core.exception.ApplicationException;
+import com.semgravio.admin.domain.error.AdminMessage;
+import com.cartisan.security.authentication.AuthenticationService;
+import com.cartisan.security.authentication.TokenInfo;
+
+/**
+ * 管理员认证应用服务。
+ *
+ * @since 0.1.0
+ */
+@Service
+public class AdminUserAuthAppService {
+
+    private static final long DEFAULT_TIMEOUT = 86400; // 24 小时
+    private static final long REMEMBER_TIMEOUT = 604800; // 7 天
+
+    private final AdminUserRepository adminUserRepository;
+    private final AdminUserPermissionAppService adminPermissionAppService;
+    private final AuthenticationService authenticationService;
+    private final AdminUserMapper adminUserMapper;
+    private final PasswordEncoderService passwordEncoderService;
+
+    public AdminUserAuthAppService(
+            AdminUserRepository adminUserRepository,
+            AdminUserPermissionAppService adminPermissionAppService,
+            AuthenticationService authenticationService,
+            AdminUserMapper adminUserMapper,
+            PasswordEncoderService passwordEncoderService) {
+        this.adminUserRepository = adminUserRepository;
+        this.adminPermissionAppService = adminPermissionAppService;
+        this.authenticationService = authenticationService;
+        this.adminUserMapper = adminUserMapper;
+        this.passwordEncoderService = passwordEncoderService;
+    }
+
+    /**
+     * 管理员登录。
+     */
+    @Transactional
+    public TokenInfo login(AdminUserLoginCommand command) {
+        // 验证用户名和密码
+        AdminUser adminUser = adminUserRepository.findByUsername(command.username())
+                .orElseThrow(() -> new ApplicationException(AdminMessage.LOGIN_FAILED));
+
+        if (!adminUser.isActive()) {
+            throw new ApplicationException(AdminMessage.ADMIN_DISABLED);
+        }
+
+        if (!passwordEncoderService.verifyPassword(command.password(), adminUser.getPassword())) {
+            throw new ApplicationException(AdminMessage.LOGIN_FAILED);
+        }
+
+        // 登录（框架 AuthenticationService.login 新签名：loginId + timeout + userName；
+        // 框架在建立会话后把 userName 写入 SaSession，后续请求由 SecurityFilter 读入 RequestContext。
+        // admin 不再直接依赖 StpUtil——Bug ④ 根因已在框架 commit efcb1e7 修复）
+        long timeout = command.rememberMe() ? REMEMBER_TIMEOUT : DEFAULT_TIMEOUT;
+        TokenInfo tokenInfo = authenticationService.login(adminUser.getId(), timeout, adminUser.getNickname());
+
+        return tokenInfo;
+    }
+
+    /**
+     * 管理员登出。
+     */
+    public void logout() {
+        authenticationService.logout();
+    }
+
+    /**
+     * 修改当前管理员密码。
+     */
+    @Transactional
+    public void updatePassword(Long userId, UpdatePasswordCommand command) {
+        AdminUser adminUser = adminUserRepository.findById(userId)
+                .orElseThrow(() -> new ApplicationException(AdminMessage.ADMIN_NOT_FOUND));
+
+        // Verify old password using domain service
+        if (!passwordEncoderService.verifyPassword(command.oldPassword(), adminUser.getPassword())) {
+            throw new ApplicationException(AdminMessage.PASSWORD_INCORRECT);
+        }
+
+        // Encode and update new password using domain service
+        String newEncodedPassword = passwordEncoderService.encodePassword(command.newPassword());
+        adminUser.changePassword(newEncodedPassword);
+        adminUserRepository.save(adminUser);
+    }
+
+    /**
+     * 重置管理员密码（管理员操作）。
+     */
+    @Transactional
+    public void resetPassword(Long userId, ResetPasswordCommand command) {
+        AdminUser adminUser = adminUserRepository.findById(userId)
+                .orElseThrow(() -> new ApplicationException(AdminMessage.ADMIN_NOT_FOUND));
+
+        String encodedPassword = passwordEncoderService.encodePassword(command.newPassword());
+        adminUser.changePassword(encodedPassword);
+        adminUserRepository.save(adminUser);
+    }
+
+    /**
+     * 获取当前管理员信息。
+     */
+    @Transactional(readOnly = true)
+    public CurrentUserResponse getCurrentAdmin(Long userId) {
+        AdminUser adminUser = adminUserRepository.findById(userId)
+                .orElseThrow(() -> new ApplicationException(AdminMessage.ADMIN_NOT_FOUND));
+
+        // 获取角色、权限（导航 menus 已由 GET /menus/my 承接，REQ-13-T3）
+        List<String> roleCodes = adminPermissionAppService.getRoleCodes(userId);
+        List<String> permissionCodes = adminPermissionAppService.getPermissions(userId);
+
+        AdminUserResponse user = adminUserMapper.convert(adminUser);
+
+        return new CurrentUserResponse(user, roleCodes, permissionCodes);
+    }
+}

@@ -1,4 +1,4 @@
-# aieducenter-admin
+# semgravio-admin
 
 管理后台网关后端服务。
 

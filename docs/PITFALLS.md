@@ -219,6 +219,29 @@ mvc.perform(get("/api/conversations").header("satoken", token))
     .andExpect(status().isOk());
 ```
 
+### 规则 TEST-004：多 ApplicationContext 共享物理库时，ddl-auto 用 create 而非 create-drop
+
+**问题**：测试套件里 `@SpringBootTest` 因 `webEnvironment` 不同（MOCK vs `RANDOM_PORT`）会形成**多个独立缓存的 ApplicationContext**，但它们共用同一个物理测试库。`ddl-auto=create-drop` 会在 EMF **关闭**时执行 `DROP TABLE`——作用在共享物理表上：任一上下文 teardown 会清空其它仍缓存上下文的表，导致后续测试撞 `relation "xxx" does not exist`。这类失败**单跑 / 小范围合跑都不触发**，只在全量套件里确定性出现，极易长期隐蔽（admin 项目曾导致 `SoftDeleteReadFilterIntegrationTest` 全量套件失败，issue #10）。
+
+**三种 ddl-auto 对照**（同一套件、多上下文共享库）：
+- `create-drop`：关闭清表 → 跨上下文互删 → 全量套件失败；
+- `update`：不清表也不重建 → 残留脏数据 → 并发 / 计数类用例失败；
+- `create`：**启动时 drop+重建、关闭不清表** → 每个上下文 init 自带干净表、且互不清表 → 全绿。
+
+**正确做法**：测试库 `application.yml` 用 `create`：
+```yaml
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create   # 非 create-drop
+```
+
+**适用前提**：仅当套件确有多个共享同一物理库的 ApplicationContext 时才需要；单一上下文套件 `create-drop` 无此问题。生产侧恒为 `none` + Flyway，不受影响。
+
+**记忆口诀**：多上下文共用一个库？ddl-auto 用 create，别用 create-drop。
+
+**相关**：issue #10
+
 ---
 
 ## Spring Data JPA / 数据访问
@@ -272,6 +295,8 @@ List<Conversation> findActiveByTenantId(@Param("tenantId") Long tenantId);
 ```
 
 **记忆口诀**：JPQL 查询手动加条件，@SQLRestriction 只管自动生成的 SQL。
+
+> **例外（本项目三聚合）**：`AdminUser`/`AdminRole`/`AdminMenu` 已迁物理删除（ADR-0005），无 `deleted` 字段——这三者的 JPQL/派生查询**不要**再加软删条件。
 
 ---
 
@@ -349,13 +374,13 @@ public class ConversationController {
 
 ```java
 // ✅ 显式指定 bean 名称，避免与 Spring Boot 自动配置冲突
-@Component("aieducenterRequestContextFilter")
+@Component("semgravioRequestContextFilter")
 public class RequestContextFilter extends OncePerRequestFilter {
     // ...
 }
 ```
 
-**命名建议**：使用项目前缀，如 `aieducenter{ClassName}` 或 `{context}{ClassName}`。
+**命名建议**：使用项目前缀，如 `semgravio{ClassName}` 或 `{context}{ClassName}`。
 
 ---
 
@@ -542,7 +567,7 @@ BACKEND_URL=https://api.example.com pnpm build
 ```ts
 // next.config.ts
 const nextConfig: NextConfig = {
-  transpilePackages: ['@aieducenter/ui', '@aieducenter/api-client', '@aieducenter/shared'],
+  transpilePackages: ['@semgravio/ui', '@semgravio/api-client', '@semgravio/shared'],
 }
 ```
 
@@ -586,7 +611,7 @@ const nextConfig: NextConfig = {
 ```json
 {
   "dependencies": {
-    "@aieducenter/ui": "workspace:*"  // 开发期自动链接
+    "@semgravio/ui": "workspace:*"  // 开发期自动链接
   }
 }
 ```
@@ -602,7 +627,7 @@ const nextConfig: NextConfig = {
 ```json
 // F01-04 阶段
 {
-  "name": "@aieducenter/ui",
+  "name": "@semgravio/ui",
   "exports": { ".": "./src/index.ts" }
   // ❌ 不添加 React peerDependencies
 
@@ -703,12 +728,12 @@ sed -i '' 's|from "@/lib"|from "../lib/utils"|g' *.tsx
 
 ### 规则 FRONT-008：packages/ui 必须导出 CSS 文件
 
-**问题**：web/admin 无法 `import '@aieducenter/ui/src/index.css'`，报错 `Package path ./src/index.css is not exported`。
+**问题**：web/admin 无法 `import '@semgravio/ui/src/index.css'`，报错 `Package path ./src/index.css is not exported`。
 
 **正确做法**：
 ```json
 {
-  "name": "@aieducenter/ui",
+  "name": "@semgravio/ui",
   "exports": {
     ".": "./src/index.ts",
     "./src/index.css": "./src/index.css"  // 必须显式导出
@@ -1109,6 +1134,8 @@ Optional<User> findByUsername(@Param("username") String username);
 ```
 
 **记忆口诀**：JPQL 查询手动加条件，@SQLRestriction 只管自动 SQL。
+
+> **例外（本项目三聚合）**：`AdminUser`/`AdminRole`/`AdminMenu` 已迁物理删除（ADR-0005），无 `deleted` 字段——这三者的 JPQL/派生查询**不要**再加软删条件。
 
 **相关 Feature**：F02-01
 

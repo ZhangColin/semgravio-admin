@@ -1,0 +1,249 @@
+# 统一后台后端 (semgravio-admin) — 领域术语表
+
+> 企业内部聚合入口（应用层 · 平台自带应用）：**Operator 自有** + **聚合各能力域** + **财务上下文**。SPA + BFF。
+> 平台级术语表（限界上下文 / 基础域 / 组合域 / 用户域 / 钱包 / 支付 / Token计量…）在兄弟仓库 [`../semgravio-architecture/CONTEXT.md`](../semgravio-architecture/CONTEXT.md)，本文只记**本项目自有**的术语与决策演进。架构不变式见 [`CLAUDE.md` § 平台架构上下文](CLAUDE.md)。
+
+## 术语表（随讨论生长）
+
+**统一后台 (Admin Portal)**:
+本应用（`semgravio-admin` + `semgravio-admin-web`）。企业内部聚合入口，SPA + BFF。`semgravio-admin` = 本后端（端口 8081）。
+
+**运营用户 (Operator)**:
+后台内部员工（非跨应用共享的平台身份）。**认证 + 角色/部门/岗位/RBAC 归本应用自有**，凭据留本应用（用 cartisan-security），不进用户域/IdP。本地登录即可（统一后台是唯一内部应用，**不做 Operator SSO**，等第二个内部应用出现再考虑）。
+_Avoid_: 把 Operator 塞进用户域/IdP；把 Operator 与终端用户(Account)混在一张表。
+
+**平台账号 (Account)**:
+平台统一身份（identity 域）下的**终端用户**账号——跨应用共享的最终用户身份。identity 以 `userId` 标识；一个 Account 可经多个对接应用登录。**与 Operator 严格区分**：Operator 是本应用自有的后台内部员工（凭据留本应用、cartisan-security），Account 是被管理的终端用户（凭据在 identity 域）；两者不共表、不混概念。
+_Avoid_: 把 Account 与 Operator 混在一张表/一个概念；把 Account 当成本应用实体。
+
+**RBAC（已有，真金白银）**:
+`AdminUser` / `AdminRole` / `AdminMenu` 聚合 + `AdminUserRole` / `AdminRoleMenu` / `AdminRolePermission` 实体 + 6 张 `sys_admin_*` 表。鉴权：BCrypt(10) + cartisan-security（默认 `SaTokenAuthenticationService`）+ `StpInterface`（Bug ① 后：admin 用默认 loginType，`StpInterface` 无条件返回 admin 权限/角色）+ `@RequirePermission` + `PermissionScanner`。
+**用户菜单/权限 = 其全部启用角色的汇总（并集）**；**禁用角色（`AdminRoleStatus.DISABLED`）在任何汇总聚合中视为不存在**——不贡献菜单、不参与 home 推导、不贡献权限 claims 与 roleCodes（REQ-13 定，2026-08-02：`getRoleCodes`/`getPermissions`/导航聚合（现 `getMyMenus`）同路径一次修齐；此前禁用角色零消费、照样发菜单发权限）。超管不受影响（`SUPER_ADMIN` 角色自身不可禁用，REQ-10）。
+**删除 = 物理删除**（ADR-0005，REQ-14 定，2026-08-03）：三聚合基类 `Auditable`（非 `AuditableSoftDeletable`），软删在本应用无恢复需求、只带来残留泄漏面（REQ-5 读过滤 / #21 汇总过滤 / REQ-14 删除守卫三度泄漏）；「停用」语义由 `status` 承载。关联行经 JPA `cascade = ALL + orphanRemoval` + 生产 FK `ON DELETE CASCADE` 双保险级联清除。删除守卫（破窗号 / `SUPER_ADMIN` 角色）挂显式领域方法 `requireDeletable()`，由 AppService 在 `repository.delete()` 之前调用。
+
+**超管 (SUPER_ADMIN 角色) — 授权层**:
+"谁是超管" = 是否持有 `SUPER_ADMIN` 角色（种子 id=1，V2 内置）。Bug ② 起接通框架 `AuthorizationBypassResolver`：admin 提供 bean 委托 `isSuperAdmin`，命中即跳过 `@RequireRole`/`@RequirePermission`（仍须 `@RequireAuth` 登录）。**授权维度不再用 per-user 标记位**——旧 `system` 列曾把"授权"与"运维韧性"搅在一起，已拆。
+
+**破窗账号 (Break-glass account) — 运维韧性层**:
+保证"就算角色被改坏、管理员被删光/禁光，也总有一个救援号能登进来"的**固定账号** = 内置 `admin`（保留 ID = 1）。不可删、不可禁、可改密；授权仍走它挂的 `SUPER_ADMIN` 角色——而**`SUPER_ADMIN` 角色自身也不可禁/不可删**（REQ-10 补全，2026-07-31；错误码 `SUPER_ADMIN_CANNOT_DISABLE/DELETE`，仿破窗号 guard），否则破窗号虽在、救援角色失效仍会锁死。识别方式：**按保留 ID**（`BREAK_GLASS_ADMIN_ID = 1`），不靠列。`system` 列**删除**（V4 迁移）——其原"内置不可删"语义改由"保留 ID = 破窗号"承载；原 `count()<=1` last-admin 检查随之删除（破窗号永在，该规则成死逻辑）。
+_Avoid_: 给 `system` 列塞"系统管理员"的授权含义；把破窗号设计成随角色成员漂移的"最后一个超管"规则（脆、难文档化）。
+
+**菜单 = Soybean 路由生成器数据源 (Menu = Soybean route-generator source)**:
+菜单的**唯一事实源是前端 Soybean Admin 的路由生成器**（`@elegant-router`）——后端菜单模型**完全照 Soybean**，本项目原 `MENU/GROUP/DIVIDER` 三值模型**作废、当不存在**（2026-07-31 拍板："选了 Soybean 做后台就是完全配套"）。这推翻的正是几天前 REQ-1 刚交付的三值模型——见 [ADR-0004](docs/adr/0004-menu-model-follows-soybean.md)。`AdminMenu` 承载 Soybean 路由生成所需全部元数据：`menuType` 两值 `directory(1)`（容器/路由前缀）/ `menu(2)`（叶子页）；外加 `routeName`、`component`（`layout.<L>$view.<P>` 编码）、`i18nKey`、`icon`+`iconType`（`1`=iconify / `2`=local svg）、`sortOrder`（Soybean 叫 `order`，后端保留 `sortOrder` 不改——避 PG 保留字、前端适配）、`keepAlive`/`constant`/`multiTab`/`hideInMenu`、`activeMenu`、`href`、`fixedIndexInTab`、`query`、`buttons`（见 REQ-9）、`status`。**type/path/icon 等一切语义以 Soybean 源码为准，后端不再自创不变量**——旧 `applyTypeAndPath`/`ADMIN_014_3` path 规则、`MenuTreeAssembler` 的 DIVIDER 裁剪逻辑、REQ-6 的 Material Symbols 图标约定**全部作废**；V6 迁移重建种子菜单（V5 的 GROUP 结构作废）。
+端点：扁平分页 `GET /menus`（Soybean 菜单表格用，集合根分页、对齐 `/users`/`/roles`）+ 树 `GET /menus/tree`（父级选择器/角色分配用）；页名选择器（`fetchGetAllPages`）由前端构建期派生，不向后端要。
+**种子 routePath = elegant-router 推导值**：`'/' + routeName.replaceAll('_', '/')`（每个下划线一段——@elegant-router/core `transformRouterNameToPath`，admin-web 静态正典表同规则）。动态菜单模式下前端按后端 `/menus/my` 下发的 routePath 注册路由，种子手写扁平 kebab（如 `/aiplatform/agent-config`）会令正典路径深链/F5/书签落 403 而非 404（admin-web #70 三层根因：侧边栏按 name 跳转照常、日常无感）。五条漂移（130 `payment_channel_log`/200 `aiplatform_price_entry`/230 `aiplatform_skill_assignment`/240 `aiplatform_agent_config`/250 `aiplatform_skill_draft`——末条为票面审计后同规则下确认的潜伏行）由 V21 修正；防复发＝`MenuSeedRoutePathCanonIntegrationTest` 在独立 schema 全量跑 Flyway 链直查种子终态断言推导一致（`href` 外链行豁免——外链不注册框架路由），未来种子漂移即红（[issue #94](https://github.com/ZhangColin/semgravio-admin/issues/94)，fail fast 拍板——前端明确不自愈，契约错误尽早暴露）。
+_Avoid_: 在菜单模型上保留任何"Soybean 没有"的遗物（DIVIDER、旧 path 不变量、Material Symbols）；把 Soybean 既定的 type/icon 语义当开放项重新讨论；手写多段路由名的扁平 kebab routePath（`agent-config` → 必为 `agent/config`）；靠前端自愈逻辑掩盖种子 routePath 漂移。
+
+**详情页 = 弹窗/抽屉优先 (Detail = drawer/modal first)**:
+详情默认是**列表页内的前端弹窗/抽屉**，**不进后端菜单种子**；仅当信息量大到值得整页时才做独立路由——且那是**前端 constant 路由**（前端自有，仍不经后端菜单树）。后端 `sys_admin_menus` 只承载**侧边栏导航**，详情可达性是前端职责（信息量大小 → 弹窗/抽屉/整页，由前端定，UI 走 admin-web issue）。`app_detail`（id=90）即此例：V11 曾种为 `hideInMenu` 路由，前端改为 720px Modal（前端 issue #32）后，V12 删除种子（[issue #31](https://github.com/ZhangColin/semgravio-admin/issues/31)）。
+_Avoid_: 给详情页种 `hideInMenu` 菜单行（除非已确认要整页独立路由）；把后端菜单树当详情页路由的唯一来源。
+
+**财务上下文 (Finance Context)**:
+本应用内的一个**限界上下文（非独立域/服务）**。只读各能力域（支付/钱包/Token计量）做**收入确认（consume-based，履约时点）+ append-only 冲销 + 负债/营销费用视角**。**不收款（支付域）、不持余额（钱包域）、不计量 token（Token计量域）**。详见架构仓库 architecture.md §6.15。
+
+**聚合 / 签名调用 (Aggregation via signed calls)**:
+前端不直连各能力域；统一后台经 **cartisan-openapi 签名调用**聚合各域（支付/钱包/模型网关/Token计量/…），对前端呈现统一视图。
+
+**应用注册中心 (App Registry)**:
+独立服务 `semgravio-app-registry`（端口 8088），管理平台所有对接的外部应用/服务。Admin 通过 cartisan-openapi 签名调用其 API。Admin 自身的 apiKey=`admin-console`，apiSecret 已配置。核心聚合：`RegisteredApp`（应用信息）、`ApiKey`（apiKey/apiSecret，AES-GCM 可逆加密）、`SsoClient`（OIDC SSO 客户端，client_secret argon2 单向哈希）。Admin 的 BFF 层聚合这三个聚合的查询/维护为单一「应用管理」页面。
+
+**应用管理菜单 (App Management Menu)**:
+新增一级目录「应用管理」（`directory`, sort_order=2），位于首页之后、系统管理之前。其下二级菜单「应用」（`menu`）。系统管理 sort_order 同步调整为 99（原 9），为未来目录留空间。元数据已定：
+
+| 菜单 | route_name | route_path | component | icon | i18n_key | menu_type | sort_order | parent_id |
+|------|-----------|------------|-----------|------|----------|-----------|------------|-----------|
+| 应用管理 | `app` | `/app` | `layout.base` | `carbon:application` | `route.app` | directory(1) | 2 | NULL |
+| 应用 | `app_list` | `/app/list` | `view.app_list` | `carbon:application` | `route.app_list` | menu(2) | 1 | (应用管理id) |
+
+**应用管理 BFF 设计**:
+Admin 作为 BFF，前端只访问 admin，不对 app-registry 直连。Admin 透传 + 聚合调用 app-registry（经 cartisan-openapi 签名）。
+
+- `appCode` = `apiKey`（二者一致）
+- `apiSecret`：无则生成，有则重置
+- 业务逻辑全在 app-registry，admin 不做业务判断
+- 端点（`/api/admin/apps`）：列表、详情（聚合 app+apiKey+ssoClient）、创建、**更新应用信息**（name/description）、管理 apiKey（生成/重置）、管理 ssoClient（**凭证 create/reset + 配置 PUT + 启停用**，三独立原语，issue #33）、应用启停用 — 各区块独立保存
+- 对 app-registry 的依赖 issue：[#14 列表接口](https://github.com/ZhangColin/semgravio-app-registry/issues/14) / [#15 更新接口](https://github.com/ZhangColin/semgravio-app-registry/issues/15)
+
+**应用详情页布局**（单页三区块，各独立保存）：
+1. 应用基本信息：appCode(只读) + name(编辑) + description(编辑) + status(启停按钮)
+2. API Key：apiKey(只读,=appCode) + apiSecret(生成/重置后展示一次) + 生成/重置按钮
+3. SSO Client(可选)：clientId(只读) + status(启停按钮) + redirectUris(编辑) + postLogoutRedirectUris(编辑) + scopes/grants(编辑) + clientSecret(开通/重置后展示一次) + 开通/配置/重置按钮（首次须先开通（凭证）再配置——PUT 在 SsoClient 未建时 404）
+
+（2026-08-04 开始讨论；2026-08-10 issue #33：region 3 拆为 开通/配置/重置 三动作 + 加 postLogoutRedirectUris + SsoClient status 启停）
+
+**SSO 凭证 (Credential) vs 配置 (Config)**:
+SsoClient 管理拆为两个独立原语（对齐 app-registry [ADR-0005](../semgravio-app-registry/docs/adr/0005-sso-client-config-credential-separation.md)，2026-08-10、issue #33）：**凭证** = `client_id` + `client_secret` 对（`client_id` 终身稳定、创建时生成一次；`client_secret` 仅创建/重置时一次性返明文、余皆 argon2 hash-only）→ 凭证接口（create-or-reset，无 body）；**配置** = `redirectUris` / `postLogoutRedirectUris` / `scopes` / `grants` → 配置 PUT（整份替换，不动凭证、不动 status，无 SsoClient 则 404）。首次开通 = 先凭证后配置。admin 北向两独立端点镜像下游、纯透传、**不自动建凭证**（否则一次性明文 secret 会被静默丢弃）。
+_Avoid_: 把凭证与配置混在一个端点（旧 `createOrRotate` 已废）、配置改动连换凭证；用"轮换"指代 SSO 凭证更新。
+
+**重置 (Reset) vs 轮换 (Rotate)**:
+**重置** = 仅重新生成 `client_secret`（`client_id` 不变）；**轮换** = `client_id`+`client_secret` 同时换——SSO 适配后**全链路不再使用**（`client_id` 终身稳定；OIDC 约定 `client_id` 稳定、`client_secret` 才是密钥）。apiKey 的"无则生成/有则重置"同为 reset 语义。
+_Avoid_: 用"轮换"指代 SSO 凭证或 apiKey 更新。
+
+**消费面 vs 管理面 (Consumption side vs Management side)**:
+同一资源的两种服务视角（REQ-13 定，2026-08-02）。**消费面** = 终端使用视角（我的导航、动态路由），只下发**启用**数据、登录即可访问（不挂管理权限）、禁用项不下发且 directory 禁用整棵子树不下发——对超管同样生效；**管理面** = 维护视角（菜单/角色管理页），全量含禁用项、挂 `@RequirePermission`。例：`GET /menus/my` 是消费面；`GET /menus`、`GET /menus/tree` 是管理面。身份 claims（user/roleCodes/permissions）留 auth 域（`/auth/current`），导航资源（menus/home）归 menu 域——身份 vs 导航不混在一个响应里。
+_Avoid_: 给消费面端点挂管理权限注解；让消费面为了"超管全量"而连禁用项也下发；在管理面端点上做消费面过滤。
+
+**支付管理上下文 (Payment Admin Context)**:
+admin 内 `payment` 子包承载的**运营管理**关注点——支付/退款订单列表与详情、订单生命周期视图、退款审核、通知重发、统计 dashboard。admin 作为 BFF 经 cartisan-openapi 签名调用 payment 服务（消费视角契约见 issue #37）。**≠ 财务上下文**（只读收入确认 + append-only 冲销，尚未建）：payment admin 是**运营写操作 + 运营看板**，财务是**会计视角的只读聚合**；两者都读 payment 数据，但关注点不同，不可混。
+_Avoid_: 把退款审核/通知重发塞进财务上下文；把 payment admin 的运营 dashboard 当作财务报表。
+
+**账号管理上下文 (Account Admin Context)**:
+admin 内 `account` 子包承载的**终端用户账号运营管理**关注点——平台账号（identity 域）的搜索、管理详情、封号/解封/解锁、强制下线（**不处理密码**——reset/clear/force-change 三端点不暴露，密码生命周期归 identity 用户自务，见 [ADR-0008](docs/adr/0008-admin-does-not-handle-end-user-passwords.md)）。admin 作为 BFF 经 cartisan-openapi 签名调用 identity 的 `/api/account/*` 管理端点（消费视角契约见 admin issue #49 / identity spec #66）。与 payment admin 同构（BFF 纯透传、操作者身份走 RequestContext、审计归 identity、详情走抽屉、出站客户端裸 `@Component` [ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)）；**≠ Operator 管理（系统管理）**——管的是终端用户账号，非后台员工。v1 透传 identity 6 端点（搜索/管理详情/封号/解封/解锁/强制下线），**不暴露 3 个密码端点**（见 [ADR-0008](docs/adr/0008-admin-does-not-handle-end-user-passwords.md)）；字段级契约待 identity #67–#72 冻结。
+_Avoid_: admin 自建账号表/本地审计；把「账号管理(终端用户)」与「系统管理(operator)」混淆。
+
+**AI 平台管理上下文 (Aiplatform Admin Context)**:
+admin 内 `aiplatform` 子包承载的 **AI 开发平台（aiplatform）运营监管**关注点——订单报价/取消/归档、项目与交付物查阅、沙箱治理、平台成本、知识素材治理、单价表维护（spec #62：六域 34 端点忠实透传）＋**技能管理第七域**（issue #78，aiplatform 技能线 #246 通报＋#255 指派双头预检＋#258 自产草稿线＋#261 使用计数观测扩展（含 #253 resources 漂移补齐，issue #93——清单/详情增 loadCount/lastLoadedAt、详情另增 resources scripts/ 资源面，纯字段无新端点无新权限码）：技能库/槽位指派（含预检）/智能体运营配置/工具面/草稿审核面——3 控制器 20 端点忠实透传，见下「指派预检」「草稿审核」「使用计数」术语＋**设计能力线 T1**（issue #96，#95：订单域交付物类型字段对＋设计资产包取件端点 `GET orders/{id}/design-package`——订单域 6→7、总 54→55 端点，provider 源裁决 aiplatform #281/#297/#298 已落；**权限复用 order:read 零新码**（33 码不变）、无迁移无新菜单；见下「交付物类型」「设计资产包」术语）＋**设计能力线 T2**（issue #97，#95：项目域对话史设计会话标注——对话条目 `sessionSource`/`sessionSourceName` 字段对（kindName 邻位，2=设计会话/null=主会话缺省照透），纯字段**无新端点（55 不变）无新码（33 不变）无迁移无新菜单**，AppService 纯委托；见下「设计会话」术语）＋**设计能力线 T3**（issue #98，#95：成本域按张档位——单价表匹配维度 tokenKind 扩第 6 档（**6=按张**，provider #288；Integer code 直通零 typed enum＋tokenKindName 中文名随行；unitPrice 两侧类型**有意不对称**——改价入参 number〔非负 0=免费档〕/回读十进制串照实各自呈现不归一，档位单价语义 token 档每 token/按张档每张同一字段承载；开行/改价/停用三操作对六档同一套语义端点形状零改）＋成本总览图片生成计量类到场路径（cost 桶**同桶混算**——按张×时点生效单价与 token 成本不单列，六档同一换算公式混算后无从区分按张分量；按张事件 token 五档为零**不进 total/byModel/byAgentKind 五档分解**——张与 token 并列不混算、张数无独立出口仅经 cost 桶与 unpriced 档位呈现；「无生效单价不进平台成本桶」既有口径对按张同适用——未配价按张档进 unpriced 且 tokens＝张数），纯字段**无新端点（55 不变）无新码（33 不变）无迁移无新菜单**；见下「按张计价」「图片生成成本」术语）；**治理全在 provider 侧**，admin 不加安装白名单等约束，契约不满足处向 aiplatform 提票）。admin 作为 BFF 经 cartisan-openapi 签名调用 aiplatform `/api/backoffice/**`（机机签名，全局单 key `admin-console`）。与 payment/account admin 同构（BFF 纯透传、操作者身份走 RequestContext 落 aiplatform 审计列、出站客户端裸 `@Component` [ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)），两处**有意的差异**：① 错误**原样透传不做映射**——aiplatform 错误信封 `code` 装数字业务码（域码×1000＋序号，如 IDN_004→6004），HTTP 状态独立，`AiplatformClient` 统一翻译为 `AiplatformUpstreamException`（六域复用、AppService 不再 try/catch），`AiplatformUpstreamErrorAdvice` 北向还原 provider 信封（区别于 payment/account 的 `BaseCodeMessage` 映射式翻译——映射会杀前端比对 aiplatform 业务码的分支，aiplatform #169 教训）；② 北向分页按平台新决议**目标态**实现：请求 1-based + 回显 1-based，全程无 ±1 换算（aiplatform wire 本就 1-based，平台分页统一 2026-09-15 拍板）。成本域另两处口径（issue #67）：时间窗 `from/to`（半开 `[from, to)`、ISO-8601 Instant UTC）北向**必填**——provider 可缺省（缺省＝该侧不限），BFF 不设默认窗口、不暴露 provider 的不限能力（防无界扫描）；计量出口 `TokenUsage` 五档（input/output/cacheRead/cacheWrite/reasoning）为 primitive long——provider 出 JSON 数字（cartisan-web 全局 Long→ToStringSerializer 只覆盖包装类型），BFF 同形镜像。权限码每域读码独立 + 每写操作独立（`admin:aiplatform:{domain}:read` / 逐写操作；技能线三域码：`skill`＝read/install/disable/enable/uninstall/update/assign、`agent-config`＝read/update、`agent-tool`＝read/toggle，#78 grill 定稿 2026-09-23；指派双头预检**复用 `skill:assign`** 不新增码——#90 定，理由见下「指派预检」；草稿审核面三码 `skill-draft`＝read/promote/reject——#92/spec #91 grill 定稿 2026-09-29，两读端点复用 read、promote/reject 各一码〔读写不串、晋升权与拒绝权独立授受〕，连字符子域对齐 agent-tool 先例）；账号读口独立码 `admin:aiplatform:account:read`（无独立页面，订单/项目详情抽屉嵌用）。provider「开行」端点不暴露（种子脚本通道，web 改价只走原子 reprice）。
+_Avoid_: 把 aiplatform 错误映射成 `BaseCodeMessage`（NOT_FOUND 等——丢数字业务码）；在 admin 侧镜像 provider 错误码目录/为 `@ErrorCodes` 注册枚举（漂移面，框架 validator 要求码在本地注册）；把操作者（admin 管理员）与 aiplatform accountId/externalId 混读。
+
+**指派预检 (Assignment Precheck)**:
+aiplatform 技能域第 16 端点（`POST /api/admin/aiplatform/skills/assignments/{slot}/precheck`，issue #90 镜像 aiplatform #255）——PUT 槽位指派提交前的**非阻断**方法论重叠检查：对照**双头**「该槽位生效工作协议（智能体运营配置生效值）∪ 该槽位已指派启用技能 ∪ 候选集内其他技能」，由 provider 侧模型判定（flash 档专用配置键、skillcheck 计量、15s 超时——BFF 出站 30s 不会先掐）。请求体与 PUT 指派同形（`skillIds`＝候选终态清单）；回执两件同读（`executed`＋`hints`）承载**两态纪律**：executed=true 且 hints 空＝确认无重叠；hints 非空＝发现重叠（逐条 skills/counterpart/overlap/resolution 四字段，三 String 字段可 null——模型输出解析态，照透传不兜底）；**executed=false＝未执行（判定失败/超时/输出不可解析）≠ 无重叠**——不得伪装成「确认无重叠」呈现。**非阻断提示不是门**：判定权留管理员，预检结果不拦 PUT 指派、预检组件故障不阻塞指派照常提交。权限**复用 `skill:assign`**（预检触发模型调用有真实成本，只读角色不得烧 token；它是指派写流程的附属检查，不新增第 31 个权限码）；只读不留痕（不落库、不改指派、无操作者头要求——区别于 PUT 指派的 SKL_009）。错误族与 PUT 指派同源同码（SKL_001/010/011 原样透传）。承载页＝指派配置页（菜单 230）。
+_Avoid_: 把 executed=false 当「无重叠」呈现（降级伪装成安全）；把预检做成提交前置门（阻断 PUT 或组件故障阻塞指派）；给预检另立权限码或挂 skill:read（放只读角色烧模型 token）；在 BFF 侧重试/兜底/解释判定结果。
+
+**草稿审核 (Draft Review)**:
+aiplatform 技能域第 17–20 端点（`GET/POST /api/admin/aiplatform/skills/drafts**` 四端点，issue #92 镜像 aiplatform #258 自产线/ADR-0022 库制草稿）——技能审核员人审智能体自荐技能草稿：在途清单（跨项目**活跃面**恒在途、血统三件 projectId/runId/slot、扫描判定 SAFE/CAUTION——DANGEROUS 写入口已拒收、自荐时间倒序、**不分页**——人审天然瓶颈）→ 详情判读（正文全文 a-only 无 scripts＋`scanFindings` **untyped `List<Map<String,Object>>`**〔provider 源即 untyped 勿造 typed record，对齐 frontmatter 先例〕＋终态留痕四字段在途恒 null；任意状态可查＝终态留档）→ 晋升（**无命令体**、操作者 X-User-* 透传头两处留痕、回执即**技能库清单行**〔来源 3 自产、sourcePackage/version＝固定虚拟值 self〕——**入池与生效分离不自动指派**，生效仍走人工指派＋预检）或拒绝（reason 可选绑定不前置拦截、空白 provider 判 SKL_018、终态留档不改稿不复活——重提靠未来会话新草稿、回执即终态详情直读）。权限码三枚 `skill-draft:read/promote/reject`（30→33）；菜单叶 250（V20，icon `carbon:task-approved`——已对照 admin-web 锁定 @iconify/json 离线集核实；`task-assignments` 不在锁定集勿踩）。错误族 SKL_009/015/016/017/018（7009/7015/7016/7017/7018）原样透传。
+_Avoid_: 给 scanFindings 造 typed record（provider 源 untyped，加戏）；在北向绑定层前置拦截空 reason（provider 裁决）；晋升后自动指派（入池≠生效）；把终态草稿从详情读面剔除（终态留档可查）。
+
+**技能草稿 (Skill Draft)**:
+智能体自荐技能的**库制草稿**（aiplatform ADR-0022：自产线产物先落草稿库待人审，非内存态）——单级晋升（在途→已晋升/已拒绝即终态，不可再审、不改稿不复活；重提靠未来会话新草稿）、**入池与生效分离**（晋升＝入库同权，不自动指派——生效仍走人工指派＋预检）。审核承载＝技能审核员人审（`skill-draft:*` 权限码族）。
+_Avoid_: 把草稿当可编辑工作台（终态不可改）；晋升即指派（入池≠生效）；多级审批流（单级即终态）。
+
+**自产技能 (Self-authored Skill)**:
+技能库第三来源（source=3，区别于内置=1/安装=2）——由草稿晋升而来，`sourcePackage`/`version`＝**固定虚拟值 `self`**（无远端仓库身份：`updateAvailable` 恒 null 不适用——无远端可查）；**结构性无 scripts**（草稿线 a-only：正文全文即全部注入面）。入库后与安装技能同权（启停/指派/预检/卸载同套治理）。
+_Avoid_: 给自产行造远端更新语义（self 无远端）；把自产当二等技能限制指派（同权）。
+
+**血统 (Lineage)**:
+草稿的三件溯源键 `projectId`/`runId`/`slot`——回答「哪个项目的哪次运行、在哪个职能槽位自荐的」：审核判读时必查（外部资料接触史、越权行为面按项目/run 追溯）。跨项目自荐同一技能名各自独立成稿（不合并）。
+_Avoid_: 把血统三件当展示装饰（判读必查）；跨项目合并同名牌稿（各自独立）。
+
+**扫描回执 (Scan Verdict / Findings)**:
+草稿写入口的自动扫描留档两件：`scanVerdict`（SAFE/CAUTION 二值呈现——**DANGEROUS 写入口拒收不落库**，清单永远见不到）＋`scanFindings`（逐条留档 `List<Map<String,Object>>`——provider 源即 untyped，字段名仅存在于描述层）。判读纪律：CAUTION≠拒、SAFE≠过——扫描是辅助面，裁决权在人审。
+_Avoid_: 把 CAUTION 当拒绝理由（人审裁决）；给 findings 造 typed record（untyped 镜像）；期待清单出现 DANGEROUS（写入口已拒）。
+
+**使用计数 (Usage Count)**:
+技能清单/详情的观测面两肢 `loadCount`/`lastLoadedAt`（issue #93 追平 aiplatform #261）——**load 口径**＝智能体 load 工具真实加载该技能一次即 +1（指派/启停/清单重建**不**计数）；安装与自产一并覆盖；provider 存储态 primitive long——库行恒有值（0＝从未被加载过，含新装/新晋行）、`lastLoadedAt` null 同义；**内置技能恒 null 不适用**（区别于「从未加载」的 0/null 态）。`loadCount` 装箱 Long——北向 JSON string 形态（cartisan-web 全局 Long→ToStringSerializer，同 TSID id 口径）。
+_Avoid_: 把指派数当加载数（口径=load 实际发生）；给内置行造 0 计数（null=不适用≠从未加载）；前端把 loadCount 当数值运算（JSON string，先转 Number）。
+
+**交付物类型 (Deliverable Type)**:
+订单的交付物分岔维度 `deliverableType`/`deliverableTypeName`（issue #96 追平 provider #297/#298，#95 设计能力线 T1）——**1=设计 2=系统 3=系统＋设计**，下单时**自项目终点类型冻结**（此后项目终点变更不影响本单，取消再下＝新单新类型；区别于 amount 的待报价 NULL——类型对在待报价态已有值）。码位与 provider 项目域 `ProjectEndpointType` 对齐（跨 BC 不共享枚举类型，码表互指为约）——admin 侧 **Integer code 直通不建 typed enum**（provider 枚举非本应用领域枚举，对齐 tokenKind 先例）＋`deliverableTypeName` 中文名随行（前端直读 *Name，ADR-0009）。provider 三个订单出口（清单行/详情/写路径用户面回执）均已配对携带、statusName 邻位。前端呈现：清单加类型列、详情基本信息类型 tag、下载按钮按类型**二选一**（设计面走 design-package、系统单走 source-package——系统＋设计单两件皆可取）；**无类型筛选维度**（设计单量小，源裁决 #281 已备案不加）。
+_Avoid_: 给 deliverableType 建 typed enum（BFF 直通 Integer）；加类型筛选维度（裁决已备案不做）；把类型对当可变字段（下单冻结、此后不随项目变更）。
+
+**设计资产包 (Design Package)**:
+设计面交付取件二进制端点 `GET /api/admin/aiplatform/orders/{id}/design-package`（issue #96 镜像 provider #298，**对偶既有 source-package**）——tar.gz 二进制流无 ApiResponse 信封，**直取下单冻结时物化的设计资产包**（选件式 tar：选定稿自包含形态＋DESIGN.md 设计规范＋帧衍生资产，落选稿不入；系统＋设计单＝统一部件容器）：交付物包**按单定格**，交付时拿到冻结时的样子，此后改稿/再定稿**不漂移**（区别于源码包的实时打包）。**不按支付态门控**：后台是交付与排障面，用户支付门（ORD_015）只盖用户面——未支付/已取消照取（取消残留不清理＝本端点正本）。守卫序＝订单存在 → 交付物类型 → 冻结件读取：ORD_001（5001）→ 系统单 ORD_016（5016，如实——交付物是源码包）→ 冻结件缺失 PRJ_051（4051 跨域码，不以空产物顶替）→ 读取失败 WSP_002（1002），均经 `AiplatformUpstreamException` 原样还原。权限**复用 order:read**（对偶 source-package 同码）。Content-Type/Content-Disposition 取 provider 原值透传（`{orderId}-design.tar.gz`）。
+_Avoid_: 按支付态/归档态门控取件（后台不设门）；冻结件缺失时空包顶替（404 如实）；给端点另立权限码（对偶 source-package 复用 read）；在 BFF 侧判类型预拦（ORD_016 裁决归 provider——admin 只透传）。
+
+**设计会话 (Design Session)**:
+对话史条目的会话来源标识对 `sessionSource`/`sessionSourceName`（issue #97 追平 provider #298，#95 设计能力线 T2——kindName 邻位）——**2=设计会话（每设计物一个独立会话流）**＋中文名随行；**null=主会话缺省照透**（主会话是缺省态非标识值位，出 JSON null 不臆造 0/默认值）。**判据＝收尾卡携 `drafts` 稿清单**（首产/改稿/定稿收尾卡 ⇔ 设计会话；provider 读口按结构标记推导的单点裁决——对话表无来源列的**存储不同构降级口径**，admin 不推导零复算）；作用域改稿发言无结构标记**不标注**（null 不假装归属）；设计会话**完整稿本在智能体会话存储**（收尾卡已是凝聚物——对话表只有收尾卡级别呈现）。用户面前端可忽略此字段（#298 原文口径）；后台消费＝「对话史 tab 按来源分组或标注」物料。Integer code 直通不建 typed enum（对齐 tokenKind/deliverableType 先例）。
+_Avoid_: 给 sessionSource 建 typed enum 或臆造默认值（null 直通）；在 admin 侧按 drafts 判据复算来源（provider 读口单点）；把 null 当「未知」补写归属（缺省≠未知）；期待设计会话逐条消息级标注（降级口径只标收尾卡）。
+
+**按张计价 (Per-Image Pricing)**:
+单价表匹配维度的第 6 档位 `tokenKind=6`（issue #98 追平 provider #288，#95 设计能力线 T3）——图片生成按张计价：档位单价语义为**每张**（token 档每 token/按张档每张，同一 `unitPrice` 字段承载），成本＝张数 × 事件时点生效单价。开行/改价/停用对六档（1=输入 2=输出 3=缓存读 4=缓存写 5=推理 6=按张）**同一套语义零改**；admin 侧 Integer code 直通＋`tokenKindName`（按张）中文名随行，零 typed enum（tokenKind 先例本尊）。`unitPrice` 两侧类型**有意不对称**：改价入参 number（非负，0=免费档）/响应读回十进制字符串（精确十进制串交接规避科学计数）——照实各自呈现不归一（provider #160 定稿口径）。provider「开行」端点仍不暴露（种子脚本通道既有口径）。
+_Avoid_: 给 tokenKind 建 typed enum；把两侧 unitPrice 类型强行统一（不对称是有意的契约事实）；按张行改价另设端点/参数（六档同一套 reprice）；在 BFF 侧校验档位合法性（BaseEnum 绑定归 provider）。
+
+**图片生成成本 (Image Generation Cost)**:
+成本总览里图片生成的平台成本到场口径（issue #98，provider #288 计量事件新增按张一类——张数在 `UsageEvent.images`，按张事件 token 五档为零）——**进 cost 桶且与 token 成本同桶混算不单列**（provider 六档档位展开同一换算公式，混算后响应无从区分按张分量）；**不进 total/byModel/byAgentKind 的五档分解**（张与 token **并列不混算**——张数无独立出口，仅经 cost 桶与 unpriced 档位呈现；按张事件进 byAgentKind 桶〔dims.agentKind=designer〕但五档为零如实零桶）；「无生效单价不进平台成本桶（不伪装 0）」既有口径**对按张同适用**——未配价的按张分量走 unpriced 端点且该档 `tokens`＝张数。改价不溯及（各按各时点单价，历史成本不漂移）对按张行同语义。
+_Avoid_: 期待响应里有按张分量单列字段/张数独立出口（同桶混算是 provider 正本口径）；把按张事件算进 token 五档总量（并列不混算）；给未配价按张用量伪装 0 成本（不进 cost 桶、进 unpriced 警示）；在 admin 侧拆分/复算按张分量。
+
+**admin 是 BFF（非严格 DDD 领域服务）**:
+admin 的职责 = **调接口 + DTO 转换 + 聚合**，无重业务逻辑。出站服务客户端（`AppRegistryClient` / `PaymentClient` / 未来钱包·Token 客户端）为 **infrastructure 包内裸 `@Component`**，应用层直接注入——**不走** `@Port(CLIENT)` + `@Adapter(CLIENT)`。`@Port`/`@Adapter` 是**业务服务**南向端口的 DDD 规范（Domain 定义 Port、Infra 实现 Adapter），admin 作为 BFF 没有那样的 domain 厚度值得去解耦。Q5 grill 定（2026-08-11，issue #37）。
+_Avoid_: 在 admin 里给出站客户端套 @Port/@Adapter（误把 BFF 当领域服务）；future 想统一时另立 ADR 再动。
+
+**BFF 不记业务审计**:
+业务操作（退款审核、通知重发等）的**权威审计归各业务服务**（system of record）——payment 侧 `OperationLog`（payment ADR-0002）记 operatorId/operatorName/operatorSystem/result。admin **不本地再记一份**，仅透传操作者身份 + 读回展示；双源必不一致。除非特别声明（如合规要求 admin 自证操作链），admin 不建本地审计表。
+_Avoid_: admin 给 payment 操作建镜像审计表；把 admin 当成业务操作的源头记账。
+
+**BFF 仪表盘 = 需求驱动、可跨服务聚合 (BFF dashboards are need-driven, may aggregate across services)**:
+后台 dashboard 的数据**不一定来自单一服务**——BFF 的作用恰是按真实使用需求，把多个能力域（支付/钱包/Token计量/…）的数据**聚合到一个看板**。当前 payment stats 端点（tier-1/2）是**先行拍脑袋**的预置，admin 直接透传；真实运营需求到来后，dashboard widget 可能跨服务取数、admin 侧组合，**不要求每个 widget 都对应一个单服务端点**。故 payment admin 的 `PaymentStats*` 客户端现在纯透传，但 BFF 架构要为日后跨服务聚合留余地（不把「payment 端点 ↔ dashboard widget」焊死成 1:1）。
+_Avoid_: 假设每个 dashboard widget 都必须有对应的单服务端点；把 BFF 仪表盘写成对单一服务的薄透传而不留聚合余地。
+
+**BFF 出口枚举须配 *Name 中文名 (BFF enum responses carry display names)**:
+平台统一规则——服务出口（BFF 对外响应）凡有枚举字段（如 `status`），**必须同时给中文名**（如 `statusName`）；前端直读 `*Name`、**不在端侧做枚举→中文 i18n 映射**（展示文案归后端出口统一负责）。新 BFF Response DTO 枚举字段一律配 `*Name`，wire 镜像 DTO 收 `*Name` 并在 `toXxx` 透传；**不在 admin 侧臆造 code→中文映射**（admin 不拥有各域枚举语义）——能力域出口未给 `*Name` 的，向能力域提 issue。见 [ADR-0009](docs/adr/0009-bff-enum-response-carries-display-name.md)（[#50](https://github.com/ZhangColin/semgravio-admin/issues/50)；admin 自身上下文早已遵守：`AdminUserResponse` 出 `statusName`/`genderName`）。横切规则，兄弟 BFF 子上下文继承。
+_Avoid_: 在前端维护枚举 code→中文映射表；在 BFF 里手写 code→中文翻译兜底能力域缺的 `*Name`；旧 DTO javadoc「展示文案由前端 i18n 映射」立场（已作废）。
+
+**平台分页协议 (Platform Pagination Protocol)**:
+平台统一——凡 `PageResponse{items,total,page,size}` 外壳：**全链 1-based**（请求与响应同语义，第 1 页是 1）；±1 换算**唯一收 cartisan-boot**（`Pagination.toPageRequest()` 请求 1-based→Spring 0-based；`PageResponse.of()` 回显 0-based→1-based），本仓主代码**零手工换算**。北向列表端点统一框架 `Pagination` 绑定（page 缺省 1、`page<1` 静默贴边 1；size 缺省 20、上限 100、越界贴边；sort 走框架 `toPageRequest(...)` 出口）。本仓两种出口模式：自有域 `Pagination` + `PageResponse.of(page.map(...))`；BFF 域 wire page 与北向同值直传 `*Client`（无 ±1）+ 透传下游回显（迁移后各服务回显==请求页码）。aiplatform 域保持既有 `@RequestParam(defaultValue = "1")` 形态（wire 等价，不重构）。造 mock/fixture 时 `page` 按「==请求页码」构造。见 [ADR-0012](docs/adr/0012-pagination-full-chain-1-based.md)（supersede ADR-0010，[#73](https://github.com/ZhangColin/semgravio-admin/issues/73)）。横切规则，兄弟 BFF 子上下文与能力域新列表端点继承。
+_Avoid_: 主代码出现任何 `page - 1` / `getPageNumber() + 1`（换算归框架）；BFF 响应构造对下游回显再 +1（2-based 回归）；北向新列表端点用 Spring `Pageable` 直绑或 `@RequestParam` 手接分页（应统一 `Pagination`）；mock 建模下游回显用 wire 裸页码或旧「页码+1」；验证下游回显语义时拿本仓 mock 当证据（以兄弟仓服务端源码为准）。
+
+**BFF 忠实透传 provider 契约 (BFF mirrors provider contract verbatim, zero improvisation)**:
+第一轮对接外部服务接口（payment、identity、app-registry、未来钱包/Token计量）时，BFF 与 admin web **忠实按服务接口中转**：wire 镜像 DTO、北向 Response/Query 逐字镜像 provider 源码契约（`application/dto/response|query/*.java`，**非 spec 文档**）——不增删字段、不重命名、不换形状、不"顺手改善"。金额一律 `Long`（分）、比率 `BigDecimal`、枚举 Integer code + `*Name`（ADR-0009）、Long 字段出 JSON string（框架 `ToStringSerializer`）。provider 没有的字段（ghost）删；provider 实有而未暴露的字段**不主动补**。展现层诉求**后置**：联调联测通过后按测试体验从 UI 起单向提新需求（UI→BFF→provider），届时再决定在哪层改。provider 契约日后漂移不做前置门禁——发现问题开新票重新对接（#55 grill 定稿 2026-08-17）。
+_Avoid_: 按 spec 文档（而非服务源码）撰写 wire；给北向加 provider 没有的字段或自造包装信封；金额用 BigDecimal 承"分"（类型谎言）或换算成元（BFF 换算双逻辑）；为"金额像数字"把 Long 包 BigDecimal 出 number；在 BFF 侧做 OpenAPI 生成/跨仓门禁投资（defer）。
+
+**退款审核 (Refund Audit)**:
+运营对退款单的 approve/reject 操作（payment `POST /api/v1/refunds/{no}/audit`），落 payment `OperationLog`、`auditType=MANUAL`。admin 透传当前 operator 的 `auditorId`/`auditorName` 于请求体，**不改本地状态**。权限码 `admin:payment:refund:audit`（独立于 read）。
+
+**通知重发 (Notification Resend)**:
+重发支付/退款结果通知到业务系统（payment `POST .../notifications/resend`），**不改订单状态**（payment ADR-0001：admin 不施加订单状态）。权限码 `admin:payment:notification:resend`。
+
+**支付管理菜单 (Payment Management Menu)**:
+新增一级目录「支付管理」（`directory`, sort_order=3，夹应用管理 2 与系统管理 99 之间），其下二级菜单。**统计概览前置（sort=1）**。详情页（支付/退款详情）走前端弹窗/抽屉、**不种菜单**（见上「详情页 = 弹窗/抽屉优先」）；生命周期视图是详情抽屉内 tab，无菜单。V13 迁移种子，`ON CONFLICT (id) DO NOTHING`，**不写种子快照测试**（V12 已删，脆性高；迁移正确性由 `RoleAssignmentFlywaySchemaIntegrationTest` 兜底），SUPER_ADMIN 经 bypass 见全树（无 role-menu 种子行）。
+
+| 菜单 | route_name | route_path | component | icon | i18n_key | menu_type | sort_order | parent_id |
+|---|---|---|---|---|---|---|---|---|
+| 支付管理 | `payment` | `/payment` | `layout.base` | `carbon:finance` | `route.payment` | directory(1) | 3 | NULL |
+| 统计概览 | `payment_stats` | `/payment/stats` | `view.payment_stats` | `carbon:dashboard` | `route.payment_stats` | menu(2) | 1 | 80 |
+| 支付订单 | `payment_order` | `/payment/order` | `view.payment_order` | `carbon:currency` | `route.payment_order` | menu(2) | 2 | 80 |
+| 退款订单 | `payment_refund` | `/payment/refund` | `view.payment_refund` | `carbon:currency-refund` | `route.payment_refund` | menu(2) | 3 | 80 |
+| 通道交互日志 | `payment_channel_log` | `/payment/channel-log` | `view.payment_channel_log` | `carbon:exchange` | `route.payment_channel_log` | menu(2) | 4 | 80 |
+| 订单操作记录 | `payment_operation` | `/payment/operation` | `view.payment_operation` | `carbon:activity` | `route.payment_operation` | menu(2) | 5 | 80 |
+
+ID：directory=80；leaves=100/110/120/130/140（支付/退款详情不种）。route_name/component 为提案，admin-web UI issue 对齐。「通道交互日志」= payment `PaymentLog`（与银行/通道网关的机机交互留痕）；「订单操作记录」= payment `OperationLog`（行为者对订单的操作留痕）。（2026-08-11 issue #37 grill 定稿）
+
+**AI 平台菜单 (AI Platform Menu)**:
+新增一级目录「AI 平台」（`directory`, sort_order=3——与支付管理同序、id 82>80 兜底排其后，即应用管理之后、账号管理/系统管理之前），其下六域二级菜单（订单/项目/沙箱/成本/单价表/知识素材，sort 1-6）。**账号读口不种页面**（按 externalId 极简档案，嵌订单/项目详情抽屉用；权限码 `admin:aiplatform:account:read` 照常独立——有码无页）；订单/项目/沙箱/素材详情同为抽屉、不种菜单（见上「详情页 = 弹窗/抽屉优先」）。V15 迁移种子，`ON CONFLICT (id) DO NOTHING`，**不写种子快照测试**（V12 已删，脆性高；迁移链正确性由 `RoleAssignmentFlywaySchemaIntegrationTest` 兜底；种子可见性行为由 `AiplatformMenuSeedVisibilityIntegrationTest` 在独立 Flyway schema 以 HTTP 外部行为钉住——issue #72 T10），SUPER_ADMIN 经 bypass 见全树（无 role-menu 种子行）。
+
+| 菜单 | route_name | route_path | component | icon | i18n_key | menu_type | sort_order | parent_id |
+|---|---|---|---|---|---|---|---|---|
+| AI 平台 | `aiplatform` | `/aiplatform` | `layout.base` | `carbon:machine-learning-model` | `route.aiplatform` | directory(1) | 3 | NULL |
+| 订单管理 | `aiplatform_order` | `/aiplatform/order` | `view.aiplatform_order` | `carbon:shopping-cart` | `route.aiplatform_order` | menu(2) | 1 | 82 |
+| 项目管理 | `aiplatform_project` | `/aiplatform/project` | `view.aiplatform_project` | `carbon:catalog` | `route.aiplatform_project` | menu(2) | 2 | 82 |
+| 沙箱管理 | `aiplatform_workspace` | `/aiplatform/workspace` | `view.aiplatform_workspace` | `carbon:virtual-machine` | `route.aiplatform_workspace` | menu(2) | 3 | 82 |
+| 成本中心 | `aiplatform_cost` | `/aiplatform/cost` | `view.aiplatform_cost` | `carbon:analytics` | `route.aiplatform_cost` | menu(2) | 4 | 82 |
+| 单价表 | `aiplatform_price_entry` | `/aiplatform/price-entry` | `view.aiplatform_price_entry` | `carbon:currency` | `route.aiplatform_price_entry` | menu(2) | 5 | 82 |
+| 知识素材 | `aiplatform_material` | `/aiplatform/material` | `view.aiplatform_material` | `carbon:knowledge-base` | `route.aiplatform_material` | menu(2) | 6 | 82 |
+| 技能管理 | `aiplatform_skill` | `/aiplatform/skill` | `view.aiplatform_skill` | `carbon:tools` | `route.aiplatform_skill` | menu(2) | 7 | 82 |
+| 指派配置 | `aiplatform_skill_assignment` | `/aiplatform/skill-assignment` | `view.aiplatform_skill_assignment` | `carbon:list-checked` | `route.aiplatform_skill_assignment` | menu(2) | 8 | 82 |
+| 智能体配置 | `aiplatform_agent_config` | `/aiplatform/agent-config` | `view.aiplatform_agent_config` | `carbon:prompt-session` | `route.aiplatform_agent_config` | menu(2) | 9 | 82 |
+| 草稿审核 | `aiplatform_skill_draft` | `/aiplatform/skill-draft` | `view.aiplatform_skill_draft` | `carbon:task-approved` | `route.aiplatform_skill_draft` | menu(2) | 10 | 82 |
+
+ID：directory=82；leaves=160/170/180/190/200/210（账号读口不种）＋220/230/240（技能线三叶，issue #78 grill 定稿 2026-09-23）＋250（草稿审核叶，issue #92/spec #91）。技能线**随票逐叶种**：T1 票带 skill 叶（V17）、T3 票带 assignment 叶（V18，icon `carbon:list-checked` 已对照 admin-web 锁定 @iconify/json 离线集核实——`carbon:task-assignments` 不存在于锁定集勿用）、T5 票带 agent-config 叶（V19，icon `carbon:prompt-session` 同款离线集核实）、草稿票带 skill-draft 叶（V20，icon `carbon:task-approved` 同款离线集核实 2026-09-29）；**工具面并入智能体配置页区块**（不单独种页）；草稿详情判读与审核操作走页内抽屉/弹窗（不种路由）；安装向导 excludeDirs v1 手输目录段（provider 无仓库结构预览端点，联调确认需要后向 aiplatform 提票）。route_name/component 为提案，admin-web UI issue 对齐。（2026-09-16 issue #72 落地，spec #62 定稿）
+
+## 稳定不变式（来自平台架构，本项目务必遵守）
+
+- Operator 归本应用自有；不做 Operator SSO。
+- 财务上下文只读各能力域；不收款、不持余额、不计量 token。
+- 经 cartisan-openapi 签名调用各能力域；前端不直连各域。
+- 现有 RBAC（AdminUser/Role/Menu + sys_admin_*）继续用；动手新功能前先修已知 bug。
+
+## 决策记录（grilling 中逐项落地；完整 ADR 见 [`docs/adr/`](docs/adr/)）
+
+### Phase 0 — 修 4 个 RBAC bug（地基，CLAUDE.md 强制）
+- ✅ [ADR-0001](docs/adr/0001-admin-uses-default-sa-token-login-type.md) Sa-Token 用默认 loginType、放弃 "admin" 命名空间（Bug ①）— 已定
+- ✅ Bug ② 超管 bypass — 已落地（commit `9db013b`）：`SaTokenConfig` 提供 `AuthorizationBypassResolver` bean 委托 `isSuperAdmin`。见 [ADR-0002](docs/adr/0002-super-admin-bypass-is-framework-gap.md)
+- ✅ Bug ③ 内置账号保护 — **已落地**（2026-07-28）：拆"授权 vs 韧性"；超管 = 角色（已有）；破窗号 = 固定 `admin`(id=1) 不可删/不可禁/可改密；**删 `system` 列**（V4）、按保留 ID 识别；删 `count()<=1` 死逻辑；`assignRoles` 不许从破窗号移除 `SUPER_ADMIN`。见 [ADR-0003](docs/adr/0003-break-glass-reserved-id.md)。spec：[`.scratch/phase0-completion/spec.md`](.scratch/phase0-completion/spec.md)。
+- ✅ Bug ④ 登录未写 `SaSession.userName` — **框架根因已修 + admin 已迁移**：cartisan-boot commit `efcb1e7` 破坏性补全 `login` 签名（两个重载各加 `String userName`、由框架写入 session、删旧重载）；admin 已迁到新签名（传昵称）、删除 `StpUtil.getSession().set(...)` 临时补丁（admin 不再直接依赖 `StpUtil`）。见 [`.scratch/phase0-completion/issues/03`](.scratch/phase0-completion/issues/03-migrate-to-framework-login-signature.md)。
+
+### Phase 1 — Operator 模型补全
+- ⏳ 部门 / 岗位模型（树？数据权限挂钩？）
+- ⏳ 权限模型：注解扫描 + 列存 vs 独立 `sys_permissions` 字典表
+
+### Phase 2 — 财务上下文 + 各能力域聚合（BFF）
+- ✅ cartisan-openapi 签名客户端 —— **复用框架 `OpenApiClient`**（admin-console 身份，无需新建凭据/客户端）；各能力域签名约定**统一一套**（issue #37 grill 定，2026-08-11，见上「admin 是 BFF」）
+- ⏳ **支付管理（payment admin BFF）** —— [issue #37](https://github.com/ZhangColin/semgravio-admin/issues/37) grill 定稿（2026-08-11）：全量 16 端点分期实现；`payment` 子包；菜单见上「支付管理菜单」；出站客户端 `PaymentClient` 复用框架 `OpenApiClient`（裸 `@Component`，[ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)）；操作者身份走 `RequestContext.getUserId()/getUserName()`；审计归 payment；dashboard 当下透传、留跨服务聚合余地
+- ⏳ **账号管理（account admin BFF）** —— [issue #49](https://github.com/ZhangColin/semgravio-admin/issues/49) grill 中（2026-08-12）：`account` 子包（镜像 payment）；v1 透传 identity 6 端点（搜索/管理详情/封号/解封/解锁/强制下线），**不暴露 3 个密码端点**（reset/clear/force-change，见 [ADR-0008](docs/adr/0008-admin-does-not-handle-end-user-passwords.md)）；菜单「账号管理」目录(sort=4)+「账号列表」叶子、详情走抽屉；出站客户端 `AccountClient` 复用框架 `OpenApiClient`（裸 `@Component`，[ADR-0007](docs/adr/0007-admin-bff-outbound-clients-are-flat-components.md)）；操作者身份走 `RequestContext`；审计归 identity；权限码跟 payment 同模式（`admin:account:*`，统一处理）；v1 不做 dashboard（需求由后台反向提）；字段级契约待 identity #67–#72
+- ⏳ 财务上下文（只读收入确认）—— 与支付管理不同关注点，见上「支付管理上下文」
+
+### Issue 处置（前端 semgravio-admin-web 提的需求）
+- ✅ **[REQ-13] 「我的导航」端点 `GET /menus/my` + `/auth/current` 移除 menus**（[issue #20](https://github.com/ZhangColin/semgravio-admin/issues/20)，spec 已发布于 issue 评论；拆票线性链 [#21](https://github.com/ZhangColin/semgravio-admin/issues/21) ✅ 禁用角色汇总剔除 → [#22](https://github.com/ZhangColin/semgravio-admin/issues/22) ✅ `/menus/my` 端点 → [#23](https://github.com/ZhangColin/semgravio-admin/issues/23) ✅ `/auth/current` 移除 menus）：前端翻 `VITE_AUTH_ROUTE_MODE=dynamic`，按「身份 vs 导航」拆域——`/auth/current` 收敛为 `{user, roleCodes, permissions}`（身份 claims 留 auth 域）；新增 `/menus/my` 出 `{home, menus}`（导航资源归 menu 域，登录即可、不挂 `@RequirePermission`，贴 Soybean `UserRoute` 原生形状 `{routes, home}`）。消费面只下发**启用（status=1）菜单，directory 禁用则整棵子树不下发**（修原 `/auth/current.menus` 不过滤 status=0 之弊；T2 落地于 `MenuTreeAssembler.assembleVisible`——可见 = 自身启用 ∧ 祖先链全启用，在 id 集合层过滤故幸存子节点不提升到根；超管走 `findVisibleTree(null)`，与管理面 `findTree(null)` 语义分叉）；管理面 `GET /menus`、`GET /menus/tree` 保持全量。**已定①**——禁用角色在任何汇总聚合中视为不存在（见上「RBAC」条目）；**已定②**——`home` = 用户全部启用角色按 `(sortOrder 升, id 升)` 取第一个非空白 home，全空 → `null`（超管同规则，种子 `SUPER_ADMIN.home`=NULL，前端兜底第一个可见叶子）；**已定③**——status 过滤对超管同样生效：「超管全量」= 不受角色裁剪的全量**启用**菜单，禁用项仅管理面可见（否则禁用开关对超管形同虚设、动态路由会把禁用页注册成可访问路由）。
+- ✅ **[REQ-1] `MenuResponse` 补 `type`** ⚠️ **已被 REQ-8 推翻**（三值→Soybean 两值，见 [ADR-0004](docs/adr/0004-menu-model-follows-soybean.md)）｜原模型：单棵树 + 每节点 `type`（见上「菜单树与节点类型」），DIVIDER 用 fake-row（非 dividerBefore 标志位）。**已实现**（契约 issue #1 选 A：后端兜底排序+裁剪、前端 naive 渲染）：加 `type` 字段（`8c982ad`）+ 聚合内 path/type 不变量（`8ce8730`，`ADMIN_014_3`）+ 修 `findTree`（`00f1893`：按 `sortOrder` 排序、祖先链补全、裁空 GROUP/悬空 DIVIDER）+ 分隔线按结构自动出现（`5ee29ea`）。issues #4/#5/#6 已关闭。对齐评论：[issue #1](https://github.com/Zhangcolin/semgravio-admin/issues/1#issuecomment-5102496878)。
+- **[REQ-3] `/auth/captcha`**：**不做**（内部员工后台无 botnet 撞库场景，图形验证码收益≈0、徒增真人摩擦；内部账号安全靠 BCrypt + 账号锁定 + 内网访问控制）。已从 `application.yml` 放行名单删占位、关闭 [issue #2](https://github.com/ZhangColin/semgravio-admin/issues/2)（won't fix）。未来登录防自动化走「失败 N 次锁定 + IP 限流」，非图形码。
+
+- ✅ **[REQ-8~12] 对齐 Soybean 系统管理**（[issue #11](https://github.com/ZhangColin/semgravio-admin/issues/11)，已关闭）：菜单/角色/用户全面对齐 Soybean admin-web。**已定**——菜单完全照 Soybean（原三值模型作废，见上「菜单」术语 + [ADR-0004](docs/adr/0004-menu-model-follows-soybean.md)）；**搁置**——按钮权限(REQ-9) 与设想不一致，等用户/角色/菜单核心全部做完再统一与前端对接（含 menu `buttons` 字段与角色→按钮端点；已拆出 [issue #18](https://github.com/ZhangColin/semgravio-admin/issues/18) 独立追踪，核心已全部做完、搁置前提已满足，待重启对齐）；**已定(REQ-10)**——角色加 `status`（Soybean 都有，照加）；**`SUPER_ADMIN` 角色自身不可禁用/不可删除**（补全破窗韧性最后一环，见上「破窗账号」+ [ADR-0003](docs/adr/0003-break-glass-reserved-id.md) 修订）；普通角色禁用语义跟 Soybean。
+**搁置**——REQ-12 `AuditorAware<Long>`（视为前端过度设计，等其余功能就绪再单独过审计字段；此前 createdBy/updatedBy 出站暂缓，`createdAt/updatedAt` 可先出）。
+**已定(REQ-8 命名)**——DB 列 + Java 字段 + JSON 契约**对齐 Soybean 命名**（`menu_name/route_path/menu_type/i18n_key/...`，V6 重建菜单表反正要动）；**唯一例外 `sortOrder` 保留、不改为 Soybean 的 `order`**（避 PostgreSQL 保留字）——前端 `order` 适配回 `sortOrder`；索引名按 Soybean 名称。
+**待核实已清**——issue #11 的"用户列表 total=2 但无行"+ 三聚合（User/Role/Menu）软删读过滤一致性，此前已解决（commit `3bc447a`/`b5c0d0b`，REQ-5 软删读过滤），无需再查。
+**已定(REQ-11 用户档案)**——用户档案对齐 Soybean（[issue #17](https://github.com/ZhangColin/semgravio-admin/issues/17)）：`AdminUser` 加 `gender`（`AdminUserGender` 1 男 / 2 女，整数枚举，V8 迁移加可空 `gender` 列），透传 `Create/UpdateAdminUserCommand` + `AdminUserQuery` + `AdminUserResponse`（+`genderName` 镜像既有 `statusName`）；`AdminUserQuery` 加独立 `phone` 模糊搜索（keyword 仍覆盖 username/nickname/email，phone 独立字段）；**用户列表项内联角色摘要**（裁剪投影 `{id,name,code}`，按本页全部用户角色 ID 批量 `findByIdIn` 一次取齐、内存分组，无 N+1；关联指向的角色已物理删除则不回显，与详情同语义）；`AdminUserResponse` 出 `createdAt/updatedAt`（REQ-12 审计字段先出此二者、`createdBy/updatedBy` 暂缓，见上 REQ-12 搁置条）。
+- ✅ **[REQ-14] 三聚合软删 → 物理删除**（[issue #24](https://github.com/ZhangColin/semgravio-admin/issues/24)，2026-08-03）：角色删除 in-use 守卫被软删用户的残留 `user_roles` 行永阻（403 `ADMIN_013`）——triage 拍板不做查询侧补丁，从根上迁移：`AdminUser`/`AdminRole`/`AdminMenu` 基类 `AuditableSoftDeletable` → `Auditable`，删除即物理 DELETE；`markAsDeleted()` 整体移除（框架对「有该方法但非 SoftDeletable」走反射软存，残留则物理删除失效）；破窗/超管守卫迁为显式 `requireDeletable()` 由 AppService 删除前调用（行为不变：403 + 原错误码）；V9 迁移先 purge 历史软删行再 `DROP COLUMN deleted`（三张主表）；查询侧 `DeletedFalse` 派生查询与 JPQL `r.deleted = false` 全清。见 [ADR-0005](docs/adr/0005-soft-delete-to-physical-delete.md)；框架侧软删文档/约定降级由 [cartisan-boot#10](https://github.com/ZhangColin/cartisan-boot/issues/10) 独立跟踪。
+- ⏳ **[REQ-15-T6] 适配 app-registry SsoClient 管理 API 破坏性变更**（[issue #33](https://github.com/ZhangColin/semgravio-admin/issues/33)，2026-08-10 grill 定稿）：app-registry #22（commit `d9e1444`）删 `createOrRotate` 单端点，拆成**凭证**（`POST .../sso-clients/credentials`，create-or-reset `client_secret`、`client_id` 终身稳定、一次性返明文）+ **配置 PUT**（`PUT .../sso-clients`，整份替换 `redirectUris`/`postLogoutRedirectUris`/`scopes`/`grants`，不动凭证/状态、无 SsoClient→404）+ 启停用。**已定**——admin 北向两端点（`POST .../sso-client/credentials` + `PUT .../sso-client`）+ `enable`/`disable` 镜像下游、纯透传、**不在配置 PUT 自动建凭证**（一次性明文 secret 必须被显式捕获，否则静默丢失）；配置 PUT 的 404 翻译为专属 `ADMIN_SSO_CLIENT_NOT_PROVISIONED`；`postLogoutRedirectUris` 加入 admin 全链路（6 DTO + 详情 region 3）；首次开通由前端编排（凭证→配置），"凭证已建、配置未 PUT"中间态接受（继承 app-registry ADR-0005）；弃用"轮换(rotate)"措辞、`client_id` 终身稳定。无 admin 侧校验、无 DB 迁移。见 [ADR-0006](docs/adr/0006-sso-client-bff-mirrors-credential-config-split.md) + 上「SSO 凭证 vs 配置」「重置 vs 轮换」术语。
+
+## ADR
+
+设计决策记录在 [`docs/adr/`](docs/adr/)（随讨论建立）。

@@ -1,4 +1,4 @@
-# aieducenter-admin
+# semgravio-admin
 
 管理后台网关后端。基于 cartisan-boot 框架开发。
 
@@ -66,7 +66,7 @@
 
 ### 包结构规范
 ```
-com.aieducenter.{context}
+com.semgravio.{context}
 ├── package-info.java           # 上下文说明（@BoundedContext 注解）
 ├── domain/                     # 领域层
 │   ├── aggregate/              # 聚合根
@@ -92,7 +92,7 @@ com.aieducenter.{context}
 
 ### 代码规范
 - **DTO**：使用 Java Record，构造函数校验不变量
-- **聚合根**：继承 `AuditableSoftDeletable`（推荐），使用 `@Getter`/`@Setter` 注解
+- **聚合根**：继承 `Auditable`（本应用三聚合均为物理删除，见 [ADR-0005](docs/adr/0005-soft-delete-to-physical-delete.md)；框架默认推荐 `AuditableSoftDeletable` 不适用于本项目），使用 `@Getter`/`@Setter` 注解
 - **实体**：不继承 `AuditableSoftDeletable`（避免唯一索引冲突），单一代理主键
 - **枚举**：实现 `BaseEnum<T>` 接口，Integer code 存储，框架自动转换
 - **测试命名**：`given_{条件}_when_{操作}_then_{预期结果}`
@@ -106,16 +106,6 @@ com.aieducenter.{context}
 - 指定测试：`mvn test -Dtest=XxxTest`
 - 全量检查（含 ArchUnit）：`mvn verify`
 - 变异测试：`mvn org.pitest:pitest-maven:mutationCoverage`
-
-## 开发流程
-
-使用 Superpowers 技能驱动开发，按需求规模分层：
-
-- **大需求**：先充分讨论，产出需求设计文档（含 Epic 拆解），再逐个 Epic 推进
-- **Epic / 中需求**：讨论后产出 Backlog 文档（含 Feature 拆解），再逐个 Feature 推进
-- **Feature / 小需求 / Bug**：直接用 Superpowers 技能（brainstorming -> writing-plans -> TDD -> verification）
-
-阶段性完成后人工触发归档：提取有价值内容到 docs/guide/，然后清理过程文档。
 
 ## 快速参考
 
@@ -154,12 +144,25 @@ com.aieducenter.{context}
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues (ZhangColin/semgravio-admin) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Five canonical roles, label string == role name. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context — root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+
+## 平台架构上下文
+本应用（admin）是统一后台后端（应用层·平台自带应用），企业内部聚合入口。继续在现有项目上开发。
+
+稳定不变式（务必遵守）：
+- Operator（运营人员认证 + 角色/部门/岗位/RBAC）归本应用自有——operator 是后台内部员工、非跨应用共享身份，凭据留本应用（用 cartisan-security），不进 IdP/用户域。
+- Operator 不做 SSO（唯一内部应用，本地登录即可）。
+- 财务上下文在本应用（非独立域）：只读各能力域（支付/钱包/Token计量）做收入确认（履约时点）+ append-only 冲销；不收款、不持余额、不计量 token。
+- 经 cartisan-openapi 签名调用各能力域；前端不直连各域（经本 BFF 聚合）。
+- 现有 RBAC（AdminUser/Role/Menu + sys_admin_*）已建、继续用。架构仓原列的三个已知 bug **均已修**（行为由 `RbacEnforcementIntegrationTest` / `BreakGlassAccountProtectionIntegrationTest` 钉住）：① Sa-Token 统一用默认 loginType `"login"`、`StpInterface` 无条件返回 admin 权限（[ADR-0001](docs/adr/0001-admin-uses-default-sa-token-login-type.md)）；② 超管 bypass 走框架 `AuthorizationBypassResolver` SPI（app 注入 `isSuperAdmin`，[ADR-0002](docs/adr/0002-super-admin-bypass-is-framework-gap.md)）；③ 内置 admin 按保留 ID=1 不可删/不可禁（破窗守卫，V4 已 drop `system` 列，[ADR-0003](docs/adr/0003-break-glass-reserved-id.md)）。
+
+本项目自己的设计演进 → 本项目的 GLOSSARY.md + docs/adr/。
