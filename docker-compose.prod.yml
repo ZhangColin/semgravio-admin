@@ -12,8 +12,15 @@ services:
       - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
       - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
       - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
-      - REDIS_HOST=${REDIS_HOST:-redis-cache}
+      - REDIS_HOST=${REDIS_HOST:-aiplatform-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
+      # BFF 签名凭证——与 app-registry 里 admin-console 的 apiSecret 同值（必填，无默认）
+      - ADMIN_API_SECRET=${ADMIN_API_SECRET}
+      # 各能力域内网地址（webnet 容器名直连；默认值对应现行容器名，特殊拓扑才需覆盖）
+      - APP_REGISTRY_URL=${APP_REGISTRY_URL:-http://semgravio-openapi:8088}
+      - AIPLATFORM_SERVICE_URL=${AIPLATFORM_SERVICE_URL:-http://aiplatform-server:8888}
+      - PAYMENT_SERVICE_URL=${PAYMENT_SERVICE_URL:-http://semgravio-payment:8082}
+      - IDENTITY_SERVICE_URL=${IDENTITY_SERVICE_URL:-http://semgravio-identity:10001}
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
       interval: 30s
