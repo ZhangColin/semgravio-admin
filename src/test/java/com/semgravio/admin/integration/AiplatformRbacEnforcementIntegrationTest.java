@@ -54,6 +54,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentReje
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerificationWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVoucherWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
@@ -127,7 +131,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 旁落终态/落签/重录〔version +1·需更新清零〕回执北向形状＋操作者透传断言＋ORD_027 信封透传）
  * + #106 付款核验域 A3——计划详情/凭证直出（payment:read 两读端点共用）＋节点录入/核验/
  * 打回三写码（五节点五态/留痕行/历史行北向形状；二进制双 header 直出；操作者透传断言
- * ＋ORD_038 信封透传——与既有支付服务 BFF 上下文无关勿混读））
+ * ＋ORD_038 信封透传——与既有支付服务 BFF 上下文无关勿混读）+ #107 生产承接域 A4
+ * ——承接详情读口（production:read）＋信息更新/推进/置位三写码（两态实值/留痕时间线
+ * 系统建档行北向形状；操作者透传断言＋PRJ_056 信封透传））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -353,6 +359,23 @@ class AiplatformRbacEnforcementIntegrationTest {
                     + "\"basis\":\"银企对账一致\"}";
     private static final String PAYMENT_REJECT_BODY =
             "{\"voucherId\":null,\"basis\":\"回单模糊无法对账，请重新上传\"}";
+    // 生产承接域（#107 A4——aiplatform 交付承接，挂项目唯一按项目寻址）
+    private static final String PRODUCTION_READ_PERMISSION = "admin:aiplatform:production:read";
+    private static final String PRODUCTION_UPDATE_PERMISSION = "admin:aiplatform:production:update";
+    private static final String PRODUCTION_ADVANCE_PERMISSION = "admin:aiplatform:production:advance";
+    private static final String PRODUCTION_SUPPLEMENT_PERMISSION = "admin:aiplatform:production:supplement";
+    private static final String PRODUCTION_HANDOFF_ENDPOINT =
+            "/api/admin/aiplatform/projects/" + PROJECT_ID + "/production-handoff";
+    private static final String PRODUCTION_UPDATE_ENDPOINT = PRODUCTION_HANDOFF_ENDPOINT + "/update";
+    private static final String PRODUCTION_ADVANCE_ENDPOINT = PRODUCTION_HANDOFF_ENDPOINT + "/advance";
+    private static final String PRODUCTION_SUPPLEMENT_ENDPOINT =
+            PRODUCTION_HANDOFF_ENDPOINT + "/needs-user-supplement";
+    private static final String PRODUCTION_UPDATE_BODY =
+            "{\"contact\":\"李经理（微信 ligoods）\",\"nextStep\":\"准备服务器环境与域名备案\","
+                    + "\"progressNote\":\"已完成技术方案拆解\",\"estimatedStartAt\":\"2026-10-20T09:00:00\","
+                    + "\"basis\":\"首次排期录入\"}";
+    private static final String PRODUCTION_ADVANCE_BODY = "{\"basis\":\"排期落定，今日开工\"}";
+    private static final String PRODUCTION_SUPPLEMENT_BODY = "{\"required\":true}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -386,6 +409,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithAdvanceOnly;
     private String usernameWithPaymentWrite;
     private String usernameWithVerifyOnly;
+    private String usernameWithProductionWrite;
+    private String usernameWithProductionAdvanceOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -417,6 +442,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String contractWriteUserNickname;
     private Long paymentWriteUserId;
     private String paymentWriteUserNickname;
+    private Long productionWriteUserId;
+    private String productionWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -461,6 +488,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithAdvanceOnly = "aiplaadvo" + suffix;
         usernameWithPaymentWrite = "aiplapywr" + suffix;
         usernameWithVerifyOnly = "aiplavfyo" + suffix;
+        usernameWithProductionWrite = "aiplapdwr" + suffix;
+        usernameWithProductionAdvanceOnly = "aiplapadv" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -471,7 +500,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
-                        PAYMENT_READ_PERMISSION)));
+                        PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -736,6 +765,32 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "核验专员_" + suffix, null, null, null));
         userAppService.assignRoles(verifyOnlyUserId, new AssignRolesCommand(List.of(verifyOnlyRoleId)));
 
+        // 生产承接三写码专用运营（update+advance+supplement，无读码——读写分权，#107 A4）
+        // ——操作者透传断言用其 id/昵称（provider 推进/更新动作操作者必携、缺头 PRJ_059 拒）
+        Long productionWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台生产承接写操作_" + suffix, "AIPLAPDWR_" + suffix,
+                        "AI 平台生产承接信息更新 + 推进 + 需用户补充置位权限", 113, null));
+        roleAppService.assignPermissions(productionWriteRoleId, new AssignPermissionsCommand(List.of(
+                PRODUCTION_UPDATE_PERMISSION, PRODUCTION_ADVANCE_PERMISSION,
+                PRODUCTION_SUPPLEMENT_PERMISSION)));
+        productionWriteUserNickname = "生产承接运营_" + suffix;
+        productionWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithProductionWrite, PASSWORD,
+                        productionWriteUserNickname, null, null, null));
+        userAppService.assignRoles(productionWriteUserId, new AssignRolesCommand(List.of(productionWriteRoleId)));
+
+        // 仅 advance 单写码——钉死三写码彼此独立（spec #102 每写操作一码最小授权）
+        Long productionAdvanceOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台生产承接仅推进_" + suffix, "AIPLAPADV_" + suffix,
+                        "AI 平台生产承接仅推进权限", 114, null));
+        roleAppService.assignPermissions(productionAdvanceOnlyRoleId,
+                new AssignPermissionsCommand(List.of(PRODUCTION_ADVANCE_PERMISSION)));
+        Long productionAdvanceOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithProductionAdvanceOnly, PASSWORD,
+                        "生产推进专员_" + suffix, null, null, null));
+        userAppService.assignRoles(productionAdvanceOnlyUserId,
+                new AssignRolesCommand(List.of(productionAdvanceOnlyRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -924,6 +979,26 @@ class AiplatformRbacEnforcementIntegrationTest {
                         (a, b) -> true),
                 new byte[] {(byte) 0x25, (byte) 0x50, (byte) 0x44, (byte) 0x46,
                         (byte) 0x2d, (byte) 0x31, (byte) 0x2e, (byte) 0x34, (byte) 0xff, 0x00}));
+        // 生产承接域 mock（#107 A4）：详情读口＝承接全量面（两态第一实值＋留痕两行——
+        // 信息更新/创建〔系统操作者 system〕）+ 更新/推进写口回执（推进口＝两态第二实值
+        // 2=生产中）+ 抓取 RequestContext（推进/更新操作者必携——provider PRJ_059 拒无名
+        // 留痕）；置位口 void 无回执（信封即回执）
+        when(aiplatformClient.getProductionHandoff(eq(PROJECT_ID))).thenReturn(productionHandoffWire());
+        doAnswer(inv -> {
+            capture.run();
+            return productionHandoffWire();
+        }).when(aiplatformClient).updateProductionHandoff(eq(PROJECT_ID),
+                any(AiplatformProductionUpdateWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return productionAdvanceReceiptWire();
+        }).when(aiplatformClient).advanceProductionHandoff(eq(PROJECT_ID),
+                any(AiplatformProductionActionWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return null;
+        }).when(aiplatformClient).setProductionNeedsUserSupplement(eq(PROJECT_ID),
+                any(AiplatformProductionSupplementWireRequest.class));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1427,6 +1502,41 @@ class AiplatformRbacEnforcementIntegrationTest {
                 List.of(new AiplatformPaymentPlanDetailWireResponse.HistoryPlanWireResponse(
                         "3829495000000000", "3829493001111111", "SG-l590hd3t5y", 3,
                         4800000L, 0L, LocalDateTime.of(2026, 10, 12, 11, 0, 0))));
+    }
+
+    /**
+     * 生产承接 wire 载荷工厂（#107 A4）：承接全量面——两态第一实值（1=待安排生产）＋
+     * 留痕两行（新→旧：信息更新〔action=3，from=to 在场快照，操作者＝装配运营〕/
+     * 创建〔action=1，系统触发建档——操作者＝system/开工判定，provider
+     * {@code BackofficeProductionControllerTest} 实值口径〕）。
+     */
+    private static AiplatformProductionHandoffWireResponse productionHandoffWire() {
+        return new AiplatformProductionHandoffWireResponse(
+                "3829410000000001", PROJECT_ID, ORDER_ID,
+                1, "待安排生产",
+                "李经理（微信 ligoods）", "准备服务器环境与域名备案", "已完成技术方案拆解",
+                LocalDateTime.of(2026, 10, 20, 9, 0, 0), LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                List.of(
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                3, "信息更新", 1, "待安排生产", 1, "待安排生产",
+                                "首次排期录入", "700100", "生产承接_老王",
+                                LocalDateTime.of(2026, 10, 18, 14, 30, 0)),
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                1, "创建", 1, "待安排生产", 1, "待安排生产",
+                                "开工条件满足（合同签署完成且开工门节点全部到账），创建生产承接记录",
+                                "system", "开工判定",
+                                LocalDateTime.of(2026, 10, 17, 10, 0, 0))));
+    }
+
+    /**
+     * 生产承接推进回执的 wire 载荷工厂（#107 A4）：两态第二实值（2=生产中）——唯一边
+     * 走完的承接现值（信息段全 null 如实透传）。
+     */
+    private static AiplatformProductionHandoffWireResponse productionAdvanceReceiptWire() {
+        return new AiplatformProductionHandoffWireResponse(
+                "3829410000000001", PROJECT_ID, ORDER_ID,
+                2, "生产中", null, null, null, null,
+                LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of());
     }
 
     /**
@@ -4230,6 +4340,138 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 5038（ORD_038＝域码 5×1000＋38）——状态守卫归 provider，BFF 不复算
         assertThat(root.path("code").asInt()).isEqualTo(5038);
         assertThat(root.path("message").asText()).isEqualTo("付款节点当前状态不允许该操作");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 生产承接域（#107 A4，四码：read 读口＋三写码）· 三态逐码 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 生产承接四端点 403（production:read 读口＋三写口各一码——无码不串）")
+    void given_nonSuperAdminWithoutPermission_when_productionEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(PRODUCTION_HANDOFF_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_UPDATE_ENDPOINT, PRODUCTION_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_ADVANCE_ENDPOINT, PRODUCTION_ADVANCE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_SUPPLEMENT_ENDPOINT, PRODUCTION_SUPPLEMENT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问生产承接四端点返回 401")
+    void given_unauthenticated_when_productionEndpoints_then_401() {
+        assertThat(getWithToken(PRODUCTION_HANDOFF_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PRODUCTION_UPDATE_ENDPOINT, PRODUCTION_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PRODUCTION_ADVANCE_ENDPOINT, PRODUCTION_ADVANCE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PRODUCTION_SUPPLEMENT_ENDPOINT, PRODUCTION_SUPPLEMENT_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 production:read（无写码）→ 三写端点 403（read ≠ 三写码，读写不串）")
+    void given_nonSuperAdminWithProductionReadOnly_when_writeEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(PRODUCTION_UPDATE_ENDPOINT, PRODUCTION_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_ADVANCE_ENDPOINT, PRODUCTION_ADVANCE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_SUPPLEMENT_ENDPOINT, PRODUCTION_SUPPLEMENT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅 production:advance 单码 → 其余两写端点 403（三写码彼此独立——最小授权逐动作授受）")
+    void given_nonSuperAdminWithProductionAdvanceOnly_when_otherTwoWriteEndpoints_then_403() {
+        String token = login(usernameWithProductionAdvanceOnly);
+        assertThat(postWithToken(PRODUCTION_UPDATE_ENDPOINT, PRODUCTION_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PRODUCTION_SUPPLEMENT_ENDPOINT, PRODUCTION_SUPPLEMENT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 production:read → 承接详情 200（两态第一实值 number、留痕时间线系统建档行在场）")
+    void given_nonSuperAdminWithProductionRead_when_getHandoff_then_200AndHandoffMirrored() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(PRODUCTION_HANDOFF_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 两态第一实值 1=待安排生产：Integer code 出 JSON number（非 Long）＋中文名随行；
+        // 承接可空段如实透传（预计开始时间 ISO）
+        assertThat(data.path("status").isNumber()).isTrue();
+        assertThat(data.path("status").asInt()).isEqualTo(1);
+        assertThat(data.path("statusName").asText()).isEqualTo("待安排生产");
+        assertThat(data.path("contact").asText()).isEqualTo("李经理（微信 ligoods）");
+        assertThat(data.path("estimatedStartAt").asText()).isEqualTo("2026-10-20T09:00:00");
+        // 留痕时间线（新→旧）：最新行＝信息更新（action=3，非迁移类 from=to 在场快照）
+        JsonNode trail = data.path("transitions").get(0);
+        assertThat(trail.path("action").asInt()).isEqualTo(3);
+        assertThat(trail.path("actionName").asText()).isEqualTo("信息更新");
+        assertThat(trail.path("fromStatus").asInt()).isEqualTo(1);
+        assertThat(trail.path("toStatus").asInt()).isEqualTo(1);
+        assertThat(trail.path("operatorId").asText()).isEqualTo("700100");
+        // 最旧行＝创建（action=1，系统触发建档——操作者＝system/开工判定，承接创建无人工口）
+        JsonNode create = data.path("transitions").get(1);
+        assertThat(create.path("action").asInt()).isEqualTo(1);
+        assertThat(create.path("operatorId").asText()).isEqualTo("system");
+        assertThat(create.path("operatorName").asText()).isEqualTo("开工判定");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 信息更新/推进/置位 200（推进回执＝两态第二实值 2=生产中）且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithProductionWriteCodes_when_threeActions_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithProductionWrite);
+
+        // 信息更新：承接现值回执（状态不动 1=待安排生产——留痕行 from=to 归 provider 落）
+        ResponseEntity<String> updated = postWithToken(PRODUCTION_UPDATE_ENDPOINT, PRODUCTION_UPDATE_BODY, token);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode updateReceipt = objectMapper.readTree(updated.getBody()).path("data");
+        assertThat(updateReceipt.path("status").asInt()).isEqualTo(1);
+        assertThat(updateReceipt.path("contact").asText()).isEqualTo("李经理（微信 ligoods）");
+
+        // 推进：两态唯一边走完——回执＝两态第二实值 2=生产中（可空段 null 如实透传）
+        ResponseEntity<String> advanced = postWithToken(PRODUCTION_ADVANCE_ENDPOINT, PRODUCTION_ADVANCE_BODY, token);
+        assertThat(advanced.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode advanceReceipt = objectMapper.readTree(advanced.getBody()).path("data");
+        assertThat(advanceReceipt.path("status").asInt()).isEqualTo(2);
+        assertThat(advanceReceipt.path("statusName").asText()).isEqualTo("生产中");
+        assertThat(advanceReceipt.path("contact").isNull()).isTrue();
+
+        // 置位：data null（ApiResponse<Void>——无回读面，信封即回执）
+        ResponseEntity<String> supplemented =
+                postWithToken(PRODUCTION_SUPPLEMENT_ENDPOINT, PRODUCTION_SUPPLEMENT_BODY, token);
+        assertThat(supplemented.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(supplemented.getBody()).path("data").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（provider 推进/更新动作以操作者为
+        // 审计正身、缺头 PRJ_059 拒——前端无法伪造留痕）
+        assertThat(capturedOperatorId.get()).isEqualTo(productionWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(productionWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("推进下游 PRJ_056（生产中稳态）→ 北向 HTTP 409 + 信封 code=4056 + message 原文（不映射）")
+    void given_prj056FromDownstream_when_advance_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.advanceProductionHandoff(eq(PROJECT_ID),
+                any(AiplatformProductionActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(
+                        new OpenApiClientException(409,
+                                "{\"code\":4056,\"message\":\"生产承接当前状态不允许该操作\",\"data\":null}")));
+
+        String token = login(usernameWithProductionWrite);
+        ResponseEntity<String> response = postWithToken(PRODUCTION_ADVANCE_ENDPOINT, PRODUCTION_ADVANCE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4056（PRJ_056＝域码 4×1000＋56）——两态唯一边守卫归 provider，BFF 不复算
+        assertThat(root.path("code").asInt()).isEqualTo(4056);
+        assertThat(root.path("message").asText()).isEqualTo("生产承接当前状态不允许该操作");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

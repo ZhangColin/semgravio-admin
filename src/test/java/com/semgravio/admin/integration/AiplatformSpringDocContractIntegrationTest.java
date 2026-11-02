@@ -120,6 +120,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       provider——ORD_036/037/038/039/041/042/043/044/045 数字码须在 api-docs 在场；
  *       北向 schema 的五态 status/kickoffGate/channelRefNo、留痕行 action（1=到账核验
  *       2=打回）与三命令体（nodes 规格三字段/actualAmount/voucherId+basis）同步自描述。</li>
+ *   <li>生产承接域四端点 @Operation 描述镜像（issue #107，spec #102 A 批 A4——镜像
+ *       aiplatform #338 交付承接）：详情（承接全量面——<strong>两态</strong> 1=待安排生产
+ *       2=生产中/留痕时间线<strong>系统触发建档</strong>〔创建行操作者＝system〕/挂项目
+ *       只建一次/承接创建无人工口）、信息更新（整组替换 null 即清空、状态不动留痕
+ *       from=to）、推进（<strong>两态唯一边</strong>、生产中稳态再推进 409 PRJ_056）、
+ *       「需用户补充」置位/清零（<strong>前台六态盖帽</strong>语义归后台人工判定、
+ *       provider 只落项目级标志）的 summary＋description 逐字镜像 provider——
+ *       PRJ_001/055/056/057/058/059 数字码须在 api-docs 在场；北向 schema 的两态
+ *       status、留痕行 action（1=创建 2=推进 3=信息更新）与命令体（更新五字段/依据/
+ *       required 布尔）同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -1221,6 +1231,101 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText(""))
                 .contains("审计正身")
                 .contains("ORD_042");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：生产承接域四端点 @Operation 描述镜像 provider（#107，两态/系统触发建档/盖帽语义 + PRJ_001/055~059 数字码在场）")
+    void given_productionEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 详情：承接全量面（两态枚举＋留痕时间线系统触发建档＋挂项目唯一约束）
+        JsonNode detail = paths.path("/api/admin/aiplatform/projects/{projectId}/production-handoff").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含生产承接详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("生产承接详情").contains("承接全量面");
+        assertThat(detail.path("description").asText(""))
+                .contains("1=待安排生产 2=生产中")
+                .contains("系统操作者")
+                .contains("承接创建无人工口")
+                .contains("挂项目只建一次")
+                .contains("append-only")
+                .contains("PRJ_055").contains("4055")
+                .contains("PRJ_001").contains("4001");
+
+        // 信息更新：整组替换 null 即清空＋状态不动留痕 from=to＋操作者必携
+        JsonNode update =
+                paths.path("/api/admin/aiplatform/projects/{projectId}/production-handoff/update").path("post");
+        assertThat(update.isMissingNode()).as("api-docs 应含生产承接信息更新端点").isFalse();
+        assertThat(update.path("summary").asText(""))
+                .contains("信息整组更新").contains("null 即清空");
+        assertThat(update.path("description").asText(""))
+                .contains("整组替换")
+                .contains("仅真实值显示")
+                .contains("状态不动")
+                .contains("from=to")
+                .contains("PRJ_057").contains("4057")
+                .contains("PRJ_058").contains("4058")
+                .contains("PRJ_059").contains("4059");
+
+        // 推进：两态唯一边＋生产中稳态再推进 409
+        JsonNode advance =
+                paths.path("/api/admin/aiplatform/projects/{projectId}/production-handoff/advance").path("post");
+        assertThat(advance.isMissingNode()).as("api-docs 应含生产承接推进端点").isFalse();
+        assertThat(advance.path("summary").asText(""))
+                .contains("推进").contains("两态唯一边");
+        assertThat(advance.path("description").asText(""))
+                .contains("生产中是稳态")
+                .contains("再推进 409 PRJ_056")
+                .contains("4056")
+                .contains("审计正身")
+                .contains("PRJ_055")
+                .contains("2=生产中");
+
+        // 需用户补充：前台六态盖帽语义＋置位归后台人工判定＋provider 只落标志
+        JsonNode supplement = paths
+                .path("/api/admin/aiplatform/projects/{projectId}/production-handoff/needs-user-supplement")
+                .path("post");
+        assertThat(supplement.isMissingNode()).as("api-docs 应含需用户补充置位端点").isFalse();
+        assertThat(supplement.path("summary").asText(""))
+                .contains("置位/清零").contains("前台六态盖帽");
+        assertThat(supplement.path("description").asText(""))
+                .contains("需用户补充")
+                .contains("对话区沟通")
+                .contains("盖帽语义归后台人工判定")
+                .contains("只落项目级标志")
+                .contains("PRJ_001").contains("4001");
+
+        // 承接 schema 自描述：两态枚举（单向推进无终态概念）
+        JsonNode status = property("AiplatformProductionHandoffResponse", "status");
+        assertThat(status.path("description").asText(""))
+                .contains("1=待安排生产 2=生产中")
+                .contains("无终态概念");
+        assertThat(exampleText(status)).isEqualTo("1");
+
+        // 留痕行 schema 自描述：动作三值（1=创建 2=推进 3=信息更新——创建行系统触发落）
+        // （springdoc 平铺嵌套 record 命名 TransitionResponse——CostSummary 先例）
+        JsonNode action = property("TransitionResponse", "action");
+        assertThat(action.path("description").asText(""))
+                .contains("1=创建 2=推进 3=信息更新")
+                .contains("operatorId=system");
+        assertThat(exampleText(action)).isEqualTo("1");
+
+        // 三命令体 schema 自描述：更新五字段（null 即清空/人工措辞）＋basis（依据正身）＋required（盖帽布尔）
+        assertThat(property("AiplatformProductionUpdateCommand", "estimatedStartAt")
+                .path("description").asText(""))
+                .contains("null 即清空")
+                .contains("仅录入真实值才显示");
+        assertThat(property("AiplatformProductionUpdateCommand", "progressNote")
+                .path("description").asText(""))
+                .contains("不上工程术语");
+        assertThat(property("AiplatformProductionActionCommand", "basis")
+                .path("description").asText(""))
+                .contains("PRJ_057")
+                .contains("PRJ_058");
+        assertThat(property("AiplatformProductionSupplementCommand", "required")
+                .path("description").asText(""))
+                .contains("true＝置位")
+                .contains("对话区沟通");
     }
 
     // ---------- 装载 ----------

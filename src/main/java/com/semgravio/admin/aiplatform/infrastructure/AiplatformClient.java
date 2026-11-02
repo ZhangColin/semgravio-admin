@@ -52,6 +52,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdate
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -89,9 +93,10 @@ import org.springframework.stereotype.Component;
  * <p>为 infrastructure 包内裸 {@code @Component}（BFF 出站客户端，不走 {@code @Port/@Adapter}，
  * 详见 ADR-0007，与 {@code PaymentClient} / {@code AccountClient} / {@code AppRegistryClient} 同款）。
  * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）、
- * 合同域（#104 第八域——spec #102 A 批）与付款核验域（#106 第九域——spec #102 A 批 A3，
- * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）共用
- * 本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * 合同域（#104 第八域——spec #102 A 批）、付款核验域（#106 第九域——spec #102 A 批 A3，
+ * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）与
+ * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）共用本客户端
+ * ——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -142,6 +147,16 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformPaymentPlanWireResponse>> PAYMENT_PLAN_TYPEREF =
+            new TypeReference<>() {};
+
+    // 生产承接域（#107，spec #102 A 批 A4——provider aiplatform #338）：详情/信息更新/推进
+    // 回执共形＝ApiResponse<BackofficeProductionHandoffResponse>（承接现值＋留痕时间线）；
+    // 「需用户补充」置位回执＝ApiResponse<Void>（data null——无回读面，信封即回执；
+    // 同 AccountClient VOID_TYPEREF 形制，区别是 provider 出真实信封而非 204 空 body）
+    private static final TypeReference<ApiResponse<AiplatformProductionHandoffWireResponse>> PRODUCTION_HANDOFF_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> PRODUCTION_VOID_TYPEREF =
             new TypeReference<>() {};
 
     // 项目域（#159/#162）同为 ApiResponse<T> 信封；对话史/版本列表的 data 是裸 List（非分页载体）
@@ -917,6 +932,124 @@ public class AiplatformClient {
         log.debug("AiplatformClient.downloadVoucherContent: {}", url);
         try {
             return openApiClient.download(url);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 生产承接域（issue #107，spec #102 A 批 A4——provider aiplatform #338）----------
+
+    /**
+     * 后台生产承接详情（透传 aiplatform）——承接全量面：承接字段（交付联系人/下一步说明/
+     * 进展更新/预计开始时间——可空段如实 null）＋两态（1=待安排生产 2=生产中）＋动作留痕
+     * 时间线（新 → 旧，append-only 全量——动作/两侧状态/依据/操作者/时间；创建行＝开工
+     * 判定系统操作者 operatorId=system）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/projects/{projectId}/production-handoff}
+     * （#338 已冻结）：返回 {@code ApiResponse<BackofficeProductionHandoffResponse>}。承接
+     * <strong>挂项目唯一</strong>（只建一次——全生命周期一行，创建由开工判定系统触发、
+     * 无人工创建口）；无承接记录（开工判定未触发）404 <strong>PRJ_055</strong>（4055，
+     * 前端缺席＝不渲染面板）；项目不存在（含畸形 id）404 PRJ_001（4001）——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 PRJ_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/PRJ_055 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse getProductionHandoff(String projectId) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId) + "/production-handoff";
+        log.debug("AiplatformClient.getProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.get(url, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 生产承接信息更新（透传 aiplatform）——「生产承接更新」之字段面：交付联系人/下一步
+     * 说明/进展更新/预计开始时间<strong>整组替换</strong>——未录入段传 null 即清空（预计
+     * 开始时间清空＝回待安排呈现，「仅真实值显示」）。状态不动（留痕行 from=to 在场快照）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/update}
+     * （#338 已冻结）：请求体 {@code {contact, nextStep, progressNote, estimatedStartAt, basis}}
+     * 逐字镜像，返回 {@code ApiResponse<BackofficeProductionHandoffResponse>}（更新后承接
+     * 现值）。X-User-Id/X-User-Name 透传头自动落痕留痕行（承接动作以操作者为审计正身，
+     * 缺头 400 <strong>PRJ_059</strong> 拒）。依据必填 400 <strong>PRJ_057</strong>；字段
+     * 超长 400 <strong>PRJ_058</strong>（联系人 200/下一步 1000/进展 2000/依据 1000 字上限
+     * 归 provider）；无承接记录 404 <strong>PRJ_055</strong>；项目不存在 404 PRJ_001
+     * ——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command   信息更新命令体（五字段整组——合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/055/057/058/059 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse updateProductionHandoff(
+            String projectId, AiplatformProductionUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/update";
+        log.debug("AiplatformClient.updateProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.post(url, command, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 生产承接推进（透传 aiplatform）——<strong>两态唯一迁移边</strong>（1=待安排生产 →
+     * 2=生产中）：生产中是稳态，再推进 409 <strong>PRJ_056</strong>；依据必填 400
+     * <strong>PRJ_057</strong>；操作者必携 400 <strong>PRJ_059</strong>——守卫归 provider
+     * 裁决，BFF 零复算。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/advance}
+     * （#338 已冻结）：请求体 {@code {basis}} 逐字镜像，返回
+     * {@code ApiResponse<BackofficeProductionHandoffResponse>}（推进后承接现值——两态第二
+     * 实值 2=生产中）。X-User-Id/X-User-Name 透传头自动落痕留痕行（缺头 PRJ_059 拒）。
+     * 无承接记录 404 <strong>PRJ_055</strong>；项目不存在 404 PRJ_001——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command   推进命令体（依据必填归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/055/056/057/059 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse advanceProductionHandoff(
+            String projectId, AiplatformProductionActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/advance";
+        log.debug("AiplatformClient.advanceProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.post(url, command, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 「需用户补充」置位/清零（透传 aiplatform）——前台交付状态六态盖帽标志：生产承接
+     * 期间需用户补资料/确认事项时置位（required=true——前台盖帽「需用户补充」，处理
+     * 入口在对话区沟通）；处理完清零（required=false）。<strong>盖帽语义归后台人工判定，
+     * provider 只落项目级标志</strong>（本动作不落操作者留痕行——provider 命令面无操作者位）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/
+     * needs-user-supplement}（#338 已冻结）：请求体 {@code {required}} 逐字镜像，返回
+     * {@code ApiResponse<Void>}（data null——无回读面，信封即回执）。项目不存在（含畸形
+     * id）404 <strong>PRJ_001</strong>（4001）——原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 PRJ_001）
+     * @param command   置位命令体（只携布尔）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001 等，不做映射）
+     */
+    public void setProductionNeedsUserSupplement(
+            String projectId, AiplatformProductionSupplementWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/needs-user-supplement";
+        log.debug("AiplatformClient.setProductionNeedsUserSupplement: {}", url);
+        try {
+            openApiClient.post(url, command, PRODUCTION_VOID_TYPEREF);
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
         }

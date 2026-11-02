@@ -27,6 +27,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
@@ -34,6 +35,9 @@ import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentNodesCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentRejectCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionSupplementCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentVerifyCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
@@ -88,6 +92,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentReje
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerificationWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVoucherWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
@@ -123,7 +131,8 @@ import com.cartisan.web.response.PageResponse;
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建 + #105 合同域六态推进写口
- * advance/fail/withdraw/void/sign/record）——mock {@link AiplatformClient}，
+ * advance/fail/withdraw/void/sign/record + #106 付款核验域计划详情/节点录入/核验/打回/
+ * 凭证二进制 + #107 生产承接域详情/整组更新/推进/需用户补充）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -172,6 +181,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformPaymentAppService paymentAppService;
+
+    @Autowired
+    private AiplatformProductionAppService productionAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -889,6 +901,133 @@ class AiplatformBffIntegrationTest {
                     assertThat(upstream.httpStatus()).isEqualTo(409);
                     assertThat(upstream.envelopeCode()).isEqualTo(5038);
                     assertThat(upstream.getMessage()).isEqualTo("付款节点当前状态不允许该操作");
+                });
+    }
+
+    // ========== 生产承接域（#107 A4）· 命令映射 + 回执映射 + 错误信封透传 ==========
+
+    /** 生产承接 wire 工厂：两态第一实值（1=待安排生产）＋留痕两行（信息更新最新/创建系统操作者最旧）。 */
+    private static AiplatformProductionHandoffWireResponse productionHandoffWire() {
+        return new AiplatformProductionHandoffWireResponse(
+                "3829410000000001", "3829409001234567", "3829492001234567",
+                1, "待安排生产",
+                "李经理（微信 ligoods）", "准备服务器环境与域名备案", "已完成技术方案拆解",
+                LocalDateTime.of(2026, 10, 20, 9, 0, 0), LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                List.of(
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                3, "信息更新", 1, "待安排生产", 1, "待安排生产",
+                                "首次排期录入", "700100", "生产承接_老王",
+                                LocalDateTime.of(2026, 10, 18, 14, 30, 0)),
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                1, "创建", 1, "待安排生产", 1, "待安排生产",
+                                "开工条件满足（合同签署完成且开工门节点全部到账），创建生产承接记录",
+                                "system", "开工判定",
+                                LocalDateTime.of(2026, 10, 17, 10, 0, 0))));
+    }
+
+    @Test
+    void given_handoffWire_when_getHandoff_then_fieldsAndTrailMapped() {
+        when(aiplatformClient.getProductionHandoff("3829409001234567")).thenReturn(productionHandoffWire());
+
+        var handoff = productionAppService.getHandoff("3829409001234567");
+
+        // wire → 北向逐字段：两态 Integer code 直通＋承接可空段＋留痕时间线（新→旧）
+        assertThat(handoff.status()).isEqualTo(1);
+        assertThat(handoff.statusName()).isEqualTo("待安排生产");
+        assertThat(handoff.contact()).isEqualTo("李经理（微信 ligoods）");
+        assertThat(handoff.estimatedStartAt()).isEqualTo(LocalDateTime.of(2026, 10, 20, 9, 0, 0));
+        assertThat(handoff.transitions()).hasSize(2);
+        // 最新行＝信息更新（action=3，非迁移类 from=to 在场快照，操作者＝后台管理员）
+        assertThat(handoff.transitions().get(0).action()).isEqualTo(3);
+        assertThat(handoff.transitions().get(0).fromStatus()).isEqualTo(1);
+        assertThat(handoff.transitions().get(0).toStatus()).isEqualTo(1);
+        assertThat(handoff.transitions().get(0).operatorId()).isEqualTo("700100");
+        // 最旧行＝创建（action=1，系统触发建档——操作者＝system/开工判定，非人工创建口）
+        assertThat(handoff.transitions().get(1).action()).isEqualTo(1);
+        assertThat(handoff.transitions().get(1).operatorId()).isEqualTo("system");
+        assertThat(handoff.transitions().get(1).operatorName()).isEqualTo("开工判定");
+    }
+
+    @Test
+    void given_updateCommand_when_update_then_wireCommandMappedAndReceiptMapped() {
+        when(aiplatformClient.updateProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionUpdateWireRequest.class)))
+                .thenReturn(productionHandoffWire());
+
+        var receipt = productionAppService.update("3829409001234567",
+                new AiplatformProductionUpdateCommand("李经理（微信 ligoods）",
+                        "准备服务器环境与域名备案", "已完成技术方案拆解",
+                        LocalDateTime.of(2026, 10, 20, 9, 0, 0), "首次排期录入"));
+
+        // 北向五字段 → wire 五字段逐字段映射（整组替换——null 即清空语义归 provider）
+        ArgumentCaptor<AiplatformProductionUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionUpdateWireRequest.class);
+        verify(aiplatformClient).updateProductionHandoff(eq("3829409001234567"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformProductionUpdateWireRequest(
+                "李经理（微信 ligoods）", "准备服务器环境与域名备案", "已完成技术方案拆解",
+                LocalDateTime.of(2026, 10, 20, 9, 0, 0), "首次排期录入"));
+
+        // 更新回执映射（更新后承接现值——状态不动留痕行 from=to）
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.contact()).isEqualTo("李经理（微信 ligoods）");
+    }
+
+    @Test
+    void given_advanceCommand_when_advance_then_wireCommandMappedAndInProductionReceiptMapped() {
+        when(aiplatformClient.advanceProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionActionWireRequest.class)))
+                .thenReturn(new AiplatformProductionHandoffWireResponse(
+                        "3829410000000001", "3829409001234567", "3829492001234567",
+                        2, "生产中", null, null, null, null,
+                        LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of()));
+
+        var receipt = productionAppService.advance("3829409001234567",
+                new AiplatformProductionActionCommand("排期落定，今日开工"));
+
+        // 北向单字段 → wire 单字段映射（依据必填归 provider PRJ_057——BFF 不前置拦截）
+        ArgumentCaptor<AiplatformProductionActionWireRequest> advanceCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionActionWireRequest.class);
+        verify(aiplatformClient).advanceProductionHandoff(eq("3829409001234567"), advanceCaptor.capture());
+        assertThat(advanceCaptor.getValue()).isEqualTo(
+                new AiplatformProductionActionWireRequest("排期落定，今日开工"));
+
+        // 推进回执映射（两态第二实值 2=生产中——唯一边走完，可空段 null 如实透传）
+        assertThat(receipt.status()).isEqualTo(2);
+        assertThat(receipt.statusName()).isEqualTo("生产中");
+        assertThat(receipt.contact()).isNull();
+        assertThat(receipt.estimatedStartAt()).isNull();
+    }
+
+    @Test
+    void given_supplementCommand_when_setNeedsUserSupplement_then_wireCommandMappedAndVoidReturn() {
+        productionAppService.setNeedsUserSupplement("3829409001234567",
+                new AiplatformProductionSupplementCommand(true));
+
+        // 北向单布尔 → wire 单布尔映射（盖帽置位语义归后台人工判定——provider 只落标志）
+        ArgumentCaptor<AiplatformProductionSupplementWireRequest> supplementCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionSupplementWireRequest.class);
+        verify(aiplatformClient).setProductionNeedsUserSupplement(eq("3829409001234567"),
+                supplementCaptor.capture());
+        assertThat(supplementCaptor.getValue()).isEqualTo(new AiplatformProductionSupplementWireRequest(true));
+    }
+
+    @Test
+    void given_prj059FromDownstream_when_advance_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.advanceProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4059,\"message\":\"操作者必填（生产承接动作须携带操作者身份）\",\"data\":null}")));
+
+        assertThatThrownBy(() -> productionAppService.advance("3829409001234567",
+                new AiplatformProductionActionCommand("排期落定")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_059 → HTTP 400 + 数字业务码 4059（域码 4×1000＋59——缺操作者透传头，
+                    // 承接动作以操作者为审计正身归 provider 裁决）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4059);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者必填（生产承接动作须携带操作者身份）");
                 });
     }
 

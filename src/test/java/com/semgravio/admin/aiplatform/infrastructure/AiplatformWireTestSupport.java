@@ -8,6 +8,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSkillAppService;
@@ -39,7 +40,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} /
  * {@code AiplatformAgentConfigClientContractTest} / {@code AiplatformAgentToolClientContractTest} /
  * {@code AiplatformContractClientContractTest}（#104 合同域）/
- * {@code AiplatformPaymentClientContractTest}（#106 付款核验域）复用；
+ * {@code AiplatformPaymentClientContractTest}（#106 付款核验域）/
+ * {@code AiplatformProductionClientContractTest}（#107 生产承接域）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -1124,6 +1126,65 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformPaymentAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 生产承接域版（issue #107，spec #102 A 批 A4）——{@code get}（承接详情）与 {@code post}
+     * （信息更新/推进/需用户补充三写口）都按真实 {@code TypeReference} 反序列化，命令体按
+     * 生产 mapper 口径序列化进 wireBodySink。命令字段全 String/LocalDateTime/boolean——
+     * <strong>无 Long 金额特殊口径</strong>（区别于付款域版的 ToStringSerializer 注册），
+     * boot 默认 mapper 即生产口径（合同写路径版同款）。
+     */
+    static AiplatformProductionAppService productionAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformProductionAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 生产承接域版 {@link #accountAppServiceWithErrorTransport}——{@code get}/{@code post}
+     * 都始终抛 {@link OpenApiClientException}（框架对 ≥400 的行为复刻：无承接 PRJ_055、
+     * 状态守卫 PRJ_056、依据 PRJ_057、超长 PRJ_058、操作者 PRJ_059、项目 PRJ_001 与读口
+     * 错误信封同形）。
+     */
+    static AiplatformProductionAppService productionAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformProductionAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {
