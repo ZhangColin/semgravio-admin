@@ -14,6 +14,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolSl
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
@@ -76,8 +80,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>为 infrastructure 包内裸 {@code @Component}（BFF 出站客户端，不走 {@code @Port/@Adapter}，
  * 详见 ADR-0007，与 {@code PaymentClient} / {@code AccountClient} / {@code AppRegistryClient} 同款）。
- * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口与技能管理域（#78 第七域）共用本
- * 客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）与
+ * 合同域（#104 第八域——spec #102 A 批）共用本客户端——同一 downstream、同一签名身份，
+ * 各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -107,6 +112,17 @@ public class AiplatformClient {
     // 订单写路径（#29 交易环②报价改价 + #157 运营取消 + #158 重试归档）三操作共用回执：
     // ApiResponse<OrderResponse>（provider 用户面同构 DTO——五字段价目行，区别于后台详情七字段行）
     private static final TypeReference<ApiResponse<AiplatformOrderWireResponse>> ORDER_RECEIPT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 合同域（#104，spec #102 A 批 A1——provider aiplatform #336）：清单/详情/创建重建三端点
+    // 同为 ApiResponse<T> 信封；创建回执＝ContractResponse（与用户面 confirmScope 共用同构 DTO）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformContractSummaryWireResponse>>> CONTRACT_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformContractDetailWireResponse>> CONTRACT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformContractWireResponse>> CONTRACT_RECEIPT_TYPEREF =
             new TypeReference<>() {};
 
     // 项目域（#159/#162）同为 ApiResponse<T> 信封；对话史/版本列表的 data 是裸 List（非分页载体）
@@ -472,6 +488,97 @@ public class AiplatformClient {
         log.debug("AiplatformClient.retryArchiveOrder: {}", url);
         try {
             ApiResponse<AiplatformOrderWireResponse> resp = openApiClient.post(url, null, ORDER_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 分页查询合同清单（透传 aiplatform，四维检索——合同域口径）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/contracts}（#336 已冻结）：返回
+     * {@code ApiResponse<PageResponse<BackofficeContractSummaryResponse>>}。四维可组合、均可缺省：
+     * ① {@code status} 状态多选（六态 Integer code，拼逗号分隔单值——签名协议按参数名去重，
+     * 同订单清单先例）；② {@code createdFrom/createdTo} 创建时间区间（ISO-8601 含两端）；
+     * ③ {@code orderId} 所属订单精确（TSID 十进制，非数值→空清单 200）；④ {@code contractNo}
+     * 合同号精确（SG- 串）。行带编号/状态/版本/冻结金额；排序服务端定死（TSID 倒序＝新合同
+     * 在前）不开放。page 1-based 直传零换算，provider clamp（page≥1、size∈[1,100]）行为透传。
+     * 过滤参数绑定失败 400 原样透传（如 ORD_020 族外显为框架绑定错误）。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformContractQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public PageResponse<AiplatformContractSummaryWireResponse> listContracts(
+            AiplatformContractListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/contracts?page=").append(page)
+                .append("&size=").append(size);
+        if (filter.status() != null && !filter.status().isEmpty()) {
+            // 逗号分隔单值（provider 签名按参数名去重，status=1&status=2 只有末值入签——禁用）
+            appendParam(url, "status",
+                    filter.status().stream().map(String::valueOf).collect(Collectors.joining(",")));
+        }
+        appendParam(url, "createdFrom", filter.createdFrom());
+        appendParam(url, "createdTo", filter.createdTo());
+        appendParam(url, "orderId", filter.orderId());
+        appendParam(url, "contractNo", filter.contractNo());
+        log.debug("AiplatformClient.listContracts: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformContractSummaryWireResponse>> resp =
+                    openApiClient.get(url.toString(), CONTRACT_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询合同详情（透传 aiplatform）——后台承接全量面：全字段（含「需更新」派生标志与
+     * 范围快照冻结面）＋PRD 确认版全文冗余拷贝（报价/录内容的依据面）＋动作留痕时间线
+     * （新→旧，append-only 全量——动作/两侧状态/依据/操作者两肢/时间）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/contracts/{id}}（#336 已冻结）：返回
+     * {@code ApiResponse<BackofficeContractDetailResponse>}（三段）；合同不存在（含畸形 id）
+     * 时 HTTP 404 + 数字业务码 5020（ORD_020）原样透传。</p>
+     *
+     * @param id 合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 ORD_020 等，不做映射）
+     */
+    public AiplatformContractDetailWireResponse getContract(String id) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id);
+        log.debug("AiplatformClient.getContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractDetailWireResponse> resp = openApiClient.get(url, CONTRACT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 为订单创建/重建合同（透传 aiplatform）——撤回/作废后的重建口（新号新合同、旧合同
+     * 终态保留），与用户「确认范围并准备合同」共用同一创建正本：冻结集取现值（最新价目行
+     * ＋范围文本工作副本＋PRD/Demo 双版本引用冗余），起步准备中。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/orders/{orderId}}（#336 已冻结）：
+     * <strong>无请求体</strong>（provider 端只读路径参数——框架 {@code OpenApiClient.post} 对
+     * null body 发空 body，同重试归档先例），返回 {@code ApiResponse<ContractResponse>}（准备中
+     * 起步回执）。前置门全在 provider：订单不存在 404 ORD_001（5001）；尚无报价 409
+     * ORD_025（5025）；范围文本未录入 409 ORD_026（5026）；已有活跃合同（预检或并发撞
+     * 部分唯一索引同译）409 ORD_024（5024）；最近合同已签署完成/订单非已报价态 409
+     * ORD_021（5021）——均原样透传，BFF 不复算活跃判定。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/021/024/025/026 等，不做映射）
+     */
+    public AiplatformContractWireResponse createContractForOrder(String orderId) {
+        String url = baseUrl + "/api/backoffice/contracts/orders/" + encode(orderId);
+        log.debug("AiplatformClient.createContractForOrder: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp = openApiClient.post(url, null, CONTRACT_RECEIPT_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

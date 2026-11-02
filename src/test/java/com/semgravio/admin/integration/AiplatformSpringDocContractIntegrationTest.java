@@ -93,6 +93,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       tokenKind 六档枚举（6=按张——开行/改价/停用对六档同一套语义）＋成本总览图片生成成本
  *       到场路径（cost 桶同桶混算、张不进五档分解——张与 token 并列不混算）＋unpriced 按张档
  *       （tokens＝张数）须在 api-docs 在场；北向 schema 的 tokenKind 同步自描述。</li>
+ *   <li>合同域三端点 @Operation 描述镜像（issue #104，spec #102 A 批 A1——镜像 aiplatform
+ *       #336）：清单（六态枚举＋四维检索＋TSID 倒序定死）、详情（三段承接全量面——「需更新」
+ *       派生标志/范围快照冻结面/PRD 确认版全文冗余拷贝/append-only 动作时间线）、创建重建
+ *       （撤回/作废后新号新合同、与用户 confirmScope 共用创建正本、无请求体、前置门
+ *       ORD_001/021/024/025/026 数字码）的 summary＋description 逐字镜像 provider；北向
+ *       schema 的六态 status/needsUpdate 与留痕行 action 同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -910,6 +916,79 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText(""))
                 .contains("design-package")
                 .contains("source-package");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：合同域三端点 @Operation 描述镜像 provider（#104，六态/冻结面/重建语义/ORD_020/021/024/025/026 数字码在场）")
+    void given_contractEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：六态枚举＋四维检索＋排序定死
+        JsonNode list = paths.path("/api/admin/aiplatform/contracts").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含合同清单端点").isFalse();
+        assertThat(list.path("description").asText(""))
+                .contains("新合同在前")
+                .contains("1=准备中 2=待核对与签署 3=签署进行中 4=签署完成 5=签署失败或过期 6=已撤回或作废")
+                .contains("status=2,4")
+                .contains("createdFrom/createdTo")
+                .contains("orderId")
+                .contains("contractNo")
+                .contains("SG-")
+                .contains("排序服务端定死不开放");
+
+        // 详情：三段承接全量面（需更新派生标志/范围快照冻结面/PRD 全文冗余拷贝/动作时间线）
+        JsonNode detail = paths.path("/api/admin/aiplatform/contracts/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含合同详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("承接全量面")
+                .contains("动作时间线");
+        assertThat(detail.path("description").asText(""))
+                .contains("「需更新」")
+                .contains("范围快照冻结面")
+                .contains("PRD 确认版全文冗余拷贝")
+                .contains("append-only 全量")
+                .contains("签署标记不自动迁移状态")
+                .contains("1=推进 2=撤回 3=作废 4=签署标记 5=草稿重录 6=失败或过期")
+                .contains("操作者必填")
+                .contains("ORD_020").contains("5020");
+
+        // 创建重建：重建语义＋共用创建正本＋无请求体＋前置门数字码
+        JsonNode create = paths.path("/api/admin/aiplatform/contracts/orders/{orderId}").path("post");
+        assertThat(create.isMissingNode()).as("api-docs 应含合同创建重建端点").isFalse();
+        assertThat(create.path("summary").asText(""))
+                .contains("创建/重建合同")
+                .contains("确认范围冻结集取现值");
+        assertThat(create.path("description").asText(""))
+                .contains("撤回/作废后的重建口")
+                .contains("新号新合同")
+                .contains("共用同一创建正本")
+                .contains("无请求体")
+                .contains("前置门全在 provider")
+                .contains("ORD_001").contains("5001")
+                .contains("ORD_021").contains("5021")
+                .contains("ORD_024").contains("5024")
+                .contains("ORD_025").contains("5025")
+                .contains("ORD_026").contains("5026");
+
+        // 六态 schema 自描述（清单行与全字段面）：六态语义＋终态不删/重建口径
+        for (String schema : List.of("AiplatformContractSummaryResponse", "AiplatformContractResponse")) {
+            JsonNode status = property(schema, "status");
+            assertThat(status.path("description").asText(""))
+                    .as("%s.status 应写明六态语义", schema)
+                    .contains("1=准备中 2=待核对与签署 3=签署进行中 4=签署完成 5=签署失败或过期 6=已撤回或作废")
+                    .contains("已撤回或作废");
+            assertThat(exampleText(status)).as("%s.status 应附示例", schema).isNotBlank();
+        }
+        // 全字段面专属：needsUpdate 派生口径（重录清零/非草稿恒 false）＋留痕行动作六值
+        assertThat(property("AiplatformContractResponse", "needsUpdate")
+                .path("description").asText(""))
+                .contains("待后台重录重新冻结并清零")
+                .contains("非草稿态恒 false");
+        JsonNode action = property("AiplatformContractTransitionResponse", "action");
+        assertThat(action.path("description").asText(""))
+                .contains("1=推进 2=撤回 3=作废 4=签署标记 5=草稿重录 6=失败或过期")
+                .contains("fromStatus = toStatus");
+        assertThat(exampleText(action)).isNotBlank();
     }
 
     // ---------- 装载 ----------

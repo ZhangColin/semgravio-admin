@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 import com.semgravio.admin.aiplatform.application.AiplatformAccountAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
@@ -33,12 +34,16 @@ import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCan
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPriceEntryRepriceCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformCostQuery;
+import com.semgravio.admin.aiplatform.application.dto.query.AiplatformContractQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformMaterialQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformPriceEntryQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformProjectQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformAccountProfileResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractDetailResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractSummaryResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformCostOverviewResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformMaterialDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformMaterialSummaryResponse;
@@ -60,6 +65,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversatio
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
@@ -94,7 +104,7 @@ import com.cartisan.web.response.PageResponse;
  * aiplatform BFF 集成测试（issue #63 T1 账号首批 + #64 订单读路径 + #65 项目核心读路径 +
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
- * 文件树/文件内容/文件包）——mock {@link AiplatformClient}，
+ * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -137,6 +147,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformMaterialAppService materialAppService;
+
+    @Autowired
+    private AiplatformContractAppService contractAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -397,6 +410,135 @@ class AiplatformBffIntegrationTest {
                 2199000L, "CNY", "含加急费用", LocalDateTime.of(2026, 9, 11, 9, 0, 0),
                 priceEntries, LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);
+    }
+
+    // ========== 合同域（#104 A1）· query→wire 映射 + 三段详情映射 + 创建回执映射 ==========
+
+    @Test
+    void given_contractQueryAndPage_when_list_then_wireRequestMappedAndPageEchoedFromProvider() {
+        when(aiplatformClient.listContracts(any(), eq(3), eq(20))).thenReturn(
+                new PageResponse<>(List.of(
+                        new AiplatformContractSummaryWireResponse(
+                                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                                3, "签署进行中", 1, 128000L, "CNY",
+                                LocalDateTime.of(2026, 10, 18, 9, 30, 0))), 6, 3, 20));
+
+        PageResponse<AiplatformContractSummaryResponse> page = contractAppService.list(
+                new AiplatformContractQuery(List.of(3, 6),
+                        LocalDateTime.of(2026, 10, 1, 0, 0, 0),
+                        LocalDateTime.of(2026, 10, 31, 23, 59, 59),
+                        "3829492007777777", "SG-l5d3vt0h4b"), 3, 20);
+
+        // 出站参数：北向 query → wire 过滤记录逐字段映射（第四维＝contractNo，区别于订单的 externalId）；
+        // page 1-based 直传（3→3，无 ±1）
+        ArgumentCaptor<AiplatformContractListWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractListWireRequest.class);
+        verify(aiplatformClient).listContracts(wireCaptor.capture(), eq(3), eq(20));
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractListWireRequest(
+                List.of(3, 6),
+                LocalDateTime.of(2026, 10, 1, 0, 0, 0),
+                LocalDateTime.of(2026, 10, 31, 23, 59, 59),
+                "3829492007777777", "SG-l5d3vt0h4b"));
+
+        // 回显取 provider 回报值；wire → response 逐字段（六态 code+中文名/version/金额直通）
+        assertThat(page.total()).isEqualTo(6L);
+        assertThat(page.page()).isEqualTo(3);
+        assertThat(page.size()).isEqualTo(20);
+        var row = page.items().get(0);
+        assertThat(row.id()).isEqualTo("3829493004444444");
+        assertThat(row.contractNo()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(row.orderId()).isEqualTo("3829492007777777");
+        assertThat(row.status()).isEqualTo(3);
+        assertThat(row.statusName()).isEqualTo("签署进行中");
+        assertThat(row.version()).isEqualTo(1);
+        assertThat(row.amount()).isEqualTo(128000L);
+        assertThat(row.currency()).isEqualTo("CNY");
+        assertThat(row.createdAt()).isEqualTo(LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    @Test
+    void given_contractDetailWire_when_getDetail_then_threeSegmentsMapped() {
+        when(aiplatformClient.getContract("3829493004444444")).thenReturn(
+                new AiplatformContractDetailWireResponse(
+                        new AiplatformContractWireResponse(
+                                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                                3, "签署进行中", 1, false,
+                                "语义引力（上海）科技有限公司", "文野",
+                                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                                128000L, "CNY", 3, 2,
+                                true, LocalDateTime.of(2026, 10, 20, 10, 0, 0),
+                                false, null,
+                                LocalDateTime.of(2026, 10, 18, 9, 30, 0)),
+                        "# PRD v3\n\n已确认版本全文",
+                        List.of(new AiplatformContractTransitionWireResponse(
+                                4, "签署标记", 3, "签署进行中", 3, "签署进行中",
+                                "甲方已线下用印", "700100", "运营·小刘",
+                                LocalDateTime.of(2026, 10, 20, 10, 0, 0)))));
+
+        AiplatformContractDetailResponse detail = contractAppService.getDetail("3829493004444444");
+
+        // 三段逐字段映射：contract 全字段（含 needsUpdate/范围快照冻结面/双方签署位）
+        var contract = detail.contract();
+        assertThat(contract.contractNo()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(contract.status()).isEqualTo(3);
+        assertThat(contract.needsUpdate()).isFalse();
+        assertThat(contract.partyA()).isEqualTo("语义引力（上海）科技有限公司");
+        assertThat(contract.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(contract.prdVersionNo()).isEqualTo(3);
+        assertThat(contract.demoVersionNo()).isEqualTo(2);
+        assertThat(contract.partyASigned()).isTrue();
+        assertThat(contract.partyBSignedAt()).isNull();
+        // PRD 全文冗余拷贝直通；留痕行逐字段直通（动作/两侧状态/依据/操作者两肢）
+        assertThat(detail.prdSnapshot()).isEqualTo("# PRD v3\n\n已确认版本全文");
+        var transition = detail.transitions().get(0);
+        assertThat(transition.action()).isEqualTo(4);
+        assertThat(transition.fromStatus()).isEqualTo(3);
+        assertThat(transition.toStatus()).isEqualTo(3);
+        assertThat(transition.basis()).isEqualTo("甲方已线下用印");
+        assertThat(transition.operatorId()).isEqualTo("700100");
+    }
+
+    @Test
+    void given_createReceiptWire_when_createForOrder_then_preparingReceiptMapped() {
+        when(aiplatformClient.createContractForOrder("3829492007777777")).thenReturn(
+                new AiplatformContractWireResponse(
+                        "3829493007777777", "SG-l5h6zy2g3x", "3829492007777777",
+                        1, "准备中", 1, false,
+                        null, null, null, null,
+                        "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                        128000L, "CNY", 3, 2,
+                        false, null, false, null,
+                        LocalDateTime.of(2026, 10, 23, 9, 0, 0)));
+
+        AiplatformContractResponse receipt = contractAppService.createForOrder("3829492007777777");
+
+        // 创建回执映射：准备中起步、四预览字段 null 直通（BFF 不代填）、冻结集已取现值
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.statusName()).isEqualTo("准备中");
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.partyA()).isNull();
+        assertThat(receipt.paymentPlan()).isNull();
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(receipt.amount()).isEqualTo(128000L);
+        assertThat(receipt.partyASigned()).isFalse();
+    }
+
+    @Test
+    void given_ord024FromDownstream_when_createForOrder_then_propagateWithoutMapping() {
+        when(aiplatformClient.createContractForOrder("3829492007777777")).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5024,\"message\":\"该订单已有活跃合同（至多一份非终态合同）\",\"data\":null}")));
+
+        assertThatThrownBy(() -> contractAppService.createForOrder("3829492007777777"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_024 → HTTP 409 + 数字业务码 5024（域码 5×1000＋24——活跃唯一前置门归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5024);
+                    assertThat(upstream.getMessage()).isEqualTo("该订单已有活跃合同（至多一份非终态合同）");
+                });
     }
 
     // ========== 项目清单 · query→wire 映射（status 单选）+ 分页 1-based 透传 ==========

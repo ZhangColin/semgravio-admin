@@ -3,6 +3,7 @@ package com.semgravio.admin.aiplatform.infrastructure;
 import com.semgravio.admin.aiplatform.application.AiplatformAccountAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformAgentConfigAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformAgentToolAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
@@ -35,7 +36,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformProjectClientContractTest} / {@code AiplatformWorkspaceClientContractTest} /
  * {@code AiplatformCostClientContractTest} / {@code AiplatformPriceEntryClientContractTest} /
  * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} /
- * {@code AiplatformAgentConfigClientContractTest} / {@code AiplatformAgentToolClientContractTest} 复用；
+ * {@code AiplatformAgentConfigClientContractTest} / {@code AiplatformAgentToolClientContractTest} /
+ * {@code AiplatformContractClientContractTest}（#104 合同域）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -951,6 +953,96 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformAgentToolAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 合同域版（issue #104，spec #102 A 批 A1）——清单/详情两读口走 {@code get}、创建重建走
+     * {@code post}（<strong>无请求体</strong>——null body 发空 body，同重试归档先例），均按真实
+     * {@code TypeReference} 反序列化；post 的 wire URL 记入 wireUrlSink 后复用同一 sink
+     * （读写同域断言各自调用）。
+     */
+    static AiplatformContractAppService contractAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformContractAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 合同域版 {@link #accountAppServiceWithErrorTransport}——{@code get} 与 {@code post} 都始终抛
+     * {@link OpenApiClientException}（框架对 ≥400 的行为复刻：ORD_020/021/024/025/026 与读口
+     * 错误信封同形）。
+     */
+    static AiplatformContractAppService contractAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformContractAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 合同域<strong>写路径</strong>版（创建重建，issue #104）——post 按真实 {@code TypeReference}
+     * 反序列化并把命令体记入 wireBodySink（<strong>无请求体</strong>——null body 原样记 null，
+     * 钉死创建重建只读路径参数的契约，同重试归档先例）；get 沿用读路径版语义（创建测试
+     * 不触达，但 stub 保完整形制）。
+     */
+    static AiplatformContractAppService contractWriteAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformContractAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {

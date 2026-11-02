@@ -43,6 +43,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWi
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
@@ -106,7 +110,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * #84 技能线 T5 智能体配置读写＋变更留痕读面 + #85 技能线 T6 工具面清单＋增强工具开关 +
  * #90 指派双头预检——技能域第 16 端点 + #92 草稿审核面——技能域第 17–20 端点 +
  * #96 设计能力线 T1——订单设计资产包取件（复用 order:read，交付物类型字段对随清单/详情/
- * 写回执北向断言））
+ * 写回执北向断言）+ #104 合同域 A1——清单/详情/创建重建三端点（contract:read/create 两码
+ * 读写分权；六态/PRD 全文冗余拷贝/动作时间线北向形状＋操作者透传断言））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -172,6 +177,14 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String RETRY_ARCHIVE_ENDPOINT = ORDER_DETAIL_ENDPOINT + "/retry-archive";
     private static final String QUOTE_BODY = "{\"amount\":2199000,\"note\":\"含加急费用\"}";
     private static final String CANCEL_BODY = "{\"reason\":\"重复下单，用户要求取消\"}";
+    private static final String CONTRACT_READ_PERMISSION = "admin:aiplatform:contract:read";
+    private static final String CONTRACT_CREATE_PERMISSION = "admin:aiplatform:contract:create";
+    /** 合同标识（TSID 十进制串柄——透传不解析不预校验，畸形/未寻址由 provider 判 404 ORD_020）。 */
+    private static final String CONTRACT_ID = "3829493004444444";
+    private static final String CONTRACTS_ENDPOINT = "/api/admin/aiplatform/contracts";
+    private static final String CONTRACT_DETAIL_ENDPOINT = CONTRACTS_ENDPOINT + "/" + CONTRACT_ID;
+    /** 创建重建口挂在 orders/{orderId} 下（区别于 /{id} 推进口——A2 落）。 */
+    private static final String CONTRACT_CREATE_ENDPOINT = CONTRACTS_ENDPOINT + "/orders/" + ORDER_ID;
     private static final String PROJECT_ID = "3829492007654321";
     private static final String PROJECTS_ENDPOINT = "/api/admin/aiplatform/projects";
     private static final String PROJECT_DETAIL_ENDPOINT = PROJECTS_ENDPOINT + "/" + PROJECT_ID;
@@ -305,6 +318,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithAgentToolToggle;
     private String usernameWithSkillDraftWrite;
     private String usernameWithDraftPromoteOnly;
+    private String usernameWithContractCreate;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -330,6 +344,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String agentToolToggleUserNickname;
     private Long skillDraftWriteUserId;
     private String skillDraftWriteUserNickname;
+    private Long contractCreateUserId;
+    private String contractCreateUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -369,6 +385,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithAgentToolToggle = "aiplaatog" + suffix;
         usernameWithSkillDraftWrite = "aiplasdwpr" + suffix;
         usernameWithDraftPromoteOnly = "aiplasdpo" + suffix;
+        usernameWithContractCreate = "aiplaccpr" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -378,7 +395,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
-                        SKILL_DRAFT_READ_PERMISSION)));
+                        SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -581,6 +598,19 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "草稿晋升专员_" + suffix, null, null, null));
         userAppService.assignRoles(draftPromoteOnlyUserId, new AssignRolesCommand(List.of(draftPromoteOnlyRoleId)));
 
+        // 合同创建重建专用运营（contract:create 单写码，无读码——读写分权，spec #102 A 批）
+        // ——操作者透传断言用其 id/昵称（provider 合同动作操作者必填、缺头 ORD_035 拒）
+        Long contractCreateRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台合同创建_" + suffix, "AIPLACCPR_" + suffix,
+                        "AI 平台合同创建重建权限", 108, null));
+        roleAppService.assignPermissions(contractCreateRoleId,
+                new AssignPermissionsCommand(List.of(CONTRACT_CREATE_PERMISSION)));
+        contractCreateUserNickname = "合同运营_" + suffix;
+        contractCreateUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithContractCreate, PASSWORD,
+                        contractCreateUserNickname, null, null, null));
+        userAppService.assignRoles(contractCreateUserId, new AssignRolesCommand(List.of(contractCreateRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -614,6 +644,20 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "Content-Disposition", List.of("attachment; filename=\"" + ORDER_ID + "-design.tar.gz\"")),
                         (a, b) -> true),
                 new byte[] {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00, (byte) 0xff, 0x41, 0x00}));
+        // 合同域 mock（#104 A1）：清单行（签署进行中——六态代表位）+ 详情三段（全字段/PRD 全文/
+        // 留痕一行）——读口两 stub
+        when(aiplatformClient.listContracts(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(
+                List.of(new AiplatformContractSummaryWireResponse(
+                        CONTRACT_ID, "SG-l5d3vt0h4b", ORDER_ID,
+                        3, "签署进行中", 1, 128000L, "CNY",
+                        LocalDateTime.of(2026, 10, 18, 9, 30, 0))), 6, 3, 20));
+        when(aiplatformClient.getContract(eq(CONTRACT_ID))).thenReturn(new AiplatformContractDetailWireResponse(
+                contractWire(3, "签署进行中", true),
+                "# PRD v3\n\n已确认版本全文",
+                List.of(new AiplatformContractTransitionWireResponse(
+                        4, "签署标记", 3, "签署进行中", 3, "签署进行中",
+                        "甲方已线下用印", "700100", "运营·小刘",
+                        LocalDateTime.of(2026, 10, 20, 10, 0, 0)))));
         when(aiplatformClient.listProjects(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectSummaryWireResponse(
                         PROJECT_ID, "英语学习助手", EXTERNAL_ID, "文野",
@@ -697,6 +741,12 @@ class AiplatformRbacEnforcementIntegrationTest {
             return orderReceiptWire(4, "已归档", null,
                     LocalDateTime.of(2026, 9, 15, 20, 0, 0), LocalDateTime.of(2026, 9, 16, 9, 30, 0));
         }).when(aiplatformClient).retryArchiveOrder(eq(ORDER_ID));
+        // 合同创建重建 mock（#104 A1）：准备中起步回执 + 抓取 RequestContext（provider 合同
+        // 动作操作者必填 ORD_035——北向无操作者字段，透传头是唯一正身）
+        doAnswer(inv -> {
+            capture.run();
+            return contractCreateReceiptWire();
+        }).when(aiplatformClient).createContractForOrder(eq(ORDER_ID));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1085,6 +1135,39 @@ class AiplatformRbacEnforcementIntegrationTest {
                         LocalDateTime.of(2026, 9, 12, 10, 0, 0))),
                 LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);
+    }
+
+    /**
+     * 合同域 wire 载荷工厂（详情 contract 段，issue #104）：签署进行中＋甲方已落签——
+     * 冻结集取现值（范围快照三段＋金额＋双版本引用）＋四个后台录入预览字段已录。
+     */
+    private static AiplatformContractWireResponse contractWire(Integer status, String statusName,
+                                                               boolean partyASigned) {
+        return new AiplatformContractWireResponse(
+                CONTRACT_ID, "SG-l5d3vt0h4b", ORDER_ID,
+                status, statusName, 1, false,
+                "语义引力（上海）科技有限公司", "文野",
+                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                128000L, "CNY", 3, 2,
+                partyASigned, partyASigned ? LocalDateTime.of(2026, 10, 20, 10, 0, 0) : null,
+                false, null,
+                LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    /**
+     * 合同创建重建回执 wire 载荷工厂（issue #104）：准备中起步——冻结集取现值、四个后台
+     * 录入预览字段 null 在场（后台尚未录入）、双方签署位未落、version 1、needsUpdate false。
+     */
+    private static AiplatformContractWireResponse contractCreateReceiptWire() {
+        return new AiplatformContractWireResponse(
+                "3829493007777777", "SG-l5h6zy2g3x", ORDER_ID,
+                1, "准备中", 1, false,
+                null, null, null, null,
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                128000L, "CNY", 3, 2,
+                false, null, false, null,
+                LocalDateTime.of(2026, 10, 23, 9, 0, 0));
     }
 
     /**
@@ -3361,6 +3444,148 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 7018（SKL_018＝域码 7×1000＋18），而非映射后的 400——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(7018);
         assertThat(root.path("message").asText()).isEqualTo("拒绝理由不能为空（终态留档，拒绝须有据）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 合同域（contract:read/create 两码）· 权限三态 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 contract:read → 清单 200，分页回显 provider 值、六态 code+中文名、金额 Long（分）")
+    void given_nonSuperAdminWithContractRead_when_listContracts_then_200AndPageShapeMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        // 四维过滤 + 分页 1-based 直传（page=3 无 ±1）
+        ResponseEntity<String> response = getWithToken(
+                CONTRACTS_ENDPOINT + "?status=3,6&contractNo=SG-l5d3vt0h4b&page=3&size=20", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // PageResponse 形状：items/total/page/size，回显 provider 回报值（page=3——1-based 原值）
+        assertThat(data.path("total").asLong()).isEqualTo(6L);
+        assertThat(data.path("page").asInt()).isEqualTo(3);
+        assertThat(data.path("size").asInt()).isEqualTo(20);
+        JsonNode row = data.path("items").get(0);
+        assertThat(row.path("id").asText()).isEqualTo(CONTRACT_ID);
+        assertThat(row.path("contractNo").asText()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(row.path("orderId").asText()).isEqualTo(ORDER_ID);
+        // 六态 code Integer 直通出 JSON number（非 Long——不走 ToStringSerializer）+ 中文名随行
+        assertThat(row.path("status").isNumber()).isTrue();
+        assertThat(row.path("status").asInt()).isEqualTo(3);
+        assertThat(row.path("statusName").asText()).isEqualTo("签署进行中");
+        // version primitive int 出 JSON number；金额 Long（分）出 JSON string（全局出口口径）
+        assertThat(row.path("version").isNumber()).isTrue();
+        assertThat(row.path("version").asInt()).isEqualTo(1);
+        assertThat(row.path("amount").asLong()).isEqualTo(128000L);
+        assertThat(row.path("currency").asText()).isEqualTo("CNY");
+        assertThat(row.path("createdAt").asText()).isEqualTo("2026-10-18T09:30:00");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:read → 详情 200，三段齐备：全字段/PRD 全文冗余拷贝/动作时间线")
+    void given_nonSuperAdminWithContractRead_when_getContractDetail_then_200AndThreeSegmentsMirrored() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(CONTRACT_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 第一段 contract：六态/需更新派生标志（boolean）/范围快照冻结面/双方签署位
+        JsonNode contract = data.path("contract");
+        assertThat(contract.path("id").asText()).isEqualTo(CONTRACT_ID);
+        assertThat(contract.path("status").asInt()).isEqualTo(3);
+        assertThat(contract.path("statusName").asText()).isEqualTo("签署进行中");
+        assertThat(contract.path("needsUpdate").isBoolean()).isTrue();
+        assertThat(contract.path("needsUpdate").asBoolean()).isFalse();
+        assertThat(contract.path("scopeDeliverables").asText()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(contract.path("scopeAcceptance").asText()).isEqualTo("验收方式：按 PRD v3 验收");
+        assertThat(contract.path("scopeTimeline").asText()).isEqualTo("工期口径：4 周");
+        assertThat(contract.path("amount").asLong()).isEqualTo(128000L);
+        assertThat(contract.path("prdVersionNo").asInt()).isEqualTo(3);
+        assertThat(contract.path("demoVersionNo").asInt()).isEqualTo(2);
+        assertThat(contract.path("partyASigned").asBoolean()).isTrue();
+        assertThat(contract.path("partyASignedAt").asText()).isEqualTo("2026-10-20T10:00:00");
+        assertThat(contract.path("partyBSigned").asBoolean()).isFalse();
+        assertThat(contract.path("partyBSignedAt").isNull()).isTrue();
+        // 第二段 PRD 确认版全文冗余拷贝（后台依据面）
+        assertThat(data.path("prdSnapshot").asText()).isEqualTo("# PRD v3\n\n已确认版本全文");
+        // 第三段动作时间线：留痕行带动作 code/两侧状态/依据/操作者两肢
+        JsonNode transition = data.path("transitions").get(0);
+        assertThat(transition.path("action").asInt()).isEqualTo(4);
+        assertThat(transition.path("actionName").asText()).isEqualTo("签署标记");
+        assertThat(transition.path("fromStatus").asInt()).isEqualTo(3);
+        assertThat(transition.path("toStatus").asInt()).isEqualTo(3);
+        assertThat(transition.path("basis").asText()).isEqualTo("甲方已线下用印");
+        assertThat(transition.path("operatorId").asText()).isEqualTo("700100");
+        assertThat(transition.path("operatorName").asText()).isEqualTo("运营·小刘");
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 合同三端点 403（独立权限码 contract:read/create——读写分权）")
+    void given_nonSuperAdminWithoutPermission_when_contractEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(CONTRACTS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(CONTRACT_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_CREATE_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问合同三端点返回 401")
+    void given_unauthenticated_when_contractEndpoints_then_401() {
+        assertThat(getWithToken(CONTRACTS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(CONTRACT_DETAIL_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_CREATE_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 contract:read（无写码）→ 创建重建 403（read ≠ create，读写不串）")
+    void given_nonSuperAdminWithContractReadOnly_when_createForOrder_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(CONTRACT_CREATE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:create → 创建重建 200，准备中起步回执且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithContractCreate_when_createForOrder_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithContractCreate);
+        ResponseEntity<String> response = postWithToken(CONTRACT_CREATE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        // 准备中起步回执：冻结集取现值、四预览字段 null 在场出 JSON null、双方签署位未落
+        assertThat(receipt.path("status").asInt()).isEqualTo(1);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("准备中");
+        assertThat(receipt.path("version").asInt()).isEqualTo(1);
+        assertThat(receipt.path("needsUpdate").asBoolean()).isFalse();
+        assertThat(receipt.path("partyA").isNull()).isTrue();
+        assertThat(receipt.path("projectScope").isNull()).isTrue();
+        assertThat(receipt.path("paymentPlan").isNull()).isTrue();
+        assertThat(receipt.path("scopeDeliverables").asText()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(receipt.path("amount").asLong()).isEqualTo(128000L);
+        assertThat(receipt.path("partyASigned").asBoolean()).isFalse();
+        assertThat(receipt.path("partyBSignedAt").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头；provider 合同动作以操作者为审计正身、缺头 ORD_035 拒）
+        assertThat(capturedOperatorId.get()).isEqualTo(contractCreateUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(contractCreateUserNickname);
+    }
+
+    @Test
+    @DisplayName("合同详情下游 ORD_020 → 北向 HTTP 404 + 信封 code=5020 + message 原文（不映射）")
+    void given_ord020FromDownstream_when_getContractDetail_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.getContract(eq("3829493999999999"))).thenThrow(
+                AiplatformUpstreamException.from(
+                        new OpenApiClientException(404, "{\"code\":5020,\"message\":\"合同不存在\",\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(
+                CONTRACTS_ENDPOINT + "/3829493999999999", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 5020（ORD_020＝域码 5×1000＋20），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(5020);
+        assertThat(root.path("message").asText()).isEqualTo("合同不存在");
         assertThat(root.path("data").isNull()).isTrue();
     }
 
