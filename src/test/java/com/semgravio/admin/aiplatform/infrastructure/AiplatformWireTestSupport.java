@@ -7,6 +7,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSkillAppService;
@@ -37,7 +38,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformCostClientContractTest} / {@code AiplatformPriceEntryClientContractTest} /
  * {@code AiplatformMaterialClientContractTest} / {@code AiplatformSkillClientContractTest} /
  * {@code AiplatformAgentConfigClientContractTest} / {@code AiplatformAgentToolClientContractTest} /
- * {@code AiplatformContractClientContractTest}（#104 合同域）复用；
+ * {@code AiplatformContractClientContractTest}（#104 合同域）/
+ * {@code AiplatformPaymentClientContractTest}（#106 付款核验域）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -1044,6 +1046,84 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformContractAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 付款核验域版（issue #106，spec #102 A 批 A3）——{@code get}（计划详情）走真实
+     * {@code TypeReference} 反序列化，{@code download}（凭证内容）返回给定 {@link BinaryResponse}
+     * （二进制无反序列化路径，stub 只需保全字节与响应头——同订单域源码包版语义），
+     * {@code post}（节点录入/核验/打回三写口）按真实 {@code TypeReference} 反序列化并把命令体按
+     * <strong>生产 mapper 口径</strong>序列化进 wireBodySink（订单写路径版同款 seam——节点金额/
+     * 实到金额为 Long 分，出站 JSON string，断言须对齐生产口径）。
+     */
+    static AiplatformPaymentAppService paymentAppServiceWithStubTransport(
+            String envelopeBody, BinaryResponse downloadStub, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        // cartisan-web 生产 ObjectMapper 对 Long/long 注册 ToStringSerializer（JacksonConfiguration
+        // serializerByType，与 BigDecimal WRITE_BIGDECIMAL_AS_PLAIN 同一全局配置）——付款命令体的
+        // amount/actualAmount（Long 分）出站为 JSON string，对齐订单写路径版 commandBodyMapper
+        ObjectMapper commandBodyMapper = bootDefaultMapper().registerModule(new SimpleModule()
+                .addSerializer(Long.class, ToStringSerializer.instance)
+                .addSerializer(Long.TYPE, ToStringSerializer.instance));
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public BinaryResponse download(String url) {
+                wireUrlSink[0] = url;
+                return downloadStub;
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : commandBodyMapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformPaymentAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 付款核验域版 {@link #accountAppServiceWithErrorTransport}——{@code get}/{@code download}/
+     * {@code post} 都始终抛 {@link OpenApiClientException}（框架对 ≥400 的行为复刻：计划
+     * ORD_036、节点 ORD_037、状态守卫 ORD_038、录入校验 ORD_039/041/042、凭证 ORD_045、
+     * 重录窗口 ORD_044 与读口错误信封同形；download 的错误信封在 body 里）。
+     */
+    static AiplatformPaymentAppService paymentAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public BinaryResponse download(String url) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformPaymentAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {

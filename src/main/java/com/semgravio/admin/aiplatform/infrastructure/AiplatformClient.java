@@ -21,6 +21,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRec
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodesWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
@@ -83,9 +88,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>为 infrastructure 包内裸 {@code @Component}（BFF 出站客户端，不走 {@code @Port/@Adapter}，
  * 详见 ADR-0007，与 {@code PaymentClient} / {@code AccountClient} / {@code AppRegistryClient} 同款）。
- * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）与
- * 合同域（#104 第八域——spec #102 A 批）共用本客户端——同一 downstream、同一签名身份，
- * 各域只加方法。</p>
+ * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）、
+ * 合同域（#104 第八域——spec #102 A 批）与付款核验域（#106 第九域——spec #102 A 批 A3，
+ * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）共用
+ * 本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -126,6 +132,16 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformContractWireResponse>> CONTRACT_RECEIPT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 付款核验域（#106，spec #102 A 批 A3——provider aiplatform #337）：详情为
+    // ApiResponse<BackofficePaymentPlanDetailResponse>（plan＋trails＋history 三段）；
+    // 节点录入/到账核验/打回三写口回执共形＝ApiResponse<PaymentPlanResponse>（用户面付款面板
+    // 同构 DTO，与详情 plan 段共形）；凭证内容为二进制流无信封（download）
+    private static final TypeReference<ApiResponse<AiplatformPaymentPlanDetailWireResponse>> PAYMENT_PLAN_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformPaymentPlanWireResponse>> PAYMENT_PLAN_TYPEREF =
             new TypeReference<>() {};
 
     // 项目域（#159/#162）同为 ApiResponse<T> 信封；对话史/版本列表的 data 是裸 List（非分页载体）
@@ -747,6 +763,160 @@ public class AiplatformClient {
             ApiResponse<AiplatformContractWireResponse> resp =
                     openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
             return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 付款核验域（issue #106，spec #102 A 批 A3——provider aiplatform #337）----------
+    // 注意命名：本组是 aiplatform 付款核验域（合同冻结后的付款计划承接），与既有支付服务 BFF
+    // 上下文（com.semgravio.admin.payment，调 semgravio-payment）无关联——两处 payment 词同形
+    // 不同域，勿混读（spec #102 Further Notes）。
+
+    /**
+     * 后台付款计划详情（透传 aiplatform）——核验承接全量面：订单名下活跃计划（最新行）全量
+     * （节点五态/金额/附言码/开工门标志/渠道位/累计已核到账＋凭证清单）＋核验留痕时间线
+     * （新 → 旧，跨节点全量——到账核验/打回各一行 append-only）＋历史计划行摘要（撤回重建/
+     * 范围重冻后旧计划随旧合同留痕）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/orders/{orderId}/payment-plan}（#337 已冻结）：
+     * 返回 {@code ApiResponse<BackofficePaymentPlanDetailResponse>}。订单不存在 404 ORD_001
+     * （5001）；该订单名下无付款计划（尚无合同即无计划）404 <strong>ORD_036</strong>（5036，
+     * 前端缺席＝不渲染面板）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/ORD_036 等，不做映射）
+     */
+    public AiplatformPaymentPlanDetailWireResponse getPaymentPlan(String orderId) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId) + "/payment-plan";
+        log.debug("AiplatformClient.getPaymentPlan: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanDetailWireResponse> resp =
+                    openApiClient.get(url, PAYMENT_PLAN_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 付款节点录入（透传 aiplatform）——「付款节点录入/开工门设定」后台承接口：整组替换
+     * （不收半组）——序号按列表序服务端派生（录入序即展示序）、附言码自合同号定格
+     * （{@code <合同号>-K<序>}）、渠道起步线下转账。<strong>支付活动未开始</strong>（全部
+     * 待支付且无凭证无留痕）是重录唯一窗口——已开始变动走合同侧撤回重建；守卫归 provider
+     * 裁决（聚合腿＋凭证腿两腿同译 ORD_044），BFF 零复算。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-plan/nodes}（#337
+     * 已冻结）：请求体 {@code {nodes:[{name, amount, kickoffGate}]}} 逐字镜像（amount Long 分
+     * → JSON string 出口口径，provider 默认可回读），返回 {@code ApiResponse<PaymentPlanResponse>}
+     * （录入后计划现值）。订单不存在 404 ORD_001（5001）；无付款计划 404 ORD_036（5036）；
+     * 录入无效（至少一条、名称必填、金额为正）400 <strong>ORD_039</strong>（5039）；已开始
+     * 支付 409 <strong>ORD_044</strong>（5044）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command 节点规格整组（合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/036/039/044 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse enterPaymentNodes(
+            String orderId, AiplatformPaymentNodesWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId) + "/payment-plan/nodes";
+        log.debug("AiplatformClient.enterPaymentNodes: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 到账核验录入（透传 aiplatform）——凭证核验路径第二跳（后台人工录入）：实到金额/实到
+     * 时间/关联凭证/渠道流水号随行 append-only 留痕。<strong>全额判定归 provider</strong>＝
+     * 累计核到账 ≥ 节点金额：足额转「已到账」（receivedAt＝实到时间）；不足留痕＋回「待支付」
+     * （累计不清零，前台 remainingAmount 推导差额）。核验落库后即触发 provider 开工判定
+     * （付款腿触发点——BFF 不感知）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-nodes/{nodeId}/verify}
+     * （#337 已冻结）：请求体 {@code {actualAmount, arrivedAt, voucherId, channelRefNo, basis}}
+     * 逐字镜像，返回 {@code ApiResponse<PaymentPlanResponse>}（动作后计划现值）。X-User-Id/
+     * X-User-Name 透传头自动落痕留痕行（核验动作以操作者为审计正身，缺头 400
+     * <strong>ORD_043</strong> 拒）。无付款计划 404 ORD_036（5036）；节点不存在或不属活跃计划
+     * 404 <strong>ORD_037</strong>（5037）；非线下转账待核验态 409 <strong>ORD_038</strong>
+     * （5038）；录入无效（实到金额须为正、实到时间必填）400 <strong>ORD_041</strong>（5041）；
+     * 关联凭证不存在或不属该节点 404 <strong>ORD_045</strong>（5045）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param nodeId  付款节点标识（TSID 十进制字符串）
+     * @param command 核验录入命令体（合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_036/037/038/041/043/045 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse verifyPayment(
+            String orderId, String nodeId, AiplatformPaymentVerifyWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId)
+                + "/payment-nodes/" + encode(nodeId) + "/verify";
+        log.debug("AiplatformClient.verifyPayment: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 打回（透传 aiplatform）——核验族动作（凭证主张被否：回单不清、对不上账）：回「待支付」
+     * ＋依据必填留痕（ORD_042——打回依据是审计正身）。打回<strong>不动累计已核到账</strong>
+     * （核到账只经核验录入累积）；打回后用户可再传凭证（回待支付＝用户可再动作态）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-nodes/{nodeId}/reject}
+     * （#337 已冻结）：请求体 {@code {voucherId, basis}} 逐字镜像，返回
+     * {@code ApiResponse<PaymentPlanResponse>}（回待支付后的计划现值）。X-User-Id/X-User-Name
+     * 透传头自动落痕留痕行（缺头 ORD_043 拒）。无付款计划 404 ORD_036（5036）；节点不存在
+     * 404 ORD_037（5037）；非待核验态 409 ORD_038（5038）；依据缺失/超长 400
+     * <strong>ORD_042</strong>（5042）；关联凭证不属该节点 404 ORD_045（5045）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param nodeId  付款节点标识（TSID 十进制字符串）
+     * @param command 打回命令体（依据必填归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_036/037/038/042/043/045 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse rejectPayment(
+            String orderId, String nodeId, AiplatformPaymentRejectWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId)
+                + "/payment-nodes/" + encode(nodeId) + "/reject";
+        log.debug("AiplatformClient.rejectPayment: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 下载付款凭证内容（透传 aiplatform）——后台核验看证的唯一触字节口：凭证文件字节直出
+     * （元数据行上的 fileName/contentType 随行进响应头），<strong>无 ApiResponse 信封</strong>
+     * （真实媒体类型＋Content-Disposition attachment 文件名，先例＝源码包/设计资产包端点）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/payment-vouchers/{voucherId}/content}（#337
+     * 已冻结）：经 cartisan-openapi {@link OpenApiClient#download} 取回原始字节 + 响应头——
+     * ofByteArray 保全二进制（ofString 会经 UTF-8 解码不可逆损坏，PDF/图片字节即回归锚点）。
+     * 内存中转、不落盘。凭证不存在（含畸形 id／伴行字节缺行）404 <strong>ORD_045</strong>
+     * （5045，同译不顶替）——错误信封在 body 里，{@code download} 内部抛
+     * {@link OpenApiClientException}，此处同款翻译透传。</p>
+     *
+     * @param voucherId 凭证标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_045）
+     * @return 二进制响应载体（HTTP 状态 + 响应头 raw 值 + 原始字节）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 ORD_045 等，不做映射）
+     */
+    public BinaryResponse downloadVoucherContent(String voucherId) {
+        String url = baseUrl + "/api/backoffice/payment-vouchers/" + encode(voucherId) + "/content";
+        log.debug("AiplatformClient.downloadVoucherContent: {}", url);
+        try {
+            return openApiClient.download(url);
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
         }

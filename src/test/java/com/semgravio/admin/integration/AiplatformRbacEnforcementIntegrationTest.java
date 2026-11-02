@@ -46,6 +46,14 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversatio
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodeWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodesWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerificationWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVoucherWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
@@ -116,7 +124,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 写回执北向断言）+ #104 合同域 A1——清单/详情/创建重建三端点（contract:read/create 两码
  * 读写分权；六态/PRD 全文冗余拷贝/动作时间线北向形状＋操作者透传断言）+ #105 合同域 A2
  * ——六态推进写口 advance/fail/withdraw/void/sign/record（六独立写码三态逐码；签署完成/
- * 旁落终态/落签/重录〔version +1·需更新清零〕回执北向形状＋操作者透传断言＋ORD_027 信封透传））
+ * 旁落终态/落签/重录〔version +1·需更新清零〕回执北向形状＋操作者透传断言＋ORD_027 信封透传）
+ * + #106 付款核验域 A3——计划详情/凭证直出（payment:read 两读端点共用）＋节点录入/核验/
+ * 打回三写码（五节点五态/留痕行/历史行北向形状；二进制双 header 直出；操作者透传断言
+ * ＋ORD_038 信封透传——与既有支付服务 BFF 上下文无关勿混读））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -317,6 +328,31 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SKILL_DRAFT_REJECT_ENDPOINT = SKILL_DRAFT_DETAIL_ENDPOINT + "/reject";
     private static final String SKILL_DRAFT_REJECT_BODY =
             "{\"reason\":\"正文与现有技能 prd-writing 方法论重叠，解消方向不明\"}";
+    // 付款核验域（#106 A3——aiplatform 付款计划承接，与既有支付服务 BFF 上下文无关勿混读）
+    private static final String PAYMENT_READ_PERMISSION = "admin:aiplatform:payment:read";
+    private static final String PAYMENT_UPDATE_PLAN_PERMISSION = "admin:aiplatform:payment:update-plan";
+    private static final String PAYMENT_VERIFY_PERMISSION = "admin:aiplatform:payment:verify";
+    private static final String PAYMENT_REJECT_PERMISSION = "admin:aiplatform:payment:reject";
+    private static final String PAYMENT_NODE_ID = "3829496001000004";
+    private static final String PAYMENT_VOUCHER_ID = "3829497000000001";
+    private static final String PAYMENT_PLAN_ENDPOINT =
+            "/api/admin/aiplatform/orders/" + ORDER_ID + "/payment-plan";
+    private static final String PAYMENT_NODES_ENDPOINT = PAYMENT_PLAN_ENDPOINT + "/nodes";
+    private static final String PAYMENT_VERIFY_ENDPOINT =
+            "/api/admin/aiplatform/orders/" + ORDER_ID + "/payment-nodes/" + PAYMENT_NODE_ID + "/verify";
+    private static final String PAYMENT_REJECT_ENDPOINT =
+            "/api/admin/aiplatform/orders/" + ORDER_ID + "/payment-nodes/" + PAYMENT_NODE_ID + "/reject";
+    private static final String PAYMENT_VOUCHER_CONTENT_ENDPOINT =
+            "/api/admin/aiplatform/payment-vouchers/" + PAYMENT_VOUCHER_ID + "/content";
+    private static final String PAYMENT_NODES_BODY =
+            "{\"nodes\":[{\"name\":\"首期开工款\",\"amount\":1950000,\"kickoffGate\":true},"
+                    + "{\"name\":\"尾款结算\",\"amount\":960000,\"kickoffGate\":false}]}";
+    private static final String PAYMENT_VERIFY_BODY =
+            "{\"actualAmount\":1920000,\"arrivedAt\":\"2026-10-17T10:00:00\","
+                    + "\"voucherId\":\"3829497000000001\",\"channelRefNo\":\"BANK-20261017-0001\","
+                    + "\"basis\":\"银企对账一致\"}";
+    private static final String PAYMENT_REJECT_BODY =
+            "{\"voucherId\":null,\"basis\":\"回单模糊无法对账，请重新上传\"}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -348,6 +384,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithContractCreate;
     private String usernameWithContractWrite;
     private String usernameWithAdvanceOnly;
+    private String usernameWithPaymentWrite;
+    private String usernameWithVerifyOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -377,6 +415,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String contractCreateUserNickname;
     private Long contractWriteUserId;
     private String contractWriteUserNickname;
+    private Long paymentWriteUserId;
+    private String paymentWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -419,6 +459,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithContractCreate = "aiplaccpr" + suffix;
         usernameWithContractWrite = "aiplacwpr" + suffix;
         usernameWithAdvanceOnly = "aiplaadvo" + suffix;
+        usernameWithPaymentWrite = "aiplapywr" + suffix;
+        usernameWithVerifyOnly = "aiplavfyo" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -428,7 +470,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                         PROJECT_READ_PERMISSION, WORKSPACE_READ_PERMISSION, COST_READ_PERMISSION,
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
-                        SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION)));
+                        SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
+                        PAYMENT_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -669,6 +712,30 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "推进专员_" + suffix, null, null, null));
         userAppService.assignRoles(advanceOnlyUserId, new AssignRolesCommand(List.of(advanceOnlyRoleId)));
 
+        // 付款核验三写码专用运营（update-plan+verify+reject，无读码——读写分权，#106 A3）
+        // ——操作者透传断言用其 id/昵称（provider 核验/打回动作操作者必携、缺头 ORD_043 拒）
+        Long paymentWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台付款核验写操作_" + suffix, "AIPLAPYWR_" + suffix,
+                        "AI 平台付款节点录入 + 到账核验 + 打回权限", 111, null));
+        roleAppService.assignPermissions(paymentWriteRoleId, new AssignPermissionsCommand(List.of(
+                PAYMENT_UPDATE_PLAN_PERMISSION, PAYMENT_VERIFY_PERMISSION, PAYMENT_REJECT_PERMISSION)));
+        paymentWriteUserNickname = "财务核验运营_" + suffix;
+        paymentWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithPaymentWrite, PASSWORD,
+                        paymentWriteUserNickname, null, null, null));
+        userAppService.assignRoles(paymentWriteUserId, new AssignRolesCommand(List.of(paymentWriteRoleId)));
+
+        // 仅 verify 单写码——钉死三写码彼此独立（spec #102 每写操作一码最小授权）
+        Long verifyOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台付款仅核验_" + suffix, "AIPLAVFYO_" + suffix,
+                        "AI 平台付款仅到账核验权限", 112, null));
+        roleAppService.assignPermissions(verifyOnlyRoleId,
+                new AssignPermissionsCommand(List.of(PAYMENT_VERIFY_PERMISSION)));
+        Long verifyOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithVerifyOnly, PASSWORD,
+                        "核验专员_" + suffix, null, null, null));
+        userAppService.assignRoles(verifyOnlyUserId, new AssignRolesCommand(List.of(verifyOnlyRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -831,6 +898,32 @@ class AiplatformRbacEnforcementIntegrationTest {
             capture.run();
             return contractRecordReceiptWire();
         }).when(aiplatformClient).recordContract(eq(CONTRACT_ID), any(AiplatformContractRecordWireRequest.class));
+        // 付款核验域 mock（#106 A3）：详情读口三段（五节点恰钉五态）+ 三写口回执（录入口待支付
+        // 起步/核验口全额转已到账/打回口回待支付）+ 抓取 RequestContext（核验/打回操作者必携——
+        // provider ORD_043 拒无名留痕）；凭证内容 BinaryResponse（pdf 真实媒体类型＋attachment 文件名）
+        when(aiplatformClient.getPaymentPlan(eq(ORDER_ID))).thenReturn(paymentPlanDetailWire());
+        doAnswer(inv -> {
+            capture.run();
+            return paymentNodeReceiptWire(1, "待支付", 0L, 1920000L, null, null);
+        }).when(aiplatformClient).enterPaymentNodes(eq(ORDER_ID), any(AiplatformPaymentNodesWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return paymentNodeReceiptWire(5, "已到账", 1920000L, 0L,
+                    "BANK-20261017-0001", LocalDateTime.of(2026, 10, 17, 10, 0, 0));
+        }).when(aiplatformClient).verifyPayment(eq(ORDER_ID), eq(PAYMENT_NODE_ID),
+                any(AiplatformPaymentVerifyWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return paymentNodeReceiptWire(1, "待支付", 0L, 1920000L, null, null);
+        }).when(aiplatformClient).rejectPayment(eq(ORDER_ID), eq(PAYMENT_NODE_ID),
+                any(AiplatformPaymentRejectWireRequest.class));
+        when(aiplatformClient.downloadVoucherContent(eq(PAYMENT_VOUCHER_ID))).thenReturn(new BinaryResponse(200,
+                java.net.http.HttpHeaders.of(Map.of(
+                        "Content-Type", List.of("application/pdf"),
+                        "Content-Disposition", List.of("attachment; filename=\"receipt-1.pdf\"")),
+                        (a, b) -> true),
+                new byte[] {(byte) 0x25, (byte) 0x50, (byte) 0x44, (byte) 0x46,
+                        (byte) 0x2d, (byte) 0x31, (byte) 0x2e, (byte) 0x34, (byte) 0xff, 0x00}));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1288,6 +1381,72 @@ class AiplatformRbacEnforcementIntegrationTest {
                 99000L, "CNY", 3, 2,
                 false, null, false, null,
                 LocalDateTime.of(2026, 10, 22, 9, 0, 0));
+    }
+
+    /**
+     * 付款核验域详情 wire 工厂（#106 A3）：三段——plan（<strong>五节点恰钉五态</strong>，
+     * 占比现算 50/20/10/15/5）＋trails 留痕一行（到账核验）＋history 历史一行
+     * （对照 provider {@code PaymentPlanAppServiceTest} 实值口径）。
+     */
+    private static AiplatformPaymentPlanDetailWireResponse paymentPlanDetailWire() {
+        return new AiplatformPaymentPlanDetailWireResponse(
+                new AiplatformPaymentPlanWireResponse(
+                        "3829495000000001", ORDER_ID, "3829493005555555", "SG-l5eq8m2k7c",
+                        3900000L, 195000L, LocalDateTime.of(2026, 10, 20, 9, 0, 0),
+                        List.of(
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000001", 1, "首期开工款", 1950000L, 50,
+                                        1, "待支付", "SG-l5eq8m2k7c-K1", true,
+                                        1, "线下转账", null, 0L, 1950000L, null, List.of()),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000002", 2, "中期验收款", 780000L, 20,
+                                        2, "支付处理中", "SG-l5eq8m2k7c-K2", false,
+                                        1, "线下转账", null, 0L, 780000L, null, List.of()),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000003", 3, "增项补差款", 390000L, 10,
+                                        3, "支付失败或关闭", "SG-l5eq8m2k7c-K3", false,
+                                        1, "线下转账", null, 0L, 390000L, null, List.of()),
+                                new AiplatformPaymentNodeWireResponse(
+                                        PAYMENT_NODE_ID, 4, "尾款结算一", 585000L, 15,
+                                        4, "线下转账待核验", "SG-l5eq8m2k7c-K4", false,
+                                        1, "线下转账", null, 0L, 585000L, null,
+                                        List.of(new AiplatformPaymentVoucherWireResponse(
+                                                PAYMENT_VOUCHER_ID, PAYMENT_NODE_ID,
+                                                "receipt-1.pdf", "application/pdf", 102400L,
+                                                LocalDateTime.of(2026, 10, 16, 15, 0, 0)))),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000005", 5, "尾款结算二", 195000L, 5,
+                                        5, "已到账", "SG-l5eq8m2k7c-K5", false,
+                                        1, "线下转账", "BANK-20261017-0001", 195000L, 0L,
+                                        LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of()))),
+                List.of(new AiplatformPaymentVerificationWireResponse(
+                        "3829498000000002", "3829496001000005", 1, "到账核验", 4, 5,
+                        195000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0), "3829497000000003",
+                        "银企对账一致", "700100", "运营·小刘",
+                        LocalDateTime.of(2026, 10, 17, 10, 5, 0))),
+                List.of(new AiplatformPaymentPlanDetailWireResponse.HistoryPlanWireResponse(
+                        "3829495000000000", "3829493001111111", "SG-l590hd3t5y", 3,
+                        4800000L, 0L, LocalDateTime.of(2026, 10, 12, 11, 0, 0))));
+    }
+
+    /**
+     * 付款核验写口回执共用的 wire 载荷工厂（单节点）：按动作后状态参数化——录入口/打回口＝
+     * 1 待支付起步、核验口＝5 已到账（receivedAt＝实到时间、渠道流水号落值）。
+     */
+    private static AiplatformPaymentPlanWireResponse paymentNodeReceiptWire(
+            Integer status, String statusName, Long settled, Long remaining,
+            String channelRefNo, LocalDateTime receivedAt) {
+        return new AiplatformPaymentPlanWireResponse(
+                "3829495000000001", ORDER_ID, "3829493005555555", "SG-l5eq8m2k7c",
+                1920000L, settled, LocalDateTime.of(2026, 10, 20, 9, 0, 0),
+                List.of(new AiplatformPaymentNodeWireResponse(
+                        PAYMENT_NODE_ID, 1, "首期开工款", 1920000L, 100,
+                        status, statusName, "SG-l5eq8m2k7c-K1", true,
+                        1, "线下转账", channelRefNo, settled, remaining, receivedAt,
+                        List.of(new AiplatformPaymentVoucherWireResponse(
+                                PAYMENT_VOUCHER_ID, PAYMENT_NODE_ID,
+                                "receipt-1.pdf", "application/pdf", 102400L,
+                                LocalDateTime.of(2026, 10, 16, 15, 0, 0))))));
     }
 
     /**
@@ -3893,6 +4052,184 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 5027（ORD_027＝域码 5×1000＋27）——双方均签守卫归 provider，BFF 不预判
         assertThat(root.path("code").asInt()).isEqualTo(5027);
         assertThat(root.path("message").asText()).isEqualTo("双方尚未全部签署，不能标记签署完成");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 付款核验域（#106 A3，四码：read 两读端点共用＋三写码）· 三态逐码 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 付款核验五端点 403（payment:read 两读口＋三写口各一码——无码不串）")
+    void given_nonSuperAdminWithoutPermission_when_paymentEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(PAYMENT_PLAN_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(PAYMENT_VOUCHER_CONTENT_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_NODES_ENDPOINT, PAYMENT_NODES_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_VERIFY_ENDPOINT, PAYMENT_VERIFY_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_REJECT_ENDPOINT, PAYMENT_REJECT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问付款核验五端点返回 401")
+    void given_unauthenticated_when_paymentEndpoints_then_401() {
+        assertThat(getWithToken(PAYMENT_PLAN_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(PAYMENT_VOUCHER_CONTENT_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PAYMENT_NODES_ENDPOINT, PAYMENT_NODES_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PAYMENT_VERIFY_ENDPOINT, PAYMENT_VERIFY_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(PAYMENT_REJECT_ENDPOINT, PAYMENT_REJECT_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 payment:read（无写码）→ 三写端点 403（read ≠ 三写码，读写不串）")
+    void given_nonSuperAdminWithPaymentReadOnly_when_writeEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(PAYMENT_NODES_ENDPOINT, PAYMENT_NODES_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_VERIFY_ENDPOINT, PAYMENT_VERIFY_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_REJECT_ENDPOINT, PAYMENT_REJECT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅 payment:verify 单码 → 其余两写端点 403（三写码彼此独立——最小授权逐动作授受）")
+    void given_nonSuperAdminWithVerifyOnly_when_otherTwoWriteEndpoints_then_403() {
+        String token = login(usernameWithVerifyOnly);
+        assertThat(postWithToken(PAYMENT_NODES_ENDPOINT, PAYMENT_NODES_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(PAYMENT_REJECT_ENDPOINT, PAYMENT_REJECT_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 payment:read → 计划详情 200，三段齐备（五节点五态 number、金额 string、留痕行、历史行）")
+    void given_nonSuperAdminWithPaymentRead_when_getPlanDetail_then_200AndThreeSegmentsMirrored() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(PAYMENT_PLAN_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 第一段 plan：五态 code Integer 出 JSON number（非 Long）＋中文名随行；金额类 Long（分）
+        // 出 JSON string（全局出口口径）；附言码/开工门/渠道位在场
+        JsonNode plan = data.path("plan");
+        assertThat(plan.path("contractNo").asText()).isEqualTo("SG-l5eq8m2k7c");
+        assertThat(plan.path("totalAmount").asLong()).isEqualTo(3900000L);
+        assertThat(plan.path("nodes")).hasSize(5);
+        assertThat(plan.path("nodes").get(0).path("status").isNumber()).isTrue();
+        assertThat(plan.path("nodes").get(0).path("status").asInt()).isEqualTo(1);
+        assertThat(plan.path("nodes").get(0).path("statusName").asText()).isEqualTo("待支付");
+        assertThat(plan.path("nodes").get(3).path("status").asInt()).isEqualTo(4);
+        assertThat(plan.path("nodes").get(4).path("status").asInt()).isEqualTo(5);
+        assertThat(plan.path("nodes").get(0).path("amount").asLong()).isEqualTo(1950000L);
+        assertThat(plan.path("nodes").get(0).path("remarkCode").asText()).isEqualTo("SG-l5eq8m2k7c-K1");
+        assertThat(plan.path("nodes").get(0).path("kickoffGate").isBoolean()).isTrue();
+        assertThat(plan.path("nodes").get(4).path("channelRefNo").asText()).isEqualTo("BANK-20261017-0001");
+        assertThat(plan.path("nodes").get(4).path("receivedAt").asText()).isEqualTo("2026-10-17T10:00:00");
+        // 待核验节点凭证清单（上传追加保留）
+        assertThat(plan.path("nodes").get(3).path("vouchers")).hasSize(1);
+        assertThat(plan.path("nodes").get(3).path("vouchers").get(0).path("fileName").asText())
+                .isEqualTo("receipt-1.pdf");
+        // 第二段 trails：留痕行 action/两侧状态/实到金额/操作者两肢
+        JsonNode trail = data.path("trails").get(0);
+        assertThat(trail.path("action").asInt()).isEqualTo(1);
+        assertThat(trail.path("actionName").asText()).isEqualTo("到账核验");
+        assertThat(trail.path("fromStatus").asInt()).isEqualTo(4);
+        assertThat(trail.path("toStatus").asInt()).isEqualTo(5);
+        assertThat(trail.path("actualAmount").asLong()).isEqualTo(195000L);
+        assertThat(trail.path("operatorId").asText()).isEqualTo("700100");
+        assertThat(trail.path("operatorName").asText()).isEqualTo("运营·小刘");
+        // 第三段 history：历史计划行摘要（旧计划随旧合同留痕）
+        assertThat(data.path("history").get(0).path("contractNo").asText()).isEqualTo("SG-l590hd3t5y");
+        assertThat(data.path("history").get(0).path("nodeCount").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 payment:read → 凭证内容 200 二进制直出（双 header 原值、无 ApiResponse 信封）")
+    void given_nonSuperAdminWithPaymentRead_when_downloadVoucherContent_then_200BinaryWithProviderHeaders() {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<byte[]> response = getBinaryWithToken(PAYMENT_VOUCHER_CONTENT_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 二进制直出无 JSON 信封：Content-Type/Content-Disposition 取 provider 原值透传，
+        // 字节逐位保全（含 0xff/0x00 非法 UTF-8 锚点——%PDF-1.4 头）
+        assertThat(response.getHeaders().getFirst("Content-Type")).isEqualTo("application/pdf");
+        assertThat(response.getHeaders().getFirst("Content-Disposition"))
+                .isEqualTo("attachment; filename=\"receipt-1.pdf\"");
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().length).isEqualTo(10);
+        assertThat(response.getBody()[0]).isEqualTo((byte) 0x25);
+        assertThat(response.getBody()[8]).isEqualTo((byte) 0xff);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 节点录入/核验/打回 200（北向 JSON 形状随动作态）且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithPaymentWriteCodes_when_threeActions_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithPaymentWrite);
+
+        // 节点录入：待支付起步回执（金额 Long 出 string、五态 code 出 number）
+        ResponseEntity<String> entered = postWithToken(PAYMENT_NODES_ENDPOINT, PAYMENT_NODES_BODY, token);
+        assertThat(entered.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode enterReceipt = objectMapper.readTree(entered.getBody()).path("data");
+        assertThat(enterReceipt.path("nodes").get(0).path("status").isNumber()).isTrue();
+        assertThat(enterReceipt.path("nodes").get(0).path("status").asInt()).isEqualTo(1);
+        assertThat(enterReceipt.path("nodes").get(0).path("statusName").asText()).isEqualTo("待支付");
+        assertThat(enterReceipt.path("nodes").get(0).path("amount").asLong()).isEqualTo(1920000L);
+        assertThat(enterReceipt.path("nodes").get(0).path("remarkCode").asText()).isEqualTo("SG-l5eq8m2k7c-K1");
+        assertThat(enterReceipt.path("nodes").get(0).path("kickoffGate").asBoolean()).isTrue();
+
+        // 到账核验：全额判定在 provider 过——已到账回执（receivedAt＝实到时间、渠道流水号落值、
+        // settled 全额、remaining 0 出 string）
+        ResponseEntity<String> verified = postWithToken(PAYMENT_VERIFY_ENDPOINT, PAYMENT_VERIFY_BODY, token);
+        assertThat(verified.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode verifyReceipt = objectMapper.readTree(verified.getBody()).path("data");
+        assertThat(verifyReceipt.path("nodes").get(0).path("status").asInt()).isEqualTo(5);
+        assertThat(verifyReceipt.path("nodes").get(0).path("statusName").asText()).isEqualTo("已到账");
+        assertThat(verifyReceipt.path("nodes").get(0).path("receivedAt").asText())
+                .isEqualTo("2026-10-17T10:00:00");
+        assertThat(verifyReceipt.path("nodes").get(0).path("channelRefNo").asText())
+                .isEqualTo("BANK-20261017-0001");
+        assertThat(verifyReceipt.path("nodes").get(0).path("settledAmount").asLong()).isEqualTo(1920000L);
+        assertThat(verifyReceipt.path("nodes").get(0).path("remainingAmount").asLong()).isEqualTo(0L);
+
+        // 打回：回待支付回执（settled 0——打回不动累计已核到账）
+        ResponseEntity<String> rejected = postWithToken(PAYMENT_REJECT_ENDPOINT, PAYMENT_REJECT_BODY, token);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rejectReceipt = objectMapper.readTree(rejected.getBody()).path("data");
+        assertThat(rejectReceipt.path("nodes").get(0).path("status").asInt()).isEqualTo(1);
+        assertThat(rejectReceipt.path("nodes").get(0).path("statusName").asText()).isEqualTo("待支付");
+        assertThat(rejectReceipt.path("nodes").get(0).path("settledAmount").asLong()).isEqualTo(0L);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（provider 核验/打回动作以操作者为
+        // 审计正身、缺头 ORD_043 拒——前端无法伪造留痕）
+        assertThat(capturedOperatorId.get()).isEqualTo(paymentWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(paymentWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("核验下游 ORD_038（状态守卫）→ 北向 HTTP 409 + 信封 code=5038 + message 原文（不映射）")
+    void given_ord038FromDownstream_when_verify_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.verifyPayment(eq(ORDER_ID), eq(PAYMENT_NODE_ID),
+                any(AiplatformPaymentVerifyWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(
+                        new OpenApiClientException(409,
+                                "{\"code\":5038,\"message\":\"付款节点当前状态不允许该操作\",\"data\":null}")));
+
+        String token = login(usernameWithPaymentWrite);
+        ResponseEntity<String> response = postWithToken(PAYMENT_VERIFY_ENDPOINT, PAYMENT_VERIFY_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 5038（ORD_038＝域码 5×1000＋38）——状态守卫归 provider，BFF 不复算
+        assertThat(root.path("code").asInt()).isEqualTo(5038);
+        assertThat(root.path("message").asText()).isEqualTo("付款节点当前状态不允许该操作");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

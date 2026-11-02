@@ -26,11 +26,15 @@ import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentNodesCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentRejectCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentVerifyCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
@@ -76,6 +80,14 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSig
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodeWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodesWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerificationWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVoucherWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
@@ -157,6 +169,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformContractAppService contractAppService;
+
+    @Autowired
+    private AiplatformPaymentAppService paymentAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -697,6 +712,183 @@ class AiplatformBffIntegrationTest {
                     assertThat(upstream.httpStatus()).isEqualTo(409);
                     assertThat(upstream.envelopeCode()).isEqualTo(5027);
                     assertThat(upstream.getMessage()).isEqualTo("双方尚未全部签署，不能标记签署完成");
+                });
+    }
+
+    // ========== 付款核验域（#106 A3——与既有支付服务 BFF 上下文无关勿混读）· 命令映射 + 回执映射 + 二进制载体保全 ==========
+
+    /** 付款计划详情 wire 工厂：三节点（待支付/待核验/已到账）+ 留痕一行 + 历史一行。 */
+    private static AiplatformPaymentPlanDetailWireResponse paymentPlanDetailWire() {
+        return new AiplatformPaymentPlanDetailWireResponse(
+                new AiplatformPaymentPlanWireResponse(
+                        "3829495000000001", "3829492001234567", "3829493005555555", "SG-l5eq8m2k7c",
+                        3900000L, 195000L, LocalDateTime.of(2026, 10, 20, 9, 0, 0),
+                        List.of(
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000001", 1, "首期开工款", 1950000L, 50,
+                                        1, "待支付", "SG-l5eq8m2k7c-K1", true,
+                                        1, "线下转账", null, 0L, 1950000L, null, List.of()),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000004", 4, "尾款结算一", 585000L, 15,
+                                        4, "线下转账待核验", "SG-l5eq8m2k7c-K4", false,
+                                        1, "线下转账", null, 0L, 585000L, null,
+                                        List.of(new AiplatformPaymentVoucherWireResponse(
+                                                "3829497000000001", "3829496001000004",
+                                                "receipt-1.pdf", "application/pdf", 102400L,
+                                                LocalDateTime.of(2026, 10, 16, 15, 0, 0)))),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000005", 5, "尾款结算二", 195000L, 5,
+                                        5, "已到账", "SG-l5eq8m2k7c-K5", false,
+                                        1, "线下转账", "BANK-20261017-0001", 195000L, 0L,
+                                        LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of()))),
+                List.of(new AiplatformPaymentVerificationWireResponse(
+                        "3829498000000002", "3829496001000005", 1, "到账核验", 4, 5,
+                        195000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0), "3829497000000003",
+                        "银企对账一致", "700100", "运营·小刘",
+                        LocalDateTime.of(2026, 10, 17, 10, 5, 0))),
+                List.of(new AiplatformPaymentPlanDetailWireResponse.HistoryPlanWireResponse(
+                        "3829495000000000", "3829493001111111", "SG-l590hd3t5y", 3,
+                        4800000L, 0L, LocalDateTime.of(2026, 10, 12, 11, 0, 0))));
+    }
+
+    @Test
+    void given_paymentPlanDetailWire_when_getPlanDetail_then_threeSegmentsMapped() {
+        when(aiplatformClient.getPaymentPlan("3829492001234567")).thenReturn(paymentPlanDetailWire());
+
+        var detail = paymentAppService.getPlanDetail("3829492001234567");
+
+        // wire 三段 → 北向三段逐字段：plan（五态/附言码/开工门/渠道流水号/凭证清单）＋
+        // trails（留痕行）＋history（历史行）——逐字镜像无增删无换型
+        assertThat(detail.plan().id()).isEqualTo("3829495000000001");
+        assertThat(detail.plan().totalAmount()).isEqualTo(3900000L);
+        assertThat(detail.plan().nodes()).hasSize(3);
+        var awaiting = detail.plan().nodes().get(1);
+        assertThat(awaiting.status()).isEqualTo(4);
+        assertThat(awaiting.statusName()).isEqualTo("线下转账待核验");
+        assertThat(awaiting.vouchers()).hasSize(1);
+        assertThat(awaiting.vouchers().get(0).fileName()).isEqualTo("receipt-1.pdf");
+        var received = detail.plan().nodes().get(2);
+        assertThat(received.status()).isEqualTo(5);
+        assertThat(received.channelRefNo()).isEqualTo("BANK-20261017-0001");
+        assertThat(received.remainingAmount()).isEqualTo(0L);
+        assertThat(detail.trails()).hasSize(1);
+        assertThat(detail.trails().get(0).action()).isEqualTo(1);
+        assertThat(detail.trails().get(0).operatorName()).isEqualTo("运营·小刘");
+        assertThat(detail.history()).hasSize(1);
+        assertThat(detail.history().get(0).contractNo()).isEqualTo("SG-l590hd3t5y");
+        assertThat(detail.history().get(0).nodeCount()).isEqualTo(3);
+    }
+
+    @Test
+    void given_nodesCommand_when_enterNodes_then_wireCommandMappedAndReceiptMapped() {
+        when(aiplatformClient.enterPaymentNodes(eq("3829492001234567"),
+                any(AiplatformPaymentNodesWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.enterNodes("3829492001234567",
+                new AiplatformPaymentNodesCommand(List.of(
+                        new AiplatformPaymentNodesCommand.NodeSpec("首期开工款", 1950000L, true),
+                        new AiplatformPaymentNodesCommand.NodeSpec("尾款结算一", 585000L, false),
+                        new AiplatformPaymentNodesCommand.NodeSpec("尾款结算二", 195000L, false))));
+
+        // 北向节点规格 → wire 规格逐字段映射（{name, amount, kickoffGate} 整组——序号不在录入面）
+        ArgumentCaptor<AiplatformPaymentNodesWireRequest> nodesCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentNodesWireRequest.class);
+        verify(aiplatformClient).enterPaymentNodes(eq("3829492001234567"), nodesCaptor.capture());
+        assertThat(nodesCaptor.getValue()).isEqualTo(new AiplatformPaymentNodesWireRequest(List.of(
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("首期开工款", 1950000L, true),
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("尾款结算一", 585000L, false),
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("尾款结算二", 195000L, false))));
+
+        // 录入回执映射（录入后计划现值）
+        assertThat(receipt.totalAmount()).isEqualTo(3900000L);
+        assertThat(receipt.nodes().get(0).kickoffGate()).isTrue();
+        assertThat(receipt.nodes().get(0).remarkCode()).isEqualTo("SG-l5eq8m2k7c-K1");
+    }
+
+    @Test
+    void given_verifyCommand_when_verify_then_wireCommandMappedAndReceivedReceiptMapped() {
+        when(aiplatformClient.verifyPayment(eq("3829492001234567"), eq("3829496001000004"),
+                any(AiplatformPaymentVerifyWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.verify("3829492001234567", "3829496001000004",
+                new AiplatformPaymentVerifyCommand(585000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                        "3829497000000001", "BANK-20261017-0001", "银企对账一致"));
+
+        // 北向五字段 → wire 五字段逐字段映射（全额判定归 provider——BFF 不复算不预判）
+        ArgumentCaptor<AiplatformPaymentVerifyWireRequest> verifyCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentVerifyWireRequest.class);
+        verify(aiplatformClient).verifyPayment(eq("3829492001234567"), eq("3829496001000004"),
+                verifyCaptor.capture());
+        assertThat(verifyCaptor.getValue()).isEqualTo(new AiplatformPaymentVerifyWireRequest(
+                585000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                "3829497000000001", "BANK-20261017-0001", "银企对账一致"));
+
+        // 核验回执映射（动作后计划现值——留痕行不在写口回执，归详情读面）
+        assertThat(receipt.orderId()).isEqualTo("3829492001234567");
+        assertThat(receipt.nodes()).hasSize(3);
+    }
+
+    @Test
+    void given_rejectCommand_when_reject_then_wireCommandMappedAndPendingReceiptMapped() {
+        when(aiplatformClient.rejectPayment(eq("3829492001234567"), eq("3829496001000004"),
+                any(AiplatformPaymentRejectWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.reject("3829492001234567", "3829496001000004",
+                new AiplatformPaymentRejectCommand("3829497000000001", "回单模糊无法对账，请重新上传"));
+
+        // 北向两字段 → wire 两字段映射（依据必填归 provider ORD_042——BFF 不前置拦截）
+        ArgumentCaptor<AiplatformPaymentRejectWireRequest> rejectCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentRejectWireRequest.class);
+        verify(aiplatformClient).rejectPayment(eq("3829492001234567"), eq("3829496001000004"),
+                rejectCaptor.capture());
+        assertThat(rejectCaptor.getValue()).isEqualTo(new AiplatformPaymentRejectWireRequest(
+                "3829497000000001", "回单模糊无法对账，请重新上传"));
+
+        // 打回回执映射（回待支付后的计划现值）
+        assertThat(receipt.totalSettled()).isEqualTo(195000L);
+        assertThat(receipt.nodes().get(1).status()).isEqualTo(4);
+    }
+
+    @Test
+    void given_voucherBinaryFromDownstream_when_getVoucherContent_then_bytesAndRawHeadersPreserved() {
+        byte[] pdf = {(byte) 0x25, (byte) 0x50, (byte) 0x44, (byte) 0x46, (byte) 0x2d,
+                (byte) 0x31, (byte) 0x2e, (byte) 0x34, 0x20, (byte) 0xff, 0x41, 0x00};
+        HttpHeaders providerHeaders = HttpHeaders.of(Map.of(
+                "Content-Type", List.of("application/pdf"),
+                "Content-Disposition", List.of("attachment; filename=\"receipt-1.pdf\"")),
+                (a, b) -> true);
+        when(aiplatformClient.downloadVoucherContent("3829497000000001"))
+                .thenReturn(new BinaryResponse(200, providerHeaders, pdf));
+
+        var content = paymentAppService.getVoucherContent("3829497000000001");
+
+        // 字节逐位保全（含 0xff/NUL——ofString 解码损坏的回归锚点）+ provider 响应头 raw 值透传
+        // （真实媒体类型＋attachment 文件名——照源码包/设计资产包范式）
+        assertThat(content.content()).containsExactly(pdf);
+        assertThat(content.contentType()).isEqualTo("application/pdf");
+        assertThat(content.contentDisposition()).isEqualTo("attachment; filename=\"receipt-1.pdf\"");
+    }
+
+    @Test
+    void given_ord038FromDownstream_when_verify_then_stateGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.verifyPayment(eq("3829492001234567"), eq("3829496001000001"),
+                any(AiplatformPaymentVerifyWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5038,\"message\":\"付款节点当前状态不允许该操作\",\"data\":null}")));
+
+        assertThatThrownBy(() -> paymentAppService.verify("3829492001234567", "3829496001000001",
+                new AiplatformPaymentVerifyCommand(100L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                        null, null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_038 → HTTP 409 + 数字业务码 5038（域码 5×1000＋38——状态守卫归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5038);
+                    assertThat(upstream.getMessage()).isEqualTo("付款节点当前状态不允许该操作");
                 });
     }
 

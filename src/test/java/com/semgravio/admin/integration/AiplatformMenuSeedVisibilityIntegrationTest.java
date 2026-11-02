@@ -57,7 +57,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 位于支付管理之后账号管理之前（sort_order=3 与 payment 同序、id 82&gt;80 兜底排其后——spec #62 字面值）；
  * 账号读口不种页面（children 恰十一叶——嵌订单/项目详情抽屉用；工具面并入智能体配置页区块、不单独种页——
  * spec #79）；非超管经角色分配（只配
- * 叶子 id，目录由祖先补全出现）+ 41 权限码（spec #62 + #79 技能线 T1–T6 + #91 草稿审核面三码 + #104 合同域 read/create 两码 + #105 合同六态推进六写码）既见菜单又汇总权限；禁用角色后
+ * 叶子 id，目录由祖先补全出现）+ 45 权限码（spec #62 + #79 技能线 T1–T6 + #91 草稿审核面三码 + #104 合同域 read/create 两码 + #105 合同六态推进六写码 + #106 付款核验域 read/update-plan/verify/reject 四码）既见菜单又汇总权限；禁用角色后
  * 菜单与权限贡献均剔除（CONTEXT.md「RBAC」既定口径在新种子上不回归）。</p>
  *
  * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220/230/240/250/260。
@@ -95,7 +95,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "aiplatform_skill_assignment", "aiplatform_agent_config", "aiplatform_skill_draft",
             "aiplatform_contract");
 
-    /** 权限码清单（41）：十二读码（七域＋智能体配置＋工具面＋account＋草稿＋合同）＋二十九写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码）。 */
+    /** 权限码清单（45）：十三读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款）＋三十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read〔嵌订单详情无独立页面〕、三写口各一码）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -137,7 +137,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:contract:withdraw",
             "admin:aiplatform:contract:void",
             "admin:aiplatform:contract:sign",
-            "admin:aiplatform:contract:record");
+            "admin:aiplatform:contract:record",
+            "admin:aiplatform:payment:read",
+            "admin:aiplatform:payment:update-plan",
+            "admin:aiplatform:payment:verify",
+            "admin:aiplatform:payment:reject");
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -228,11 +232,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管：角色配十一叶种子（祖先补全出目录）+ 41 码 → 菜单与权限均汇总可见")
+    @DisplayName("非超管：角色配十一叶种子（祖先补全出目录）+ 45 码 → 菜单与权限均汇总可见")
     void given_roleWithSeedMenusAndAllPermissions_when_my_then_treeVisibleAndPermissionsAggregated() {
         Long roleId = roleAppService.create(
                 new CreateRoleCommand("AI平台运营_" + suffix, "AIPLAMENU_" + suffix,
-                        "AI 平台十一叶菜单 + 全量 41 权限码", 88, null));
+                        "AI 平台十一叶菜单 + 全量 45 权限码", 88, null));
         // 只分配叶子 id——目录经祖先链补全出现（MenuTreeAssembler 既定行为在真种子上复证）
         roleAppService.assignMenus(roleId, new AssignMenusCommand(AIPLATFORM_LEAF_IDS));
         roleAppService.assignPermissions(roleId, new AssignPermissionsCommand(ALL_AIPLATFORM_PERMISSIONS));
@@ -249,8 +253,9 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         assertThat(stringList(directory.path("children"), "routeName"))
                 .containsExactlyElementsOf(ELEVEN_LEAF_ROUTES);
 
-        // 权限汇总：/auth/current permissions = 41 码全集（account:read 配抽屉用、agent-tool:read
-        // 配智能体配置页区块用——均有码无独立页面；skill-draft 三码配草稿审核页；contract 两码配合同管理页）
+        // 权限汇总：/auth/current permissions = 45 码全集（account:read 配抽屉用、agent-tool:read
+        // 配智能体配置页区块用——均有码无独立页面；skill-draft 三码配草稿审核页；contract 两码配合同
+        // 管理页；payment 四码嵌订单详情付款核验区〔V22 已一次记账零迁移〕）
         JsonNode current = okData(getWithToken("/api/admin/auth/current", token));
         assertThat(plainStringList(current.path("permissions")))
                 .containsExactlyInAnyOrderElementsOf(ALL_AIPLATFORM_PERMISSIONS);

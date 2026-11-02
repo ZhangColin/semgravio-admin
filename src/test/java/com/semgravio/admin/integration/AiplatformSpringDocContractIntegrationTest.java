@@ -110,6 +110,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       依据必填 ORD_022/023 数字码须在 api-docs 在场；北向命令 schema 的 party（两值
  *       Integer code 直通）、basis（必填留痕正身）与 record 四预览字段（可空整组录入）
  *       同步自描述。</li>
+ *   <li>付款核验域五端点 @Operation 描述镜像（issue #106，spec #102 A 批 A3——镜像
+ *       aiplatform #337 凭证核验承接；<strong>与既有支付服务 BFF 上下文无关</strong>）：
+ *       计划详情（核验承接全量面——五态枚举/凭证清单追加保留/留痕时间线/历史计划行）、
+ *       节点录入（整组替换＋开工门设定＋<strong>支付未开始为唯一重录窗口</strong> ORD_044）、
+ *       到账核验（<strong>全额判定</strong>＝累计核到账 ≥ 节点金额——足额转已到账、不足留痕
+ *       回待支付；渠道流水号落值）、打回（<strong>依据必填</strong>留痕、回待支付不动累计）、
+ *       凭证内容（二进制直出无信封、双 header 原值）的 summary＋description 逐字镜像
+ *       provider——ORD_036/037/038/039/041/042/043/044/045 数字码须在 api-docs 在场；
+ *       北向 schema 的五态 status/kickoffGate/channelRefNo、留痕行 action（1=到账核验
+ *       2=打回）与三命令体（nodes 规格三字段/actualAmount/voucherId+basis）同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -1092,6 +1102,125 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(property("AiplatformContractRecordCommand", "basis")
                 .path("description").asText(""))
                 .contains("版本 +1").contains("「需更新」清零");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：付款核验域五端点 @Operation 描述镜像 provider（#106，五态/全额判定/打回语义/重录窗口 + ORD_036~045 数字码在场）")
+    void given_paymentEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 计划详情：核验承接全量面（五态枚举＋凭证追加保留＋留痕时间线＋历史计划行）
+        JsonNode detail = paths.path("/api/admin/aiplatform/orders/{orderId}/payment-plan").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含付款计划详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("付款计划详情").contains("核验承接全量面");
+        assertThat(detail.path("description").asText(""))
+                .contains("1=待支付 2=支付处理中 3=支付失败或关闭 4=线下转账待核验 5=已到账")
+                .contains("追加保留")
+                .contains("append-only")
+                .contains("历史计划行")
+                .contains("开工门")
+                .contains("渠道流水号")
+                .contains("ORD_001").contains("5001")
+                .contains("ORD_036").contains("5036");
+
+        // 节点录入：整组替换＋开工门设定＋支付未开始为唯一重录窗口
+        JsonNode nodes = paths.path("/api/admin/aiplatform/orders/{orderId}/payment-plan/nodes").path("post");
+        assertThat(nodes.isMissingNode()).as("api-docs 应含付款节点录入端点").isFalse();
+        assertThat(nodes.path("summary").asText(""))
+                .contains("付款节点录入").contains("整组替换").contains("开工门");
+        assertThat(nodes.path("description").asText(""))
+                .contains("不收半组")
+                .contains("录入序即展示序")
+                .contains("开工款≠默认全款")
+                .contains("重录唯一窗口")
+                .contains("撤回重建")
+                .contains("ORD_039").contains("5039")
+                .contains("ORD_044").contains("5044");
+
+        // 到账核验：全额判定＋不足留痕回待支付＋渠道流水号落值＋操作者必携
+        JsonNode verify = paths.path("/api/admin/aiplatform/orders/{orderId}/payment-nodes/{nodeId}/verify").path("post");
+        assertThat(verify.isMissingNode()).as("api-docs 应含到账核验录入端点").isFalse();
+        assertThat(verify.path("summary").asText(""))
+                .contains("到账核验录入").contains("全额判定");
+        assertThat(verify.path("description").asText(""))
+                .contains("累计核到账 ≥ 节点金额")
+                .contains("不足留痕")
+                .contains("待支付")
+                .contains("累计已核到账不清零")
+                .contains("渠道流水号")
+                .contains("开工判定")
+                .contains("ORD_038").contains("5038")
+                .contains("ORD_041").contains("5041")
+                .contains("ORD_043").contains("5043")
+                .contains("ORD_045").contains("5045")
+                .contains("ORD_037").contains("5037");
+
+        // 打回：依据必填留痕＋回待支付不动累计
+        JsonNode reject = paths.path("/api/admin/aiplatform/orders/{orderId}/payment-nodes/{nodeId}/reject").path("post");
+        assertThat(reject.isMissingNode()).as("api-docs 应含付款打回端点").isFalse();
+        assertThat(reject.path("summary").asText(""))
+                .contains("打回").contains("依据必填留痕");
+        assertThat(reject.path("description").asText(""))
+                .contains("回单不清、对不上账")
+                .contains("打回不动累计已核到账")
+                .contains("ORD_042").contains("5042")
+                .contains("ORD_038")
+                .contains("可再传凭证");
+
+        // 凭证内容：二进制直出无信封＋双 header 原值＋复用 payment:read
+        JsonNode content = paths.path("/api/admin/aiplatform/payment-vouchers/{voucherId}/content").path("get");
+        assertThat(content.isMissingNode()).as("api-docs 应含凭证内容二进制端点").isFalse();
+        assertThat(content.path("summary").asText(""))
+                .contains("凭证内容").contains("二进制直出").contains("无 ApiResponse 信封");
+        assertThat(content.path("description").asText(""))
+                .contains("看证")
+                .contains("provider 原值透传")
+                .contains("ORD_045").contains("5045")
+                .contains("复用 payment:read");
+
+        // 节点 schema 自描述：五态枚举＋v1 凭证路径（2/3 渠道真接后启用）＋开工门/渠道流水号/附言码
+        JsonNode status = property("AiplatformPaymentNodeResponse", "status");
+        assertThat(status.path("description").asText(""))
+                .contains("1=待支付 2=支付处理中 3=支付失败或关闭 4=线下转账待核验 5=已到账")
+                .contains("凭证核验路径")
+                .contains("打回回待支付");
+        assertThat(exampleText(status)).isEqualTo("4");
+        assertThat(property("AiplatformPaymentNodeResponse", "kickoffGate")
+                .path("description").asText(""))
+                .contains("开工判定").contains("全部到账");
+        assertThat(property("AiplatformPaymentNodeResponse", "channelRefNo")
+                .path("description").asText(""))
+                .contains("核验录入时落值");
+        assertThat(property("AiplatformPaymentNodeResponse", "remarkCode")
+                .path("description").asText(""))
+                .contains("<合同号>-K<序>");
+
+        // 留痕行 schema 自描述：动作两值（1=到账核验 2=打回——append-only 分类位）
+        JsonNode action = property("AiplatformPaymentVerificationResponse", "action");
+        assertThat(action.path("description").asText(""))
+                .contains("1=到账核验 2=打回")
+                .contains("append-only");
+        assertThat(exampleText(action)).isEqualTo("1");
+
+        // 三命令体 schema 自描述：节点规格三字段（整组替换/绝对额/开工门）＋actualAmount（全额判定
+        // 语义）＋basis（打回审计正身，ORD_042 归 provider 不前置拦截）
+        JsonNode nodeSpec = property("NodeSpec", "amount");
+        assertThat(nodeSpec.path("description").asText(""))
+                .contains("绝对额录入")
+                .contains("ORD_039");
+        assertThat(property("NodeSpec", "kickoffGate")
+                .path("description").asText(""))
+                .contains("开工款≠默认全款");
+        assertThat(property("AiplatformPaymentVerifyCommand", "actualAmount")
+                .path("description").asText(""))
+                .contains("累计核到账 ≥ 节点金额")
+                .contains("不足留痕")
+                .contains("ORD_041");
+        assertThat(property("AiplatformPaymentRejectCommand", "basis")
+                .path("description").asText(""))
+                .contains("审计正身")
+                .contains("ORD_042");
     }
 
     // ---------- 装载 ----------

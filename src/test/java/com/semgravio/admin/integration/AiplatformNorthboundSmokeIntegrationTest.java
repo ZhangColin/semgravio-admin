@@ -29,6 +29,7 @@ import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformContractCon
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformCostController;
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformMaterialController;
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformOrderController;
+import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformPaymentController;
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformPriceEntryController;
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformProjectController;
 import com.semgravio.admin.aiplatform.endpoints.controller.AiplatformSkillController;
@@ -47,14 +48,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 按张档位（镜像 provider #288，tokenKind 第 6 档＋总览图片计量类描述；纯字段无新端点
  * 无新权限码，端点计数/码清单不变）、#104 合同域 A1——清单/详情/创建重建三端点
  * （55→58）、#105 合同域 A2——六态推进写口 advance/fail/withdraw/void/sign/record
- * 六端点（58→64，35→41 码）、#61 冒烟四项之「域内全端点」就绪态）。
+ * 六端点（58→64，35→41 码）、#106 付款核验域 A3——计划详情/节点录入/到账核验/打回/
+ * 凭证二进制五端点（64→69，41→45 码）、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>八域 64 端点合入后的收口审计，两条腿：</p>
+ * <p>九域 69 端点合入后的收口审计，两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
- *       十一个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
+ *       十二个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
  *       下既不缺端点也不多端点，方法逐一路径一致）——admin-web 按 api-docs 对接（spec #62
- *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 64 显式断言。</li>
+ *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 69 显式断言。</li>
  *   <li><b>权限注解与权限码清单一致</b>：每个北向映射方法恰一个 {@code @RequirePermission}；
  *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线十一码
  *       read/install/disable/enable/uninstall/assign/update＋agent-config:read/update
@@ -62,7 +64,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       #92 草稿审核面三码 skill-draft:read/promote/reject——两读端点复用 read、
  *       promote/reject 各一码；#104 合同域 read/create 两码——清单/详情复用 read、创建重建
  *       独立 create；#105 合同域六态推进六写码 advance/fail/withdraw/void/sign/record——
- *       每写操作一码，共四十一码）。注解计数 == 64（一端点一码，
+ *       每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋
+ *       凭证直出复用 read、三写口各一码，共四十五码）。注解计数 == 69（一端点一码，
  *       无裸奔端点；#96 design-package 复用 order:read 不新增码）。与
  *       {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）
  *       互补——此处钉静态清单完整性，防后续增删端点时清单漂移。</li>
@@ -78,8 +81,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点）+ #105 合同域 A2（六态推进六写口）：八域 64 端点 = 订单 7 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1 + 合同 9。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 64;
+    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点）+ #105 合同域 A2（六态推进六写口）+ #106 付款核验域 A3（计划详情/节点录入/核验/打回/凭证二进制五端点）：九域 69 端点 = 订单 7 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1 + 合同 9 + 付款 5。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 69;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -94,9 +97,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
             AiplatformAgentConfigController.class,
             AiplatformAgentToolController.class,
             AiplatformAccountController.class,
-            AiplatformContractController.class);
+            AiplatformContractController.class,
+            AiplatformPaymentController.class);
 
-    /** 权限码清单（41）：十二读码（七域＋智能体配置＋工具面＋account＋草稿＋合同）＋二十九写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码，读写不串六写码互不串）。 */
+    /** 权限码清单（45）：十三读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款）＋三十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read、三写口各一码，读写不串写码互不串）。 */
     private static final Set<String> EXPECTED_PERMISSION_CODES = Set.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -138,7 +142,11 @@ class AiplatformNorthboundSmokeIntegrationTest {
             "admin:aiplatform:contract:withdraw",
             "admin:aiplatform:contract:void",
             "admin:aiplatform:contract:sign",
-            "admin:aiplatform:contract:record");
+            "admin:aiplatform:contract:record",
+            "admin:aiplatform:payment:read",
+            "admin:aiplatform:payment:update-plan",
+            "admin:aiplatform:payment:verify",
+            "admin:aiplatform:payment:reject");
 
     private final TestRestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -153,8 +161,8 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 64 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all64AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 69 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all69AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
@@ -165,10 +173,13 @@ class AiplatformNorthboundSmokeIntegrationTest {
         // 双方法、agent-tools/{toolName} 同路径 put——按「路径×方法」对计数，非路径数；
         // #90 预检为独立路径 assignments/{slot}/precheck 的 post、#92 草稿面四路径
         // drafts get＋drafts/{id} get＋promote post＋reject post、#105 合同六写口
-        // contracts/{id}/advance|fail|withdraw|void|sign|record 六 post，+6 对）
+        // contracts/{id}/advance|fail|withdraw|void|sign|record 六 post、#106 付款核验域
+        // 五端点 orders/{orderId}/payment-plan get＋payment-plan/nodes post＋
+        // payment-nodes/{nodeId}/verify|reject 两 post＋payment-vouchers/{voucherId}/content
+        // get——付款域无统一顶层路径，照 provider 路由原形嵌 orders/ 与 payment-vouchers/ 下）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("十一 controller 映射（路径×方法）对应为 64（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点 + #105 合同六态推进写口）")
+        assertThat(endpointPairCount).as("十二 controller 映射（路径×方法）对应为 69（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点 + #105 合同六态推进写口 + #106 付款核验域五端点）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -196,7 +207,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、41 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read、六态推进六写口各一码）、注解计数=64")
+    @DisplayName("权限注解复核：每映射方法恰一码、45 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read/payment:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read、六态推进六写口各一码、付款计划详情＋凭证直出复用 payment:read 三写口各一码）、注解计数=69")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -217,10 +228,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 64（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 69（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
-                .as("distinct 权限码集合应与权限码清单精确一致（十二读 + 二十九写，不缺不多）")
+                .as("distinct 权限码集合应与权限码清单精确一致（十三读 + 三十二写，不缺不多）")
                 .isEqualTo(EXPECTED_PERMISSION_CODES);
         // 显式点名（spec #72 验收）：account:read 有码（嵌抽屉用、无页面）
         assertThat(codes).contains("admin:aiplatform:account:read");
@@ -239,10 +250,17 @@ class AiplatformNorthboundSmokeIntegrationTest {
                 "admin:aiplatform:contract:void",
                 "admin:aiplatform:contract:sign",
                 "admin:aiplatform:contract:record");
+        // 显式点名（spec #102 A 批 A3 验收）：payment:read 有码（计划详情＋凭证直出共用、嵌订单
+        // 详情无独立页面）＋三写码各一码（update-plan/verify/reject——每写操作一码）
+        assertThat(codes).contains(
+                "admin:aiplatform:payment:read",
+                "admin:aiplatform:payment:update-plan",
+                "admin:aiplatform:payment:verify",
+                "admin:aiplatform:payment:reject");
     }
 
     /**
-     * 反射扫描十一个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
+     * 反射扫描十二个 controller 的映射注解，派生「路径 → HTTP 方法集」期望集
      * （类级 + 方法级 {@code @RequestMapping} 合并；路径取首个值——本包约定每方法单路径）。
      */
     private static Map<String, Set<String>> deriveFromControllers() {
