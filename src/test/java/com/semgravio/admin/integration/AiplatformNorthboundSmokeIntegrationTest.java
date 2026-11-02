@@ -45,21 +45,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 权限码，端点计数/码清单不变）、#96 设计能力线 T1——订单域设计资产包取件第 55 端点
  * （镜像 provider #298，交付物类型字段对纯字段不加端点）、#98 设计能力线 T3——成本域
  * 按张档位（镜像 provider #288，tokenKind 第 6 档＋总览图片计量类描述；纯字段无新端点
- * 无新权限码，端点计数/码清单不变）、#61 冒烟四项之「域内全端点」就绪态）。
+ * 无新权限码，端点计数/码清单不变）、#104 合同域 A1——清单/详情/创建重建三端点
+ * （55→58）、#105 合同域 A2——六态推进写口 advance/fail/withdraw/void/sign/record
+ * 六端点（58→64，35→41 码）、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>八域 58 端点合入后的收口审计，两条腿：</p>
+ * <p>八域 64 端点合入后的收口审计，两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
  *       十一个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
  *       下既不缺端点也不多端点，方法逐一路径一致）——admin-web 按 api-docs 对接（spec #62
- *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 58 显式断言。</li>
+ *       user story 35）的前提被钉死。期望集源自代码本身（单一事实源），端点计数 64 显式断言。</li>
  *   <li><b>权限注解与权限码清单一致</b>：每个北向映射方法恰一个 {@code @RequirePermission}；
  *       distinct 权限码集合 == 权限码清单（spec #62 十九码 + spec #79 技能线十一码
  *       read/install/disable/enable/uninstall/assign/update＋agent-config:read/update
  *       ＋agent-tool:read/toggle——留痕读面复用 read；#90 指派双头预检复用 skill:assign；
  *       #92 草稿审核面三码 skill-draft:read/promote/reject——两读端点复用 read、
  *       promote/reject 各一码；#104 合同域 read/create 两码——清单/详情复用 read、创建重建
- *       独立 create，共三十五码）。注解计数 == 58（一端点一码，
+ *       独立 create；#105 合同域六态推进六写码 advance/fail/withdraw/void/sign/record——
+ *       每写操作一码，共四十一码）。注解计数 == 64（一端点一码，
  *       无裸奔端点；#96 design-package 复用 order:read 不新增码）。与
  *       {@code AiplatformRbacEnforcementIntegrationTest}（运行期三态行为）
  *       互补——此处钉静态清单完整性，防后续增删端点时清单漂移。</li>
@@ -75,8 +78,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点，spec #102 A 批）：八域 58 端点 = 订单 7 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1 + 合同 3。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 58;
+    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点）+ #105 合同域 A2（六态推进六写口）：八域 64 端点 = 订单 7 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 3 + 工具面 2 + 草稿 4 + 账号 1 + 合同 9。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 64;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -93,7 +96,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
             AiplatformAccountController.class,
             AiplatformContractController.class);
 
-    /** 权限码清单（35）：十一读码（七域＋智能体配置＋工具面＋account＋草稿＋合同）＋二十四写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create，A 批推进六写口归 A2 #105）。 */
+    /** 权限码清单（41）：十二读码（七域＋智能体配置＋工具面＋account＋草稿＋合同）＋二十九写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码，读写不串六写码互不串）。 */
     private static final Set<String> EXPECTED_PERMISSION_CODES = Set.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -129,7 +132,13 @@ class AiplatformNorthboundSmokeIntegrationTest {
             "admin:aiplatform:agent-tool:toggle",
             "admin:aiplatform:skill-draft:promote",
             "admin:aiplatform:skill-draft:reject",
-            "admin:aiplatform:contract:create");
+            "admin:aiplatform:contract:create",
+            "admin:aiplatform:contract:advance",
+            "admin:aiplatform:contract:fail",
+            "admin:aiplatform:contract:withdraw",
+            "admin:aiplatform:contract:void",
+            "admin:aiplatform:contract:sign",
+            "admin:aiplatform:contract:record");
 
     private final TestRestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -144,21 +153,22 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 58 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all58AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 64 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all64AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
                 .isEqualTo(HttpStatus.OK);
 
-        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 54
+        // 期望集从 controller 映射注解派生（代码即单一事实源），计数钉死 64
         // （materials/{id} 同路径 get+delete 双方法、agent-configs/{agentKey} 同路径 get+put
         // 双方法、agent-tools/{toolName} 同路径 put——按「路径×方法」对计数，非路径数；
         // #90 预检为独立路径 assignments/{slot}/precheck 的 post、#92 草稿面四路径
-        // drafts get＋drafts/{id} get＋promote post＋reject post，+4 对）
+        // drafts get＋drafts/{id} get＋promote post＋reject post、#105 合同六写口
+        // contracts/{id}/advance|fail|withdraw|void|sign|record 六 post，+6 对）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("十一 controller 映射（路径×方法）对应为 58（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点）")
+        assertThat(endpointPairCount).as("十一 controller 映射（路径×方法）对应为 64（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点 + #105 合同六态推进写口）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -186,7 +196,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、35 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read）、注解计数=58")
+    @DisplayName("权限注解复核：每映射方法恰一码、41 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read、六态推进六写口各一码）、注解计数=64")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -207,10 +217,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 58（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 64（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
-                .as("distinct 权限码集合应与权限码清单精确一致（十一读 + 二十四写，不缺不多）")
+                .as("distinct 权限码集合应与权限码清单精确一致（十二读 + 二十九写，不缺不多）")
                 .isEqualTo(EXPECTED_PERMISSION_CODES);
         // 显式点名（spec #72 验收）：account:read 有码（嵌抽屉用、无页面）
         assertThat(codes).contains("admin:aiplatform:account:read");
@@ -221,6 +231,14 @@ class AiplatformNorthboundSmokeIntegrationTest {
         // 显式点名（spec #102 A 批验收）：contract:read 有码（合同管理页 260 承载、与 create 读写分权）
         assertThat(codes).contains("admin:aiplatform:contract:read");
         assertThat(codes).contains("admin:aiplatform:contract:create");
+        // 显式点名（spec #102 A 批 A2 验收）：六态推进六写码齐备（每写操作一码——最小授权逐动作授受）
+        assertThat(codes).contains(
+                "admin:aiplatform:contract:advance",
+                "admin:aiplatform:contract:fail",
+                "admin:aiplatform:contract:withdraw",
+                "admin:aiplatform:contract:void",
+                "admin:aiplatform:contract:sign",
+                "admin:aiplatform:contract:record");
     }
 
     /**

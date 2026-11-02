@@ -15,7 +15,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolTo
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
@@ -579,6 +582,170 @@ public class AiplatformClient {
         log.debug("AiplatformClient.createContractForOrder: {}", url);
         try {
             ApiResponse<AiplatformContractWireResponse> resp = openApiClient.post(url, null, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 推进合同（透传 aiplatform）——线性单步：准备中 → 待核对与签署 → 签署进行中 → 签署完成，
+     * 末边（3→4）须双方签署位均已落签。每次推进 append-only 留痕；推进到「签署完成」即触发
+     * provider 侧开工判定（#338 双门禁之合同腿——BFF 不感知不复算）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/advance}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（动作后回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕（provider 合同动作操作者必填、缺头 ORD_035 拒）。
+     * 无推进边（终态 4/5/6）409 ORD_021（5021）；双方未均签 409 <strong>ORD_027</strong>（5027）；
+     * 依据缺失 400 ORD_022（5022）；依据超长（至多 1000 字）400 ORD_023（5023）——均原样透传，
+     * 状态机守卫全在 provider。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（由应用层从北向命令映射而来，依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023/027/035 等，不做映射）
+     */
+    public AiplatformContractWireResponse advanceContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/advance";
+        log.debug("AiplatformClient.advanceContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同旁落「签署失败或过期」终态（透传 aiplatform）——自待核对与签署/签署进行中可达
+     * （用户放弃核对或超期未签的如实终局）；其余态 409 ORD_021。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/fail}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。合同不存在 404 ORD_020（5020）；状态不允许 409
+     * ORD_021（5021）；依据缺失/超长 400 ORD_022/023（5022/5023）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse failContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/fail";
+        log.debug("AiplatformClient.failContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 撤回合同（透传 aiplatform）——自任何非终态可达的旁落终态（「已撤回或作废」）：此后换
+     * 新号重建（{@link #createContractForOrder}，旧合同终态保留）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/withdraw}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。终态再动 409 ORD_021（5021）；依据缺失/超长
+     * ORD_022/023——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse withdrawContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/withdraw";
+        log.debug("AiplatformClient.withdrawContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 作废合同（透传 aiplatform）——守卫与去向同撤回（同一终态「已撤回或作废」）、动作语义
+     * 分立：区别只在留痕行 action（2=撤回 3=作废），终态处置可审计。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/void}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。错误族同撤回（ORD_020/021/022/023）原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse voidContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/void";
+        log.debug("AiplatformClient.voidContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同签署标记（透传 aiplatform）——落一方签署位＋时点：电子签渠道真接前的后台承接口径。
+     * 仅签署进行中态可落签；已落签的签署位幂等拒；<strong>不自动迁移状态</strong>（「签署
+     * 完成」由 {@link #advanceContract} 显式推进，双方均签守卫在 provider）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/sign}（#336 已冻结）：
+     * 请求体 {@code {party, basis}} 逐字镜像（party Integer code——provider BaseEnum 按 code
+     * 反序列化，非法值 provider 侧 400 框架信封），返回 {@code ApiResponse<ContractResponse>}
+     * （签署位落定后的合同现值）。X-User-Id/X-User-Name 透传头自动落痕。非签署进行中态 409
+     * ORD_021（5021）；该方已签 409 <strong>ORD_028</strong>（5028）；依据缺失/超长 400
+     * ORD_022/023（5022/5023）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 签署命令体（party/basis 合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023/028 等，不做映射）
+     */
+    public AiplatformContractWireResponse signContract(
+            String id, AiplatformContractSignWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/sign";
+        log.debug("AiplatformClient.signContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同草稿重录（透传 aiplatform）——「需更新」处置正路：同号重录——预览字段集整组录入＋
+     * 冻结集取订单现值重新定格（改价/改范围后）＋合同版本 +1＋「需更新」清零。仅草稿态
+     * （准备中/待核对与签署）可达；范围重冻→新付款计划同事务（#337，BFF 不感知）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/record}（#336 已冻结）：
+     * 请求体 {@code {partyA, partyB, projectScope, paymentPlan, basis}} 逐字镜像，返回
+     * {@code ApiResponse<ContractResponse>}（重录后合同现值——version +1、needsUpdate false）。
+     * X-User-Id/X-User-Name 透传头自动留痕。非草稿态 409 <strong>ORD_031</strong>（5031）；
+     * 内容超长（主体至多 200 字、其余至多 2000 字）400 <strong>ORD_032</strong>（5032）；
+     * 依据缺失/超长 ORD_022/023；重冻前置门（尚无报价 ORD_025/范围未录 ORD_026）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 重录命令体（四预览字段可空整组录入，合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/022/023/025/026/031/032 等，不做映射）
+     */
+    public AiplatformContractWireResponse recordContract(
+            String id, AiplatformContractRecordWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/record";
+        log.debug("AiplatformClient.recordContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

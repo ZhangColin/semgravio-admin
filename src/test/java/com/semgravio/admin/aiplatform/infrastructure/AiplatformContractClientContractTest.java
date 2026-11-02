@@ -10,6 +10,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformContractQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractResponse;
@@ -17,18 +20,20 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContrac
 import com.cartisan.web.response.PageResponse;
 
 /**
- * aiplatform 合同域（issue #104，spec #102 A 批 A1——provider aiplatform #336 合同域六态承接）
- * 三端点的 wire 契约测试：清单（多维检索分页）/ 详情（全量面＋PRD 全文冗余拷贝＋动作时间线）/
- * 创建重建（与用户 confirmScope 共用创建正本）。
+ * aiplatform 合同域（issue #104 A1＋issue #105 A2，spec #102 A 批——provider aiplatform #336
+ * 合同域六态承接）九端点的 wire 契约测试：清单（多维检索分页）/ 详情（全量面＋PRD 全文冗余
+ * 拷贝＋动作时间线）/ 创建重建（与用户 confirmScope 共用创建正本）＋六态推进写口
+ * advance/fail/withdraw/void/sign/record（依据必填留痕、守卫归 provider）。
  *
  * <p>契约事实（对照 aiplatform 源码 {@code BackofficeContractController} /
  * {@code BackofficeContractSummaryResponse} / {@code BackofficeContractDetailResponse} /
  * {@code ContractResponse} / {@code ContractTransitionResponse} / {@code ContractStatus} /
- * {@code ContractTransitionAction} / {@code OrderMessage}＋provider 本地 /v3/api-docs 实拉
+ * {@code ContractTransitionAction} / {@code ContractActionCommand} / {@code SignContractCommand} /
+ * {@code RecordContractCommand} / {@code OrderMessage}＋provider 本地 /v3/api-docs 实拉
  * （2026-11-02，字段序与参数集程序化核对一致；fixture 实值对照 provider
  * {@code ContractAppServiceTest} 兜底）：</p>
  * <ul>
- *   <li>三端点均包 {@code ApiResponse<T>} 信封，须按信封反序列化并取 {@code .data()}；
+ *   <li>九端点均包 {@code ApiResponse<T>} 信封，须按信封反序列化并取 {@code .data()}；
  *       清单 data 为 {@code PageResponse{items,total,page,size}}（page 1-based）。</li>
  *   <li>合同六态 {@code status} Integer code + {@code statusName} 中文名（BaseEnum 约定，
  *       provider 出 JSON number）：1=准备中 2=待核对与签署 3=签署进行中 4=签署完成
@@ -48,9 +53,17 @@ import com.cartisan.web.response.PageResponse;
  *   <li>创建重建 {@code POST /api/backoffice/contracts/orders/{orderId}}：<strong>无请求体</strong>
  *       （provider 端只读路径参数），回执 {@code ApiResponse<ContractResponse>}（准备中起步，
  *       四个后台录入预览字段 null 在场——BFF 不代填）。</li>
+ *   <li>六态推进写口 {@code POST /api/backoffice/contracts/{id}/advance|fail|withdraw|void|
+ *       sign|record}：命令体逐字镜像——advance/fail/withdraw/void 共用 {@code {basis}}、
+ *       sign {@code {party, basis}}（party Integer code 出 JSON number，provider BaseEnum
+ *       按 code 反序列化）、record {@code {partyA, partyB, projectScope, paymentPlan,
+ *       basis}}（provider RecordContractCommand 同序）；回执均为 {@code ContractResponse}
+ *       （动作后合同现值——advance 不动版本、record version +1 且「需更新」清零）。</li>
  *   <li>错误透传（数字业务码＝域码 5×1000＋序号）：合同不存在 ORD_020→5020（404）、
  *       订单不存在 ORD_001→5001（404）、已有活跃合同 ORD_024→5024（409）、尚无报价
- *       ORD_025→5025（409）、范围未录入 ORD_026→5026（409）、状态守卫 ORD_021→5021（409）。</li>
+ *       ORD_025→5025（409）、范围未录入 ORD_026→5026（409）、状态守卫 ORD_021→5021（409）、
+ *       依据必填 ORD_022→5022（400）、依据超长 ORD_023→5023（400）、双方未均签
+ *       ORD_027→5027（409）、该方已签 ORD_028→5028（409）、重录窗口 ORD_031→5031（409）。</li>
  * </ul>
  *
  * <p>本测试 <strong>不</strong> mock {@code AiplatformClient}（方法边界 mock 会绕过 wire 反序列化
@@ -590,6 +603,463 @@ class AiplatformContractClientContractTest {
                     assertThat(upstream.httpStatus()).isEqualTo(409);
                     assertThat(upstream.envelopeCode()).isEqualTo(5024);
                     assertThat(upstream.getMessage()).isEqualTo("该订单已有活跃合同（至多一份非终态合同）");
+                });
+    }
+
+    // ========== 六态推进写口（#105 A2）· wire URL/命令体镜像 + 动作后回执绑定 ==========
+
+    /**
+     * aiplatform POST /api/backoffice/contracts/{id}/advance 的真实成功响应形状（推进回执＝
+     * ContractResponse，<strong>签署完成终态</strong>——provider {@code ContractAppServiceTest}
+     * 全链实值：准备中→待核对与签署→签署进行中→甲乙双方落签→advance 推进至 4）。双方签署位
+     * true＋落签时点俱全；advance 不动版本（version 1——版本递增归 record）；推进到签署完成
+     * 即触发 provider 侧开工判定（#338 双门禁之合同腿，BFF 不感知）。
+     */
+    private static final String CONTRACT_ADVANCE_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829493004444444",
+                "contractNo": "SG-l5d3vt0h4b",
+                "orderId": "3829492007777777",
+                "status": 4,
+                "statusName": "签署完成",
+                "version": 1,
+                "needsUpdate": false,
+                "partyA": "语义引力（上海）科技有限公司",
+                "partyB": "文野",
+                "projectScope": "对公官网建设：企业门户＋产品展示",
+                "paymentPlan": "签约后 3 日内付 50%，验收后付 50%",
+                "scopeDeliverables": "交付清单：管理后台＋小程序",
+                "scopeAcceptance": "验收方式：按 PRD v3 验收",
+                "scopeTimeline": "工期口径：4 周",
+                "amount": "128000",
+                "currency": "CNY",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "partyASigned": true,
+                "partyASignedAt": "2026-10-20T10:00:00",
+                "partyBSigned": true,
+                "partyBSignedAt": "2026-10-21T09:05:00",
+                "createdAt": "2026-10-18T09:30:00"
+              },
+              "requestId": "req-c8d9e0",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_advanceCommand_when_advance_then_wireMirrorsProviderAndSignedReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_ADVANCE_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.advance(CONTRACT_ID,
+                new AiplatformContractActionCommand("双方落签，合同完成"));
+
+        // 出站路径逐字镜像 provider backoffice 路由（推进口挂 /{id}/advance）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/advance");
+        // 命令体逐字镜像 {basis}（依据必填——操作者不在 body，经透传头落痕）
+        assertThat(wireBody[0]).isEqualTo("{\"basis\":\"双方落签，合同完成\"}");
+
+        // 签署完成回执：末边双方均签守卫（ORD_027）在 provider 过——双方签署位 true＋时点俱全
+        assertThat(receipt.status()).isEqualTo(4);
+        assertThat(receipt.statusName()).isEqualTo("签署完成");
+        // advance 不动版本（version 递增归 record 草稿重录）；终态 needsUpdate 恒 false
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.needsUpdate()).isFalse();
+        assertThat(receipt.partyASigned()).isTrue();
+        assertThat(receipt.partyASignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 20, 10, 0, 0));
+        assertThat(receipt.partyBSigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+        assertThat(receipt.contractNo()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(receipt.amount()).isEqualTo(128000L);
+    }
+
+    /** fail 回执（旁落终态①：签署失败或过期）——自待核对与签署/签署进行中可达，其余态 ORD_021。 */
+    private static final String CONTRACT_FAIL_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829493004444444",
+                "contractNo": "SG-l5d3vt0h4b",
+                "orderId": "3829492007777777",
+                "status": 5,
+                "statusName": "签署失败或过期",
+                "version": 1,
+                "needsUpdate": false,
+                "partyA": "语义引力（上海）科技有限公司",
+                "partyB": "文野",
+                "projectScope": "对公官网建设：企业门户＋产品展示",
+                "paymentPlan": "签约后 3 日内付 50%，验收后付 50%",
+                "scopeDeliverables": "交付清单：管理后台＋小程序",
+                "scopeAcceptance": "验收方式：按 PRD v3 验收",
+                "scopeTimeline": "工期口径：4 周",
+                "amount": "128000",
+                "currency": "CNY",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "partyASigned": true,
+                "partyASignedAt": "2026-10-20T10:00:00",
+                "partyBSigned": false,
+                "partyBSignedAt": null,
+                "createdAt": "2026-10-18T09:30:00"
+              },
+              "requestId": "req-c9e0f1",
+              "errors": null
+            }
+            """;
+
+    /** withdraw/void 回执共形（旁落终态②：已撤回或作废——同守卫同去向，区别只在留痕行 action）。 */
+    private static final String CONTRACT_TERMINAL_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829493004444444",
+                "contractNo": "SG-l5d3vt0h4b",
+                "orderId": "3829492007777777",
+                "status": 6,
+                "statusName": "已撤回或作废",
+                "version": 1,
+                "needsUpdate": false,
+                "partyA": "语义引力（上海）科技有限公司",
+                "partyB": "文野",
+                "projectScope": "对公官网建设：企业门户＋产品展示",
+                "paymentPlan": "签约后 3 日内付 50%，验收后付 50%",
+                "scopeDeliverables": "交付清单：管理后台＋小程序",
+                "scopeAcceptance": "验收方式：按 PRD v3 验收",
+                "scopeTimeline": "工期口径：4 周",
+                "amount": "128000",
+                "currency": "CNY",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "partyASigned": false,
+                "partyASignedAt": null,
+                "partyBSigned": false,
+                "partyBSignedAt": null,
+                "createdAt": "2026-10-18T09:30:00"
+              },
+              "requestId": "req-ca0f2",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_failCommand_when_fail_then_wireMirrorsProviderAndFailedReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_FAIL_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.fail(CONTRACT_ID,
+                new AiplatformContractActionCommand("超期未签，如实旁落失败终态"));
+
+        // 出站路径逐字镜像（fail 口挂 /{id}/fail）；命令体同 advance 共形 {basis}
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/fail");
+        assertThat(wireBody[0]).isEqualTo("{\"basis\":\"超期未签，如实旁落失败终态\"}");
+
+        // 签署失败或过期终态回执：status 5；单方已签的签署位如实保留（终态定格冻结事实）
+        assertThat(receipt.status()).isEqualTo(5);
+        assertThat(receipt.statusName()).isEqualTo("签署失败或过期");
+        assertThat(receipt.needsUpdate()).isFalse();
+        assertThat(receipt.partyASigned()).isTrue();
+        assertThat(receipt.partyBSigned()).isFalse();
+    }
+
+    @Test
+    void given_withdrawCommand_when_withdraw_then_wireMirrorsProviderAndWithdrawnReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_TERMINAL_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.withdraw(CONTRACT_ID,
+                new AiplatformContractActionCommand("范围录错，整案回炉"));
+
+        // 撤回：任何非终态可达（provider 裁决）；此后换新号重建（POST contracts/orders/{orderId}）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/withdraw");
+        assertThat(wireBody[0]).isEqualTo("{\"basis\":\"范围录错，整案回炉\"}");
+        assertThat(receipt.status()).isEqualTo(6);
+        assertThat(receipt.statusName()).isEqualTo("已撤回或作废");
+    }
+
+    @Test
+    void given_voidCommand_when_void_then_wireMirrorsProviderAndVoidedReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_TERMINAL_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.voidContract(CONTRACT_ID,
+                new AiplatformContractActionCommand("主体信息录错，作废重建"));
+
+        // 作废：守卫与去向同撤回（同一终态 6）、留痕 action 分立可审计——回执形态与 withdraw 共形，
+        // 区别只在 provider 留痕行（本回执不可见，详情时间线 action 2 撤回 / 3 作废）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/void");
+        assertThat(wireBody[0]).isEqualTo("{\"basis\":\"主体信息录错，作废重建\"}");
+        assertThat(receipt.status()).isEqualTo(6);
+        assertThat(receipt.statusName()).isEqualTo("已撤回或作废");
+    }
+
+    /**
+     * aiplatform POST /api/backoffice/contracts/{id}/sign 的真实成功响应形状（签署标记回执）：
+     * 乙方落签（party=2）——仅签署进行中态可达，落一方签署位＋时点，<strong>状态不迁移</strong>
+     * （「签署完成」由 advance 显式推进）。甲方先落（true＋时点）保留，乙方翻 true＋时点落定。
+     */
+    private static final String CONTRACT_SIGN_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829493004444444",
+                "contractNo": "SG-l5d3vt0h4b",
+                "orderId": "3829492007777777",
+                "status": 3,
+                "statusName": "签署进行中",
+                "version": 1,
+                "needsUpdate": false,
+                "partyA": "语义引力（上海）科技有限公司",
+                "partyB": "文野",
+                "projectScope": "对公官网建设：企业门户＋产品展示",
+                "paymentPlan": "签约后 3 日内付 50%，验收后付 50%",
+                "scopeDeliverables": "交付清单：管理后台＋小程序",
+                "scopeAcceptance": "验收方式：按 PRD v3 验收",
+                "scopeTimeline": "工期口径：4 周",
+                "amount": "128000",
+                "currency": "CNY",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "partyASigned": true,
+                "partyASignedAt": "2026-10-20T10:00:00",
+                "partyBSigned": true,
+                "partyBSignedAt": "2026-10-21T09:05:00",
+                "createdAt": "2026-10-18T09:30:00"
+              },
+              "requestId": "req-cb1a3",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_signCommand_when_sign_then_wireMirrorsProviderAndPartyReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_SIGN_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.sign(CONTRACT_ID,
+                new AiplatformContractSignCommand(2, "乙方盖章"));
+
+        // 出站路径逐字镜像（sign 口挂 /{id}/sign）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/sign");
+        // 命令体逐字镜像 {party, basis}：party Integer code 出 JSON number（provider BaseEnum
+        // 反序列化按 code 寻址——1=甲方 2=乙方；admin 不建 typed enum 不预校验，非法值归 provider 400）
+        assertThat(wireBody[0]).isEqualTo("{\"party\":2,\"basis\":\"乙方盖章\"}");
+
+        // 乙方落签回执：签署位翻 true＋时点落定；状态仍签署进行中（签署标记不自动迁移——
+        // 「签署完成」由 advance 显式推进，双方均签守卫 ORD_027 在 provider）
+        assertThat(receipt.status()).isEqualTo(3);
+        assertThat(receipt.statusName()).isEqualTo("签署进行中");
+        assertThat(receipt.partyASigned()).isTrue();
+        assertThat(receipt.partyBSigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+    }
+
+    /**
+     * aiplatform POST /api/backoffice/contracts/{id}/record 的真实成功响应形状（草稿重录回执）：
+     * 「需更新」处置正路（provider {@code ContractAppServiceTest} 实值——改价 99000 后重录）：
+     * 预览字段集整组录入（张三/语义引力科技有限公司/管理后台＋小程序/开工款 50%，验收 50%）
+     * ＋冻结集取订单现值重新定格（amount 翻 99000）＋<strong>version +1（1→2）</strong>＋
+     * <strong>「需更新」清零</strong>＋同号重录（contractNo 不变）＋状态不迁移（仍准备中）。
+     */
+    private static final String CONTRACT_RECORD_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829493006666666",
+                "contractNo": "SG-l5f2xq9wn1",
+                "orderId": "3829492001234567",
+                "status": 1,
+                "statusName": "准备中",
+                "version": 2,
+                "needsUpdate": false,
+                "partyA": "张三",
+                "partyB": "语义引力科技有限公司",
+                "projectScope": "管理后台＋小程序",
+                "paymentPlan": "开工款 50%，验收 50%",
+                "scopeDeliverables": "交付清单：管理后台＋小程序",
+                "scopeAcceptance": "验收方式：按 PRD v3 验收",
+                "scopeTimeline": "工期口径：4 周",
+                "amount": "99000",
+                "currency": "CNY",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "partyASigned": false,
+                "partyASignedAt": null,
+                "partyBSigned": false,
+                "partyBSignedAt": null,
+                "createdAt": "2026-10-22T09:00:00"
+              },
+              "requestId": "req-cc2b4",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_recordCommand_when_record_then_wireMirrorsProviderAndVersionBumpedReceiptBound() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.contractWriteAppServiceWithStubTransport(
+                CONTRACT_RECORD_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        AiplatformContractResponse receipt = appService.record(CONTRACT_ID,
+                new AiplatformContractRecordCommand("张三", "语义引力科技有限公司",
+                        "管理后台＋小程序", "开工款 50%，验收 50%", "改价后重录"));
+
+        // 出站路径逐字镜像（record 口挂 /{id}/record）
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/contracts/" + CONTRACT_ID + "/record");
+        // 命令体逐字镜像五字段（四个预览字段可空整组录入＋依据必填——provider RecordContractCommand 同序）
+        assertThat(wireBody[0]).isEqualTo("{\"partyA\":\"张三\",\"partyB\":\"语义引力科技有限公司\","
+                + "\"projectScope\":\"管理后台＋小程序\",\"paymentPlan\":\"开工款 50%，验收 50%\","
+                + "\"basis\":\"改价后重录\"}");
+
+        // 重录回执（provider 实值）：version +1（1→2）＋「需更新」清零（重冻即清零）＋
+        // 冻结集取现值（改价 99000 翻新）＋预览字段整组录入＋同号重录＋状态不迁移（仍准备中）
+        assertThat(receipt.version()).isEqualTo(2);
+        assertThat(receipt.needsUpdate()).isFalse();
+        assertThat(receipt.amount()).isEqualTo(99000L);
+        assertThat(receipt.partyA()).isEqualTo("张三");
+        assertThat(receipt.partyB()).isEqualTo("语义引力科技有限公司");
+        assertThat(receipt.projectScope()).isEqualTo("管理后台＋小程序");
+        assertThat(receipt.paymentPlan()).isEqualTo("开工款 50%，验收 50%");
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.statusName()).isEqualTo("准备中");
+        assertThat(receipt.contractNo()).isEqualTo("SG-l5f2xq9wn1");
+    }
+
+    // ========== 六态推进守卫错误族（provider 裁决原样透传——BFF 零状态机复算） ==========
+
+    /** 依据必填守卫：HTTP 400 + 信封 code=5022（ORD_022——留痕行正身缺失，provider 聚合守卫）。 */
+    private static final String ORD_022_ERROR_ENVELOPE = """
+            {
+              "code": 5022,
+              "message": "操作依据必填（人工推进须填写依据留痕）",
+              "data": null,
+              "requestId": "req-cd3c5",
+              "errors": null
+            }
+            """;
+
+    /** 双方均签守卫（advance 3→4 末边）：HTTP 409 + 信封 code=5027（ORD_027）。 */
+    private static final String ORD_027_ERROR_ENVELOPE = """
+            {
+              "code": 5027,
+              "message": "双方尚未全部签署，不能标记签署完成",
+              "data": null,
+              "requestId": "req-ce4d6",
+              "errors": null
+            }
+            """;
+
+    /** 签署位幂等守卫（sign 已落签的签署位再落）：HTTP 409 + 信封 code=5028（ORD_028）。 */
+    private static final String ORD_028_ERROR_ENVELOPE = """
+            {
+              "code": 5028,
+              "message": "该方已签署（签署位已落）",
+              "data": null,
+              "requestId": "req-cf5e7",
+              "errors": null
+            }
+            """;
+
+    /** 草稿重录窗口守卫（record 签署进行中起）：HTTP 409 + 信封 code=5031（ORD_031）。 */
+    private static final String ORD_031_ERROR_ENVELOPE = """
+            {
+              "code": 5031,
+              "message": "内容重录仅限草稿态（签署进行中起走撤回/作废重建）",
+              "data": null,
+              "requestId": "req-d0a1b8",
+              "errors": null
+            }
+            """;
+
+    @Test
+    void given_ord022ErrorEnvelope_when_advance_then_basisRequiredGuardPassedThrough() {
+        var appService = AiplatformWireTestSupport.contractAppServiceWithErrorTransport(
+                400, ORD_022_ERROR_ENVELOPE, new String[1]);
+
+        // 依据必填（六动作共用守卫）：ORD_022＝域码 5×1000＋22——BFF 不前置拦截，provider 裁决
+        assertThatThrownBy(() -> appService.advance(CONTRACT_ID,
+                new AiplatformContractActionCommand(" ")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5022);
+                    assertThat(upstream.getMessage()).isEqualTo("操作依据必填（人工推进须填写依据留痕）");
+                });
+    }
+
+    @Test
+    void given_ord027ErrorEnvelope_when_advance_then_bothSignedGuardPassedThrough() {
+        var appService = AiplatformWireTestSupport.contractAppServiceWithErrorTransport(
+                409, ORD_027_ERROR_ENVELOPE, new String[1]);
+
+        // 双方均签守卫（advance 末边 3→4）：ORD_027＝域码 5×1000＋27——签署位状态归 provider，
+        // BFF 不读签署位不预判可推进性
+        assertThatThrownBy(() -> appService.advance(CONTRACT_ID,
+                new AiplatformContractActionCommand("乙方未签就想完成")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5027);
+                    assertThat(upstream.getMessage()).isEqualTo("双方尚未全部签署，不能标记签署完成");
+                });
+    }
+
+    @Test
+    void given_ord028ErrorEnvelope_when_sign_then_partyGuardPassedThrough() {
+        var appService = AiplatformWireTestSupport.contractAppServiceWithErrorTransport(
+                409, ORD_028_ERROR_ENVELOPE, new String[1]);
+
+        // 签署位幂等守卫（sign）：ORD_028＝域码 5×1000＋28——已落签的签署位不可重复落
+        assertThatThrownBy(() -> appService.sign(CONTRACT_ID,
+                new AiplatformContractSignCommand(1, "甲方重复盖章")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5028);
+                    assertThat(upstream.getMessage()).isEqualTo("该方已签署（签署位已落）");
+                });
+    }
+
+    @Test
+    void given_ord031ErrorEnvelope_when_record_then_draftWindowGuardPassedThrough() {
+        var appService = AiplatformWireTestSupport.contractAppServiceWithErrorTransport(
+                409, ORD_031_ERROR_ENVELOPE, new String[1]);
+
+        // 草稿重录窗口守卫（record）：ORD_031＝域码 5×1000＋31——签署进行中起变动走撤回/作废重建
+        assertThatThrownBy(() -> appService.record(CONTRACT_ID,
+                new AiplatformContractRecordCommand(null, null, null, null, "签署中重录")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5031);
+                    assertThat(upstream.getMessage()).isEqualTo("内容重录仅限草稿态（签署进行中起走撤回/作废重建）");
                 });
     }
 }

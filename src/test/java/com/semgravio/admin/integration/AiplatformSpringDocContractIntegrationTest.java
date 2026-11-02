@@ -99,6 +99,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       （撤回/作废后新号新合同、与用户 confirmScope 共用创建正本、无请求体、前置门
  *       ORD_001/021/024/025/026 数字码）的 summary＋description 逐字镜像 provider；北向
  *       schema 的六态 status/needsUpdate 与留痕行 action 同步自描述。</li>
+ *   <li>合同六态推进写口 @Operation 描述镜像（issue #105，spec #102 A 批 A2——镜像
+ *       aiplatform #336）：advance（线性单步推进、末边双方均签守卫 ORD_027、推进到签署完成
+ *       触发开工判定、advance 不动版本）、fail（旁落「签署失败或过期」——待核对与签署/
+ *       签署进行中可达、已落签署位定格保留）、withdraw（任何非终态可达、此后换新号重建）、
+ *       void（守卫与去向同撤回、留痕 action 2=撤回 3=作废分立可审计）、sign（落一方签署位
+ *       不自动迁移、party 1=甲方 2=乙方 Integer code、已落签幂等拒 ORD_028）、record
+ *       （「需更新」处置正路——同号重录/预览字段整组录入/冻结集取现值重新定格/版本 +1/
+ *       「需更新」清零、窗口 ORD_031、超长 ORD_032、前置门 ORD_025/026）六端点语义＋
+ *       依据必填 ORD_022/023 数字码须在 api-docs 在场；北向命令 schema 的 party（两值
+ *       Integer code 直通）、basis（必填留痕正身）与 record 四预览字段（可空整组录入）
+ *       同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -989,6 +1000,98 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("1=推进 2=撤回 3=作废 4=签署标记 5=草稿重录 6=失败或过期")
                 .contains("fromStatus = toStatus");
         assertThat(exampleText(action)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("swagger 契约：合同六态推进写口 @Operation 描述镜像 provider（#105，推进语义/守卫/ORD_022/027/028/031/032 数字码在场）")
+    void given_contractAdvanceEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // advance：线性单步推进＋末边双方均签守卫＋开工判定触发＋依据必填＋错误族数字码
+        JsonNode advance = paths.path("/api/admin/aiplatform/contracts/{id}/advance").path("post");
+        assertThat(advance.isMissingNode()).as("api-docs 应含合同推进端点").isFalse();
+        assertThat(advance.path("summary").asText(""))
+                .contains("推进合同").contains("线性单步");
+        assertThat(advance.path("description").asText(""))
+                .contains("末边 3→4 须双方签署位均已落签")
+                .contains("开工判定")
+                .contains("advance 不动版本")
+                .contains("ORD_020").contains("5020")
+                .contains("ORD_021").contains("5021")
+                .contains("ORD_027").contains("5027")
+                .contains("ORD_022").contains("5022")
+                .contains("ORD_023").contains("5023");
+
+        // fail：旁落「签署失败或过期」终态＋可达态限定
+        JsonNode fail = paths.path("/api/admin/aiplatform/contracts/{id}/fail").path("post");
+        assertThat(fail.isMissingNode()).as("api-docs 应含合同失败或过期端点").isFalse();
+        assertThat(fail.path("summary").asText(""))
+                .contains("旁落").contains("签署失败或过期");
+        assertThat(fail.path("description").asText(""))
+                .contains("待核对与签署/签署进行中")
+                .contains("已落签署位如实定格保留")
+                .contains("ORD_021").contains("5021");
+
+        // withdraw：任何非终态可达＋重建指向
+        JsonNode withdraw = paths.path("/api/admin/aiplatform/contracts/{id}/withdraw").path("post");
+        assertThat(withdraw.isMissingNode()).as("api-docs 应含合同撤回端点").isFalse();
+        assertThat(withdraw.path("summary").asText("")).contains("撤回合同");
+        assertThat(withdraw.path("description").asText(""))
+                .contains("任何非终态")
+                .contains("换新号重建");
+
+        // void：守卫与去向同撤回＋留痕 action 分立可审计
+        JsonNode voidContract = paths.path("/api/admin/aiplatform/contracts/{id}/void").path("post");
+        assertThat(voidContract.isMissingNode()).as("api-docs 应含合同作废端点").isFalse();
+        assertThat(voidContract.path("summary").asText("")).contains("作废合同");
+        assertThat(voidContract.path("description").asText(""))
+                .contains("同撤回")
+                .contains("2=撤回 3=作废");
+
+        // sign：落一方签署位＋不自动迁移＋party 两值＋幂等拒 ORD_028
+        JsonNode sign = paths.path("/api/admin/aiplatform/contracts/{id}/sign").path("post");
+        assertThat(sign.isMissingNode()).as("api-docs 应含合同签署标记端点").isFalse();
+        assertThat(sign.path("summary").asText("")).contains("签署标记").contains("落一方签署位");
+        assertThat(sign.path("description").asText(""))
+                .contains("不自动迁移状态")
+                .contains("签署进行中")
+                .contains("1=甲方").contains("2=乙方")
+                .contains("ORD_028").contains("5028")
+                .contains("ORD_027");
+
+        // record：同号重录＋版本 +1＋需更新清零＋窗口/超长守卫＋前置门
+        JsonNode record = paths.path("/api/admin/aiplatform/contracts/{id}/record").path("post");
+        assertThat(record.isMissingNode()).as("api-docs 应含合同草稿重录端点").isFalse();
+        assertThat(record.path("summary").asText(""))
+                .contains("草稿重录").contains("同号重新冻结").contains("版本递增");
+        assertThat(record.path("description").asText(""))
+                .contains("「需更新」处置正路")
+                .contains("同号重录")
+                .contains("版本 +1")
+                .contains("「需更新」清零")
+                .contains("ORD_031").contains("5031")
+                .contains("ORD_032").contains("5032")
+                .contains("ORD_025").contains("ORD_026");
+
+        // 命令 schema 自描述：party 两值 Integer code 直通（非法值归 provider 400）＋
+        // basis 依据必填语义＋record 四预览字段可空整组录入
+        JsonNode party = property("AiplatformContractSignCommand", "party");
+        assertThat(party.path("description").asText(""))
+                .contains("1=甲方").contains("2=乙方")
+                .contains("非法值由 provider 裁决");
+        assertThat(exampleText(party)).isEqualTo("2");
+        assertThat(property("AiplatformContractSignCommand", "basis")
+                .path("description").asText(""))
+                .contains("必填").contains("ORD_028");
+        assertThat(property("AiplatformContractActionCommand", "basis")
+                .path("description").asText(""))
+                .contains("必填").contains("ORD_022");
+        assertThat(property("AiplatformContractRecordCommand", "partyA")
+                .path("description").asText(""))
+                .contains("可空").contains("ORD_032").contains("整组录入");
+        assertThat(property("AiplatformContractRecordCommand", "basis")
+                .path("description").asText(""))
+                .contains("版本 +1").contains("「需更新」清零");
     }
 
     // ---------- 装载 ----------

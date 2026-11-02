@@ -1012,10 +1012,11 @@ final class AiplatformWireTestSupport {
     }
 
     /**
-     * 合同域<strong>写路径</strong>版（创建重建，issue #104）——post 按真实 {@code TypeReference}
-     * 反序列化并把命令体记入 wireBodySink（<strong>无请求体</strong>——null body 原样记 null，
-     * 钉死创建重建只读路径参数的契约，同重试归档先例）；get 沿用读路径版语义（创建测试
-     * 不触达，但 stub 保完整形制）。
+     * 合同域<strong>写路径</strong>版（创建重建 issue #104＋六态推进写口 issue #105 A2）——
+     * post 按真实 {@code TypeReference} 反序列化并把命令体记入 wireBodySink（创建重建
+     * <strong>无请求体</strong>——null body 原样记 null，钉死只读路径参数的契约，同重试归档
+     * 先例；六写口带命令体——String/Integer 字段无 Long/BigDecimal 特殊口径，boot 默认
+     * mapper 即生产口径）；get 沿用读路径版语义（写测试不触达，但 stub 保完整形制）。
      */
     static AiplatformContractAppService contractWriteAppServiceWithStubTransport(
             String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {

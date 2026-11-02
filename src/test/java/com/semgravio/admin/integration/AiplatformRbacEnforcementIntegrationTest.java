@@ -46,6 +46,9 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversatio
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
@@ -111,7 +114,9 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * #90 指派双头预检——技能域第 16 端点 + #92 草稿审核面——技能域第 17–20 端点 +
  * #96 设计能力线 T1——订单设计资产包取件（复用 order:read，交付物类型字段对随清单/详情/
  * 写回执北向断言）+ #104 合同域 A1——清单/详情/创建重建三端点（contract:read/create 两码
- * 读写分权；六态/PRD 全文冗余拷贝/动作时间线北向形状＋操作者透传断言））
+ * 读写分权；六态/PRD 全文冗余拷贝/动作时间线北向形状＋操作者透传断言）+ #105 合同域 A2
+ * ——六态推进写口 advance/fail/withdraw/void/sign/record（六独立写码三态逐码；签署完成/
+ * 旁落终态/落签/重录〔version +1·需更新清零〕回执北向形状＋操作者透传断言＋ORD_027 信封透传））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -179,12 +184,34 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String CANCEL_BODY = "{\"reason\":\"重复下单，用户要求取消\"}";
     private static final String CONTRACT_READ_PERMISSION = "admin:aiplatform:contract:read";
     private static final String CONTRACT_CREATE_PERMISSION = "admin:aiplatform:contract:create";
+    private static final String CONTRACT_ADVANCE_PERMISSION = "admin:aiplatform:contract:advance";
+    private static final String CONTRACT_FAIL_PERMISSION = "admin:aiplatform:contract:fail";
+    private static final String CONTRACT_WITHDRAW_PERMISSION = "admin:aiplatform:contract:withdraw";
+    private static final String CONTRACT_VOID_PERMISSION = "admin:aiplatform:contract:void";
+    private static final String CONTRACT_SIGN_PERMISSION = "admin:aiplatform:contract:sign";
+    private static final String CONTRACT_RECORD_PERMISSION = "admin:aiplatform:contract:record";
     /** 合同标识（TSID 十进制串柄——透传不解析不预校验，畸形/未寻址由 provider 判 404 ORD_020）。 */
     private static final String CONTRACT_ID = "3829493004444444";
     private static final String CONTRACTS_ENDPOINT = "/api/admin/aiplatform/contracts";
     private static final String CONTRACT_DETAIL_ENDPOINT = CONTRACTS_ENDPOINT + "/" + CONTRACT_ID;
-    /** 创建重建口挂在 orders/{orderId} 下（区别于 /{id} 推进口——A2 落）。 */
+    /** 创建重建口挂在 orders/{orderId} 下（区别于 /{id} 六态推进写口）。 */
     private static final String CONTRACT_CREATE_ENDPOINT = CONTRACTS_ENDPOINT + "/orders/" + ORDER_ID;
+    /** 六态推进写口（#105 A2）：/{id}/advance|fail|withdraw|void|sign|record 六路径。 */
+    private static final String CONTRACT_ADVANCE_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/advance";
+    private static final String CONTRACT_FAIL_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/fail";
+    private static final String CONTRACT_WITHDRAW_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/withdraw";
+    private static final String CONTRACT_VOID_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/void";
+    private static final String CONTRACT_SIGN_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/sign";
+    private static final String CONTRACT_RECORD_ENDPOINT = CONTRACT_DETAIL_ENDPOINT + "/record";
+    private static final String CONTRACT_ADVANCE_BODY = "{\"basis\":\"双方落签，合同完成\"}";
+    private static final String CONTRACT_FAIL_BODY = "{\"basis\":\"超期未签，如实旁落失败终态\"}";
+    private static final String CONTRACT_WITHDRAW_BODY = "{\"basis\":\"范围录错，整案回炉\"}";
+    private static final String CONTRACT_VOID_BODY = "{\"basis\":\"主体信息录错，作废重建\"}";
+    private static final String CONTRACT_SIGN_BODY = "{\"party\":2,\"basis\":\"乙方盖章\"}";
+    private static final String CONTRACT_RECORD_BODY =
+            "{\"partyA\":\"张三\",\"partyB\":\"语义引力科技有限公司\","
+                    + "\"projectScope\":\"管理后台＋小程序\",\"paymentPlan\":\"开工款 50%，验收 50%\","
+                    + "\"basis\":\"改价后重录\"}";
     private static final String PROJECT_ID = "3829492007654321";
     private static final String PROJECTS_ENDPOINT = "/api/admin/aiplatform/projects";
     private static final String PROJECT_DETAIL_ENDPOINT = PROJECTS_ENDPOINT + "/" + PROJECT_ID;
@@ -319,6 +346,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithSkillDraftWrite;
     private String usernameWithDraftPromoteOnly;
     private String usernameWithContractCreate;
+    private String usernameWithContractWrite;
+    private String usernameWithAdvanceOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -346,6 +375,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String skillDraftWriteUserNickname;
     private Long contractCreateUserId;
     private String contractCreateUserNickname;
+    private Long contractWriteUserId;
+    private String contractWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -386,6 +417,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithSkillDraftWrite = "aiplasdwpr" + suffix;
         usernameWithDraftPromoteOnly = "aiplasdpo" + suffix;
         usernameWithContractCreate = "aiplaccpr" + suffix;
+        usernameWithContractWrite = "aiplacwpr" + suffix;
+        usernameWithAdvanceOnly = "aiplaadvo" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -611,6 +644,31 @@ class AiplatformRbacEnforcementIntegrationTest {
                         contractCreateUserNickname, null, null, null));
         userAppService.assignRoles(contractCreateUserId, new AssignRolesCommand(List.of(contractCreateRoleId)));
 
+        // 合同六态推进专用运营（六写码全量，无读码——读写分权，#105 A2）——操作者透传断言用其
+        // id/昵称（六动作均必留痕，缺头 ORD_035 拒）
+        Long contractWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台合同推进_" + suffix, "AIPLACWPR_" + suffix,
+                        "AI 平台合同六态推进写口权限", 109, null));
+        roleAppService.assignPermissions(contractWriteRoleId, new AssignPermissionsCommand(List.of(
+                CONTRACT_ADVANCE_PERMISSION, CONTRACT_FAIL_PERMISSION, CONTRACT_WITHDRAW_PERMISSION,
+                CONTRACT_VOID_PERMISSION, CONTRACT_SIGN_PERMISSION, CONTRACT_RECORD_PERMISSION)));
+        contractWriteUserNickname = "合同推进运营_" + suffix;
+        contractWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithContractWrite, PASSWORD,
+                        contractWriteUserNickname, null, null, null));
+        userAppService.assignRoles(contractWriteUserId, new AssignRolesCommand(List.of(contractWriteRoleId)));
+
+        // 仅 advance 单写码——钉死六写码彼此独立（spec #102 每写操作一码最小授权）
+        Long advanceOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台合同仅推进_" + suffix, "AIPLAADVO_" + suffix,
+                        "AI 平台合同仅推进权限", 110, null));
+        roleAppService.assignPermissions(advanceOnlyRoleId,
+                new AssignPermissionsCommand(List.of(CONTRACT_ADVANCE_PERMISSION)));
+        Long advanceOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithAdvanceOnly, PASSWORD,
+                        "推进专员_" + suffix, null, null, null));
+        userAppService.assignRoles(advanceOnlyUserId, new AssignRolesCommand(List.of(advanceOnlyRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -747,6 +805,32 @@ class AiplatformRbacEnforcementIntegrationTest {
             capture.run();
             return contractCreateReceiptWire();
         }).when(aiplatformClient).createContractForOrder(eq(ORDER_ID));
+        // 六态推进写口 mock（#105 A2）：各动作后回执（advance 签署完成/fail 5/withdraw·void 6/
+        // sign 乙方落签/record 版本+1）+ 抓取 RequestContext（六动作均必留痕）
+        doAnswer(inv -> {
+            capture.run();
+            return contractStateReceiptWire(4, "签署完成", true, true, 1);
+        }).when(aiplatformClient).advanceContract(eq(CONTRACT_ID), any(AiplatformContractActionWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return contractStateReceiptWire(5, "签署失败或过期", true, false, 1);
+        }).when(aiplatformClient).failContract(eq(CONTRACT_ID), any(AiplatformContractActionWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return contractStateReceiptWire(6, "已撤回或作废", false, false, 1);
+        }).when(aiplatformClient).withdrawContract(eq(CONTRACT_ID), any(AiplatformContractActionWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return contractStateReceiptWire(6, "已撤回或作废", false, false, 1);
+        }).when(aiplatformClient).voidContract(eq(CONTRACT_ID), any(AiplatformContractActionWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return contractStateReceiptWire(3, "签署进行中", true, true, 1);
+        }).when(aiplatformClient).signContract(eq(CONTRACT_ID), any(AiplatformContractSignWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return contractRecordReceiptWire();
+        }).when(aiplatformClient).recordContract(eq(CONTRACT_ID), any(AiplatformContractRecordWireRequest.class));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1168,6 +1252,42 @@ class AiplatformRbacEnforcementIntegrationTest {
                 128000L, "CNY", 3, 2,
                 false, null, false, null,
                 LocalDateTime.of(2026, 10, 23, 9, 0, 0));
+    }
+
+    /**
+     * 合同六态推进回执 wire 载荷工厂（issue #105 A2）：按动作后状态/双方签署位/版本参数化
+     * ——advance 签署完成（双 true）、fail 5（单方已签定格）、withdraw·void 6、sign 签署
+     * 进行中（落签方翻 true）。其余字段固定（内容已录面）。
+     */
+    private static AiplatformContractWireResponse contractStateReceiptWire(
+            Integer status, String statusName, boolean partyASigned, boolean partyBSigned, int version) {
+        return new AiplatformContractWireResponse(
+                CONTRACT_ID, "SG-l5d3vt0h4b", ORDER_ID,
+                status, statusName, version, false,
+                "语义引力（上海）科技有限公司", "文野",
+                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                128000L, "CNY", 3, 2,
+                partyASigned, partyASigned ? LocalDateTime.of(2026, 10, 20, 10, 0, 0) : null,
+                partyBSigned, partyBSigned ? LocalDateTime.of(2026, 10, 21, 9, 5, 0) : null,
+                LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    /**
+     * 合同草稿重录回执 wire 载荷工厂（issue #105 A2，provider 测试实值——改价 99000 后重录）：
+     * version +1（1→2）＋needsUpdate false（重冻即清零）＋冻结集取现值（amount 翻 99000）＋
+     * 预览字段整组录入＋同号重录＋状态不迁移（仍准备中）。
+     */
+    private static AiplatformContractWireResponse contractRecordReceiptWire() {
+        return new AiplatformContractWireResponse(
+                "3829493006666666", "SG-l5f2xq9wn1", ORDER_ID,
+                1, "准备中", 2, false,
+                "张三", "语义引力科技有限公司",
+                "管理后台＋小程序", "开工款 50%，验收 50%",
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                99000L, "CNY", 3, 2,
+                false, null, false, null,
+                LocalDateTime.of(2026, 10, 22, 9, 0, 0));
     }
 
     /**
@@ -3586,6 +3706,193 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 5020（ORD_020＝域码 5×1000＋20），而非映射后的 404——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(5020);
         assertThat(root.path("message").asText()).isEqualTo("合同不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 合同域六态推进写口（#105 A2，六独立写码）· 三态逐码 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 六态推进六端点 403（每写操作一码——无码不串）")
+    void given_nonSuperAdminWithoutPermission_when_contractAdvanceEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(postWithToken(CONTRACT_ADVANCE_ENDPOINT, CONTRACT_ADVANCE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_FAIL_ENDPOINT, CONTRACT_FAIL_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_WITHDRAW_ENDPOINT, CONTRACT_WITHDRAW_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_VOID_ENDPOINT, CONTRACT_VOID_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_SIGN_ENDPOINT, CONTRACT_SIGN_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_RECORD_ENDPOINT, CONTRACT_RECORD_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问六态推进六端点返回 401")
+    void given_unauthenticated_when_contractAdvanceEndpoints_then_401() {
+        assertThat(postWithToken(CONTRACT_ADVANCE_ENDPOINT, CONTRACT_ADVANCE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_FAIL_ENDPOINT, CONTRACT_FAIL_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_WITHDRAW_ENDPOINT, CONTRACT_WITHDRAW_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_VOID_ENDPOINT, CONTRACT_VOID_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_SIGN_ENDPOINT, CONTRACT_SIGN_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(CONTRACT_RECORD_ENDPOINT, CONTRACT_RECORD_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 contract:read（无写码）→ 六态推进六端点 403（read ≠ 六写码，读写不串）")
+    void given_nonSuperAdminWithContractReadOnly_when_advanceEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(CONTRACT_ADVANCE_ENDPOINT, CONTRACT_ADVANCE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_SIGN_ENDPOINT, CONTRACT_SIGN_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_RECORD_ENDPOINT, CONTRACT_RECORD_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅 contract:advance 单码 → 其余五写端点 403（六写码彼此独立——最小授权逐动作授受）")
+    void given_nonSuperAdminWithAdvanceOnly_when_otherFiveWriteEndpoints_then_403() {
+        String token = login(usernameWithAdvanceOnly);
+        assertThat(postWithToken(CONTRACT_FAIL_ENDPOINT, CONTRACT_FAIL_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_WITHDRAW_ENDPOINT, CONTRACT_WITHDRAW_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_VOID_ENDPOINT, CONTRACT_VOID_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_SIGN_ENDPOINT, CONTRACT_SIGN_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(CONTRACT_RECORD_ENDPOINT, CONTRACT_RECORD_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:advance → 推进 200，签署完成回执（双方签署位 true）且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithContractAdvance_when_advance_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_ADVANCE_ENDPOINT, CONTRACT_ADVANCE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        // 签署完成回执：六态 code 出 JSON number、双方签署位 true＋时点、版本不动（version 递增归 record）
+        assertThat(receipt.path("status").isNumber()).isTrue();
+        assertThat(receipt.path("status").asInt()).isEqualTo(4);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("签署完成");
+        assertThat(receipt.path("version").asInt()).isEqualTo(1);
+        assertThat(receipt.path("partyASigned").asBoolean()).isTrue();
+        assertThat(receipt.path("partyASignedAt").asText()).isEqualTo("2026-10-20T10:00:00");
+        assertThat(receipt.path("partyBSigned").asBoolean()).isTrue();
+        assertThat(receipt.path("partyBSignedAt").asText()).isEqualTo("2026-10-21T09:05:00");
+        // 金额 Long（分）出 JSON string（全局出口口径，同读面）
+        assertThat(receipt.path("amount").asLong()).isEqualTo(128000L);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（provider 合同动作操作者必填 ORD_035）
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(contractWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:fail → 旁落失败终态 200（status 5、单方已签定格）且 operator 透传")
+    void given_nonSuperAdminWithContractFail_when_fail_then_200_andOperatorPassthrough() throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_FAIL_ENDPOINT, CONTRACT_FAIL_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(receipt.path("status").asInt()).isEqualTo(5);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("签署失败或过期");
+        assertThat(receipt.path("partyASigned").asBoolean()).isTrue();
+        assertThat(receipt.path("partyBSigned").asBoolean()).isFalse();
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:withdraw → 撤回 200（旁落终态 6）且 operator 透传")
+    void given_nonSuperAdminWithContractWithdraw_when_withdraw_then_200_andOperatorPassthrough() throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_WITHDRAW_ENDPOINT, CONTRACT_WITHDRAW_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(receipt.path("status").asInt()).isEqualTo(6);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("已撤回或作废");
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:void → 作废 200（与撤回同终态共形、留痕 action 分立）且 operator 透传")
+    void given_nonSuperAdminWithContractVoid_when_void_then_200_andOperatorPassthrough() throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_VOID_ENDPOINT, CONTRACT_VOID_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(receipt.path("status").asInt()).isEqualTo(6);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("已撤回或作废");
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:sign → 签署标记 200（party code 直通、签署位翻 true、状态不迁移）且 operator 透传")
+    void given_nonSuperAdminWithContractSign_when_sign_then_200_andOperatorPassthrough() throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_SIGN_ENDPOINT, CONTRACT_SIGN_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        // 落签回执：乙方签署位翻 true＋时点；状态仍签署进行中（签署标记不自动迁移——推进归 advance）
+        assertThat(receipt.path("status").asInt()).isEqualTo(3);
+        assertThat(receipt.path("statusName").asText()).isEqualTo("签署进行中");
+        assertThat(receipt.path("partyBSigned").asBoolean()).isTrue();
+        assertThat(receipt.path("partyBSignedAt").asText()).isEqualTo("2026-10-21T09:05:00");
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(contractWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 contract:record → 草稿重录 200（version +1 出 JSON number、需更新清零、冻结集取现值）且 operator 透传")
+    void given_nonSuperAdminWithContractRecord_when_record_then_200_andOperatorPassthrough() throws Exception {
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_RECORD_ENDPOINT, CONTRACT_RECORD_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode receipt = objectMapper.readTree(response.getBody()).path("data");
+        // 重录回执：version 2（+1 出 JSON number）、needsUpdate false（重冻即清零）、金额翻现值 99000
+        assertThat(receipt.path("version").isNumber()).isTrue();
+        assertThat(receipt.path("version").asInt()).isEqualTo(2);
+        assertThat(receipt.path("needsUpdate").asBoolean()).isFalse();
+        assertThat(receipt.path("amount").asLong()).isEqualTo(99000L);
+        assertThat(receipt.path("partyA").asText()).isEqualTo("张三");
+        assertThat(receipt.path("paymentPlan").asText()).isEqualTo("开工款 50%，验收 50%");
+        assertThat(receipt.path("contractNo").asText()).isEqualTo("SG-l5f2xq9wn1");
+        assertThat(capturedOperatorId.get()).isEqualTo(contractWriteUserId);
+    }
+
+    @Test
+    @DisplayName("推进下游 ORD_027（双方未均签）→ 北向 HTTP 409 + 信封 code=5027 + message 原文（不映射）")
+    void given_ord027FromDownstream_when_advance_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.advanceContract(eq(CONTRACT_ID), any(AiplatformContractActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(
+                        new OpenApiClientException(409,
+                                "{\"code\":5027,\"message\":\"双方尚未全部签署，不能标记签署完成\",\"data\":null}")));
+
+        String token = login(usernameWithContractWrite);
+        ResponseEntity<String> response = postWithToken(CONTRACT_ADVANCE_ENDPOINT, CONTRACT_ADVANCE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 5027（ORD_027＝域码 5×1000＋27）——双方均签守卫归 provider，BFF 不预判
+        assertThat(root.path("code").asInt()).isEqualTo(5027);
+        assertThat(root.path("message").asText()).isEqualTo("双方尚未全部签署，不能标记签署完成");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

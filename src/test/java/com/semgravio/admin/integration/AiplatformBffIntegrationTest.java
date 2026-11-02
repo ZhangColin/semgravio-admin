@@ -30,6 +30,9 @@ import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPriceEntryRepriceCommand;
@@ -66,7 +69,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDet
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
@@ -104,7 +110,8 @@ import com.cartisan.web.response.PageResponse;
  * aiplatform BFF 集成测试（issue #63 T1 账号首批 + #64 订单读路径 + #65 项目核心读路径 +
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
- * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建）——mock {@link AiplatformClient}，
+ * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建 + #105 合同域六态推进写口
+ * advance/fail/withdraw/void/sign/record）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -538,6 +545,158 @@ class AiplatformBffIntegrationTest {
                     assertThat(upstream.httpStatus()).isEqualTo(409);
                     assertThat(upstream.envelopeCode()).isEqualTo(5024);
                     assertThat(upstream.getMessage()).isEqualTo("该订单已有活跃合同（至多一份非终态合同）");
+                });
+    }
+
+    // ========== 合同域六态推进写口（#105 A2）· 命令映射 + 动作后回执映射 + 守卫透传 ==========
+
+    /** 六态推进回执 wire 载荷工厂：按动作后状态参数化（advance 4 签署完成/fail 5/withdraw·void 6）。 */
+    private static AiplatformContractWireResponse contractActionReceiptWire(
+            Integer status, String statusName, boolean partyASigned, boolean partyBSigned) {
+        return new AiplatformContractWireResponse(
+                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                status, statusName, 1, false,
+                "语义引力（上海）科技有限公司", "文野",
+                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                128000L, "CNY", 3, 2,
+                partyASigned, partyASigned ? LocalDateTime.of(2026, 10, 20, 10, 0, 0) : null,
+                partyBSigned, partyBSigned ? LocalDateTime.of(2026, 10, 21, 9, 5, 0) : null,
+                LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    @Test
+    void given_advanceCommand_when_advance_then_wireCommandMappedAndSignedReceiptMapped() {
+        when(aiplatformClient.advanceContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(4, "签署完成", true, true));
+
+        AiplatformContractResponse receipt = contractAppService.advance("3829493004444444",
+                new AiplatformContractActionCommand("双方落签，合同完成"));
+
+        // 北向命令 → wire 命令逐字段映射（{basis}——操作者不在 body，经透传头落痕）
+        ArgumentCaptor<AiplatformContractActionWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractActionWireRequest.class);
+        verify(aiplatformClient).advanceContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue())
+                .isEqualTo(new AiplatformContractActionWireRequest("双方落签，合同完成"));
+
+        // 签署完成回执映射：双方签署位 true＋时点、版本不动（version 递增归 record）
+        assertThat(receipt.status()).isEqualTo(4);
+        assertThat(receipt.statusName()).isEqualTo("签署完成");
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.partyASigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+    }
+
+    @Test
+    void given_failWithdrawVoidCommands_when_act_then_sharedActionWireCommandMapped() {
+        // fail：旁落「签署失败或过期」（5）——单方已签如实定格
+        when(aiplatformClient.failContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(5, "签署失败或过期", true, false));
+        AiplatformContractResponse failed = contractAppService.fail("3829493004444444",
+                new AiplatformContractActionCommand("超期未签，如实旁落失败终态"));
+        assertThat(failed.status()).isEqualTo(5);
+        assertThat(failed.statusName()).isEqualTo("签署失败或过期");
+        assertThat(failed.partyASigned()).isTrue();
+
+        // withdraw：旁落「已撤回或作废」（6）——此后换新号重建
+        when(aiplatformClient.withdrawContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(6, "已撤回或作废", false, false));
+        AiplatformContractResponse withdrawn = contractAppService.withdraw("3829493004444444",
+                new AiplatformContractActionCommand("范围录错，整案回炉"));
+        assertThat(withdrawn.status()).isEqualTo(6);
+        assertThat(withdrawn.statusName()).isEqualTo("已撤回或作废");
+
+        // void：守卫与去向同撤回、留痕 action 分立——回执形态共形（区别只在 provider 留痕行）
+        when(aiplatformClient.voidContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(6, "已撤回或作废", false, false));
+        AiplatformContractResponse voided = contractAppService.voidContract("3829493004444444",
+                new AiplatformContractActionCommand("主体信息录错，作废重建"));
+        assertThat(voided.status()).isEqualTo(6);
+
+        // 三旁落口共用动作命令 wire 形制（{basis}），逐口各自映射
+        verify(aiplatformClient).failContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("超期未签，如实旁落失败终态")));
+        verify(aiplatformClient).withdrawContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("范围录错，整案回炉")));
+        verify(aiplatformClient).voidContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("主体信息录错，作废重建")));
+    }
+
+    @Test
+    void given_signCommand_when_sign_then_partyCodeMappedAndPartyReceiptMapped() {
+        when(aiplatformClient.signContract(eq("3829493004444444"),
+                any(AiplatformContractSignWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(3, "签署进行中", true, true));
+
+        AiplatformContractResponse receipt = contractAppService.sign("3829493004444444",
+                new AiplatformContractSignCommand(2, "乙方盖章"));
+
+        // party Integer code 直通映射（1=甲方 2=乙方——不建 typed enum 不预校验）
+        ArgumentCaptor<AiplatformContractSignWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractSignWireRequest.class);
+        verify(aiplatformClient).signContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractSignWireRequest(2, "乙方盖章"));
+
+        // 落签回执映射：乙方签署位翻 true＋时点；状态不迁移（仍签署进行中——推进归 advance）
+        assertThat(receipt.status()).isEqualTo(3);
+        assertThat(receipt.partyBSigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+    }
+
+    @Test
+    void given_recordCommand_when_record_then_fiveFieldsMappedAndVersionBumpedReceiptMapped() {
+        when(aiplatformClient.recordContract(eq("3829493004444444"),
+                any(AiplatformContractRecordWireRequest.class)))
+                .thenReturn(new AiplatformContractWireResponse(
+                        "3829493006666666", "SG-l5f2xq9wn1", "3829492001234567",
+                        1, "准备中", 2, false,
+                        "张三", "语义引力科技有限公司",
+                        "管理后台＋小程序", "开工款 50%，验收 50%",
+                        "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                        99000L, "CNY", 3, 2,
+                        false, null, false, null,
+                        LocalDateTime.of(2026, 10, 22, 9, 0, 0)));
+
+        AiplatformContractResponse receipt = contractAppService.record("3829493004444444",
+                new AiplatformContractRecordCommand("张三", "语义引力科技有限公司",
+                        "管理后台＋小程序", "开工款 50%，验收 50%", "改价后重录"));
+
+        // 北向五字段 → wire 五字段逐字段映射（四预览字段可空直通＋依据必填）
+        ArgumentCaptor<AiplatformContractRecordWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractRecordWireRequest.class);
+        verify(aiplatformClient).recordContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractRecordWireRequest(
+                "张三", "语义引力科技有限公司", "管理后台＋小程序", "开工款 50%，验收 50%", "改价后重录"));
+
+        // 重录回执映射：version +1（1→2）＋「需更新」清零＋冻结集取现值（改价 99000）
+        assertThat(receipt.version()).isEqualTo(2);
+        assertThat(receipt.needsUpdate()).isFalse();
+        assertThat(receipt.amount()).isEqualTo(99000L);
+        assertThat(receipt.partyA()).isEqualTo("张三");
+        assertThat(receipt.paymentPlan()).isEqualTo("开工款 50%，验收 50%");
+    }
+
+    @Test
+    void given_ord027FromDownstream_when_advance_then_bothSignedGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.advanceContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5027,\"message\":\"双方尚未全部签署，不能标记签署完成\",\"data\":null}")));
+
+        assertThatThrownBy(() -> contractAppService.advance("3829493004444444",
+                new AiplatformContractActionCommand("乙方未签就想完成")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_027 → HTTP 409 + 数字业务码 5027（域码 5×1000＋27——双方均签守卫归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5027);
+                    assertThat(upstream.getMessage()).isEqualTo("双方尚未全部签署，不能标记签署完成");
                 });
     }
 

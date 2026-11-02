@@ -4,6 +4,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformContractQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractResponse;
@@ -20,27 +23,28 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * AI 平台合同控制器——BFF 合同域读面＋创建重建（issue #104，spec #102 A 批 A1，镜像
- * provider aiplatform #336 合同域六态承接的 {@code BackofficeContractController} 前三端点；
- * advance/fail/withdraw/void/sign/record 六推进写口归 A2，issue #105）。
+ * AI 平台合同控制器——BFF 合同域读面＋创建重建＋六态推进写口（issue #104 A1 三端点＋
+ * issue #105 A2 六写口，spec #102 A 批，镜像 provider aiplatform #336 合同域六态承接的
+ * {@code BackofficeContractController} 全九端点）。
  *
  * <p>北向 {@code /api/admin/aiplatform/contracts/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/contracts/**}——查询参数名、缺省值、分页基准（page 1-based，
  * 缺省 1/20）与 provider controller 同形；六态语义、「需更新」派生标志、冻结集取现值、
- * 活跃唯一前置门全由 provider 裁决，BFF 零推导零校验零状态机复算。错误经
- * {@code AiplatformUpstreamErrorAdvice} 原样透传（如 404 ORD_020→5020、409 ORD_024→5024）。
- * 六态推进各写动作（advance/fail/withdraw/void/sign/record）不在本票——A2（#105）逐票镜像。</p>
+ * 活跃唯一前置门、六态推进守卫（推进边/双方均签/重录窗口/签署位幂等）全由 provider 裁决，
+ * BFF 零推导零校验零状态机复算。错误经 {@code AiplatformUpstreamErrorAdvice} 原样透传
+ * （如 404 ORD_020→5020、409 ORD_024→5024、400 ORD_022→5022）。</p>
  *
  * <p>权限码（spec #102 A 批）：读 {@code contract:read} 一码（清单/详情两端点）＋写
- * {@code contract:create} 一码（创建重建）——读写分权、每写操作一码惯例（后续推进六写口
- * 各自独立成码，A2 落）。操作者身份由框架 {@code OpenApiClient} 自动透传
- * {@code X-User-Id/X-User-Name} 出站头（provider 合同动作以操作者为审计正身、缺头 ORD_035
- * 拒——北向无操作者字段，前端无法伪造留痕）。</p>
+ * {@code contract:create/advance/fail/withdraw/void/sign/record} 七码——读写分权、每写
+ * 操作一码惯例（最小授权：角色可按动作粒度授受）。操作者身份由框架 {@code OpenApiClient}
+ * 自动透传 {@code X-User-Id/X-User-Name} 出站头（provider 合同动作以操作者为审计正身、
+ * 缺头 ORD_035 拒——北向无操作者字段，前端无法伪造留痕）。</p>
  *
  * @since 0.1.0
  */
@@ -135,5 +139,131 @@ public class AiplatformContractController {
                     + "原合同）。X-User-Id/X-User-Name 透传头自动落痕（provider 合同动作操作者必填）。")
     public ApiResponse<AiplatformContractResponse> createForOrder(@PathVariable String orderId) {
         return ApiResponse.ok(contractAppService.createForOrder(orderId));
+    }
+
+    // 不挂 @ErrorCodes 同上：ORD_020/021/022/023/027/035 等码以 description 文档化（忠实透传、零加戏）
+    @PostMapping("/{id}/advance")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:advance",
+            name = "AI 平台 / 合同推进",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "推进合同（线性单步，依据必填留痕）——透传 aiplatform",
+            description = "六态人工推进正路：准备中 → 待核对与签署 → 签署进行中 → 签署完成"
+                    + "（<strong>末边 3→4 须双方签署位均已落签</strong>——sign 先行）。每次推进"
+                    + " append-only 留痕；推进到「签署完成」即触发 provider 侧开工判定"
+                    + "（付款腿未满足则订单留等待窗口——BFF 不感知不复算）。命令体逐字镜像"
+                    + " {basis}（依据必填，至多 1000 字）。回执＝ContractResponse（动作后合同"
+                    + "现值；advance 不动版本——版本递增归 record）。合同不存在（含畸形 id）"
+                    + " 404 ORD_020（数字业务码 5020）；无推进边（终态）409 ORD_021（5021）；"
+                    + "双方未均签 409 <strong>ORD_027</strong>（5027）；依据缺失 400 ORD_022"
+                    + "（5022）；依据超长 400 ORD_023（5023）。X-User-Id/X-User-Name 透传头"
+                    + "自动落痕（provider 合同动作操作者必填、缺头 ORD_035 拒）。")
+    public ApiResponse<AiplatformContractResponse> advance(
+            @PathVariable String id, @RequestBody AiplatformContractActionCommand command) {
+        return ApiResponse.ok(contractAppService.advance(id, command));
+    }
+
+    @PostMapping("/{id}/fail")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:fail",
+            name = "AI 平台 / 合同失败或过期",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "合同旁落「签署失败或过期」终态（依据必填留痕）——透传 aiplatform",
+            description = "失败/过期的如实终局：自<strong>待核对与签署/签署进行中</strong>可达"
+                    + "（用户放弃核对或超期未签）；其余态 409 ORD_021（数字业务码 5021）。"
+                    + "命令体逐字镜像 {basis}（依据必填，至多 1000 字）。回执＝ContractResponse"
+                    + "（终态现值——已落签署位如实定格保留）。合同不存在 404 ORD_020（5020）；"
+                    + "依据缺失/超长 400 ORD_022/023（5022/5023）。X-User-Id/X-User-Name 透传头"
+                    + "自动落痕。")
+    public ApiResponse<AiplatformContractResponse> fail(
+            @PathVariable String id, @RequestBody AiplatformContractActionCommand command) {
+        return ApiResponse.ok(contractAppService.fail(id, command));
+    }
+
+    @PostMapping("/{id}/withdraw")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:withdraw",
+            name = "AI 平台 / 合同撤回",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "撤回合同（旁落终态，依据必填留痕）——透传 aiplatform",
+            description = "自<strong>任何非终态</strong>可达——此后换新号重建（POST "
+                    + "contracts/orders/{orderId}，旧合同终态保留）。终态再动 409 ORD_021"
+                    + "（数字业务码 5021）。命令体逐字镜像 {basis}（依据必填，至多 1000 字）。"
+                    + "回执＝ContractResponse（终态现值）。合同不存在 404 ORD_020（5020）；"
+                    + "依据缺失/超长 400 ORD_022/023（5022/5023）。X-User-Id/X-User-Name 透传头"
+                    + "自动留痕。")
+    public ApiResponse<AiplatformContractResponse> withdraw(
+            @PathVariable String id, @RequestBody AiplatformContractActionCommand command) {
+        return ApiResponse.ok(contractAppService.withdraw(id, command));
+    }
+
+    @PostMapping("/{id}/void")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:void",
+            name = "AI 平台 / 合同作废",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "作废合同（旁落终态，依据必填留痕）——透传 aiplatform",
+            description = "守卫与去向<strong>同撤回</strong>（同一终态「已撤回或作废」、自任何"
+                    + "非终态可达），动作语义分立——区别只在留痕行 action（2=撤回 3=作废），"
+                    + "终态处置可审计。命令体逐字镜像 {basis}（依据必填，至多 1000 字）。回执＝"
+                    + "ContractResponse（终态现值，与 withdraw 共形）。错误族同撤回：合同不存在"
+                    + " 404 ORD_020（5020）；终态再动 409 ORD_021（5021）；依据缺失/超长 400 "
+                    + "ORD_022/023（5022/5023）。X-User-Id/X-User-Name 透传头自动留痕。")
+    public ApiResponse<AiplatformContractResponse> voidContract(
+            @PathVariable String id, @RequestBody AiplatformContractActionCommand command) {
+        return ApiResponse.ok(contractAppService.voidContract(id, command));
+    }
+
+    @PostMapping("/{id}/sign")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:sign",
+            name = "AI 平台 / 合同签署标记",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "合同签署标记（落一方签署位，依据必填留痕）——透传 aiplatform",
+            description = "电子签渠道真接前的后台承接口径：仅<strong>签署进行中</strong>态可落签，"
+                    + "落一方签署位＋时点；<strong>不自动迁移状态</strong>——「签署完成」由 advance "
+                    + "显式推进（双方均签守卫 ORD_027）。已落签的签署位幂等拒 409 "
+                    + "<strong>ORD_028</strong>（5028）。命令体逐字镜像 {party, basis}：party "
+                    + "Integer code（1=甲方〔客户方〕 2=乙方〔服务方〕——非法值 provider 侧 400 "
+                    + "框架信封）；basis 依据必填（至多 1000 字）。回执＝ContractResponse（签署位"
+                    + "落定后的合同现值）。合同不存在 404 ORD_020（5020）；非签署进行中 409 "
+                    + "ORD_021（5021）；依据缺失/超长 400 ORD_022/023（5022/5023）。"
+                    + "X-User-Id/X-User-Name 透传头自动留痕。")
+    public ApiResponse<AiplatformContractResponse> sign(
+            @PathVariable String id, @RequestBody AiplatformContractSignCommand command) {
+        return ApiResponse.ok(contractAppService.sign(id, command));
+    }
+
+    @PostMapping("/{id}/record")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:contract:record",
+            name = "AI 平台 / 合同草稿重录",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "合同草稿重录（同号重新冻结＋版本递增，依据必填留痕）——透传 aiplatform",
+            description = "<strong>「需更新」处置正路</strong>：改价/改范围后对草稿（准备中/"
+                    + "待核对与签署）<strong>同号重录</strong>——预览字段集整组录入（四个后台录入"
+                    + "字段可空）＋冻结集取订单现值重新定格＋合同版本 +1＋「需更新」清零。签署"
+                    + "进行中起 409 <strong>ORD_031</strong>（5031——变动走撤回/作废重建）；内容"
+                    + "超长 400 <strong>ORD_032</strong>（5032——主体至多 200 字、其余至多 2000 字）；"
+                    + "重冻前置门（尚无报价 ORD_025/范围未录 ORD_026）。命令体逐字镜像 "
+                    + "{partyA, partyB, projectScope, paymentPlan, basis}（依据必填，至多 1000 字）。"
+                    + "回执＝ContractResponse（重录后现值——version +1、needsUpdate false）。合同"
+                    + "不存在 404 ORD_020（5020）；依据缺失/超长 400 ORD_022/023（5022/5023）。"
+                    + "X-User-Id/X-User-Name 透传头自动留痕。")
+    public ApiResponse<AiplatformContractResponse> record(
+            @PathVariable String id, @RequestBody AiplatformContractRecordCommand command) {
+        return ApiResponse.ok(contractAppService.record(id, command));
     }
 }
