@@ -1589,6 +1589,155 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("不在远端清单——过时判据");
     }
 
+    @Test
+    @DisplayName("swagger 契约：模型档位域六端点 @Operation 描述镜像 provider（#111，语义键与模型版本解耦/绑定下拉数据源/停用提示/先建通道再挂档位 + PRJ_066~073 数字码在场）")
+    void given_modelTierEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：enabled=true 键集＝绑定下拉数据源＋语义键与模型版本解耦＋停用档提示口径
+        JsonNode list = paths.path("/api/admin/aiplatform/model-tiers").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含模型档位清单端点").isFalse();
+        assertThat(list.path("summary").asText(""))
+                .contains("档位清单读面").contains("绑定下拉数据源");
+        assertThat(list.path("description").asText(""))
+                .contains("enabled=true 键集")
+                .contains("即时校验放行值域")
+                .contains("停用态提示")
+                .contains("非过滤")
+                .contains("PRJ_075")
+                .contains("PRJ_061")
+                .contains("语义键与模型版本解耦")
+                .contains("全部绑定引用不动");
+
+        // 单行：寻址键即绑定引用腿＋PRJ_066
+        JsonNode detail = paths.path("/api/admin/aiplatform/model-tiers/{tierKey}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含模型档位单行端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("档位单行读面");
+        assertThat(detail.path("description").asText(""))
+                .contains("寻址键即绑定引用腿")
+                .contains("不解析不预校验")
+                .contains("PRJ_066").contains("4066");
+
+        // 创建：语义键随体＋先建通道再挂档位＋勾选入库复用本写口＋创建即留痕
+        JsonNode create = paths.path("/api/admin/aiplatform/model-tiers").path("post");
+        assertThat(create.isMissingNode()).as("api-docs 应含模型档位创建端点").isFalse();
+        assertThat(create.path("summary").asText(""))
+                .contains("档位创建").contains("建行即可被绑定");
+        assertThat(create.path("description").asText(""))
+                .contains("PRJ_068").contains("4068")
+                .contains("PRJ_071").contains("4071")
+                .contains("先建通道再挂档位")
+                .contains("PRJ_070").contains("4070")
+                .contains("显示名可空")
+                .contains("缺省 true")
+                .contains("创建即落痕")
+                .contains("勾选入库")
+                .contains("语义键人工命名")
+                .contains("PRJ_034").contains("4034");
+
+        // 更新：终态替换＋enabled 缺省＝保持现值＋升模型版本全部引用自动跟上＋停用不删行＋回滚口径
+        JsonNode update = paths.path("/api/admin/aiplatform/model-tiers/{tierKey}").path("put");
+        assertThat(update.isMissingNode()).as("api-docs 应含模型档位更新端点").isFalse();
+        assertThat(update.path("summary").asText(""))
+                .contains("档位更新").contains("换通道").contains("升模型版本")
+                .contains("改显示名").contains("停启用");
+        assertThat(update.path("description").asText(""))
+                .contains("终态替换")
+                .contains("清显示名回落语义键")
+                .contains("缺省＝保持现值")
+                .contains("不被意外复启")
+                .contains("缺省肢在 wire 请求体上保真")
+                .contains("不臆造默认值")
+                .contains("全部引用自动跟上")
+                .contains("语义键与模型版本解耦")
+                .contains("换供应商只动档位不动绑定")
+                .contains("下一轮命令构建即生效")
+                .contains("停用＝既有绑定装配报错 PRJ_061")
+                .contains("PRJ_075")
+                .contains("临时下线用停用不删行")
+                .contains("幂等回执不落痕")
+                .contains("行已删＝按旧值重建行")
+                .contains("PRJ_066").contains("4066")
+                .contains("PRJ_071").contains("4071")
+                .contains("PRJ_070").contains("4070")
+                .contains("PRJ_034").contains("4034");
+
+        // 删除：被绑定引用即拒（悬空绑定不留静默坑）＋临时下线用停用不删行＋删成落痕跨行存活
+        JsonNode delete = paths.path("/api/admin/aiplatform/model-tiers/{tierKey}").path("delete");
+        assertThat(delete.isMissingNode()).as("api-docs 应含模型档位删除端点").isFalse();
+        assertThat(delete.path("summary").asText(""))
+                .contains("档位删除").contains("被绑定引用即拒");
+        assertThat(delete.path("description").asText(""))
+                .contains("model_id")
+                .contains("routing_strong_model_id")
+                .contains("PRJ_073").contains("4073")
+                .contains("先改绑或清空绑定再删")
+                .contains("临时下线用停用不删行")
+                .contains("留痕跨行存活")
+                .contains("PRJ_066").contains("4066")
+                .contains("PRJ_034").contains("4034");
+
+        // 留痕：append-only 跨行存活＋创建痕/删除痕 null 形＋留痕读面不要求行存在＋回滚口径
+        JsonNode traces =
+                paths.path("/api/admin/aiplatform/model-tiers/{tierKey}/traces").path("get");
+        assertThat(traces.isMissingNode()).as("api-docs 应含档位变更留痕端点").isFalse();
+        assertThat(traces.path("summary").asText(""))
+                .contains("档位变更留痕读面").contains("回滚依据");
+        assertThat(traces.path("description").asText(""))
+                .contains("时间倒序")
+                .contains("创建痕 old 全 null")
+                .contains("删除痕 new 全 null")
+                .contains("newDisplayName null")
+                .contains("清空回落语义键")
+                .contains("跨行存活")
+                .contains("留痕读面不要求行存在")
+                .contains("未知键空清单 200 非 404")
+                .contains("行读面负责 404 判别")
+                .contains("行已删＝按旧值重建行")
+                .contains("不做版本树");
+
+        // 读面 schema 自描述：语义键（引用腿＋放行值域口径）与模型版本解耦（升版改指向）
+        assertThat(property("AiplatformModelTierResponse", "tierKey")
+                .path("description").asText(""))
+                .contains("引用腿")
+                .contains("enabled=true 键集")
+                .contains("即时校验放行值域");
+        assertThat(property("AiplatformModelTierResponse", "modelName")
+                .path("description").asText(""))
+                .contains("版本升级")
+                .contains("全部引用自动跟上");
+        assertThat(property("AiplatformModelTierResponse", "enabled")
+                .path("description").asText(""))
+                .contains("停用＝既有绑定装配报错 PRJ_061")
+                .contains("新绑定被即时校验拒绝 PRJ_075")
+                .contains("临时下线用停用不删行");
+        // 命令体 schema 自描述：创建先建通道再挂档位/勾选入库；更新 displayName 终态清空
+        // 与通道 apiKey「null＝保持现值」之别＋enabled 保持现值
+        assertThat(property("AiplatformModelTierCreateCommand", "providerKey")
+                .path("description").asText(""))
+                .contains("必须已存在")
+                .contains("先建通道行再挂档位");
+        assertThat(property("AiplatformModelTierCreateCommand", "modelName")
+                .path("description").asText(""))
+                .contains("勾选入库")
+                .contains("modelId");
+        assertThat(property("AiplatformModelTierUpdateCommand", "displayName")
+                .path("description").asText(""))
+                .contains("null/空白＝清空")
+                .contains("回落语义键展示")
+                .contains("区别于")
+                .contains("保持现值");
+        assertThat(property("AiplatformModelTierUpdateCommand", "enabled")
+                .path("description").asText(""))
+                .contains("缺省＝保持现值")
+                .contains("意外复启");
+        // 留痕行 schema 自描述：newDisplayName null＝本次清空回落语义键
+        assertThat(property("AiplatformModelTierTraceResponse", "newDisplayName")
+                .path("description").asText(""))
+                .contains("本次清空回落语义键");
+    }
+
     // ---------- 装载 ----------
     private JsonNode apiDocs() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(

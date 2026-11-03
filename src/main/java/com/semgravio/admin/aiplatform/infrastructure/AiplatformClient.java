@@ -18,6 +18,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProvid
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
@@ -101,9 +105,10 @@ import org.springframework.stereotype.Component;
  * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）、
  * 合同域（#104 第八域——spec #102 A 批）、付款核验域（#106 第九域——spec #102 A 批 A3，
  * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）与
- * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）与模型供应商域
+ * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）、模型供应商域
  * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
- * 拉取）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
+ * CRUD＋留痕）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -311,6 +316,22 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<Void>> MODEL_PROVIDER_VOID_TYPEREF =
+            new TypeReference<>() {};
+
+    // 模型档位域（#367 档位维护，issue #111 B2——spec #101 B 批）：清单/单行/创建/更新回执共形＝
+    // ApiResponse<BackofficeModelTierResponse>（语义键行五要素：tierKey/providerKey/modelName/
+    // displayName/enabled）；留痕 data 为裸 List（append-only 时间倒序——同通道留痕 List 直出
+    // 同形）；删除回执＝ApiResponse<Void>（data null——同通道删除口形制）
+    private static final TypeReference<ApiResponse<List<AiplatformModelTierWireResponse>>> MODEL_TIER_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformModelTierWireResponse>> MODEL_TIER_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformModelTierTraceWireResponse>>> MODEL_TIER_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> MODEL_TIER_VOID_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -2618,6 +2639,176 @@ public class AiplatformClient {
         try {
             ApiResponse<List<AiplatformModelProviderTraceWireResponse>> resp =
                     openApiClient.get(url, MODEL_PROVIDER_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 模型档位域（issue #111 B2，spec #101 B 批——provider aiplatform #367）----------
+
+    /**
+     * 档位清单读面（透传 aiplatform，模型档位域读口）——全部档位行按语义键序：语义键/
+     * 实际模型名/所属通道/显示名/启用态＋最近写者。清单 {@code enabled=true} 键集＝绑定
+     * 下拉数据源与改档写口即时校验放行值域（agent-configs 面的 modelId 语义即档位键）。
+     * 种子三档：flash/pro（火山 GA 对齐版）/doubao-flagship（备选档）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers}（#367）：返回
+     * {@code ApiResponse<List<BackofficeModelTierResponse>>}——data 为裸 List（档位行
+     * 有界，List 直出同形不造分页）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelTierWireResponse> listTiers() {
+        String url = baseUrl + "/api/backoffice/model-tiers";
+        log.debug("AiplatformClient.listTiers: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelTierWireResponse>> resp =
+                    openApiClient.get(url, MODEL_TIER_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位单行读面（透传 aiplatform，模型档位域读口）——该档位行。{@code tierKey} 为
+     * 字符串路径参数（寻址键即绑定引用腿——flash/pro/doubao-flagship 这类运营短名）
+     * 原样出站，admin 透传不解析不预校验。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers/{tierKey}}（#367）：返回
+     * {@code ApiResponse<BackofficeModelTierResponse>}。未知键 404 PRJ_066（数字业务码
+     * 4066）原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse getTier(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.getTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp = openApiClient.get(url, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位创建（透传 aiplatform，模型档位域写口）——新建档位：语义键随体（已存在 409
+     * PRJ_068＝数字业务码 4068，语义键唯一——改既有档走 PUT）；所属通道必须已有行
+     * （400 PRJ_071＝4071——先建通道行再挂档位）；实际模型名必填（400 PRJ_070＝4070）；
+     * 显示名可空（＝回落语义键）；enabled 缺省 true。创建即落痕（old 全 null）；建行即可
+     * 被绑定（绑定即时校验放行）。<strong>「勾选入库」复用本写口</strong>（远端清单建议
+     * 入库条：modelName 填所选条目 modelId、语义键人工命名——B1 remote-models 只读探测
+     * 的落库正路）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-tiers}（#367）：请求体
+     * {@code {tierKey, providerKey, modelName, displayName, enabled}} 逐字镜像
+     * {@code ModelTierCreateCommand}（enabled Boolean 装箱——null 出站在场＝provider
+     * 缺省 true），返回 {@code ApiResponse<BackofficeModelTierResponse>}（回执与 GET
+     * 同形）。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（创建即留痕，<strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）——均原样
+     * 透传。</p>
+     *
+     * @param command 创建命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（409 PRJ_068、400 PRJ_070/071/034 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse createTier(AiplatformModelTierCreateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-tiers";
+        log.debug("AiplatformClient.createTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp =
+                    openApiClient.post(url, command, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位更新（透传 aiplatform，模型档位域写口）——PUT 全量语义：providerKey/modelName/
+     * displayName 终态替换（displayName null/空白＝清显示名回落语义键）；enabled
+     * <strong>缺省＝保持现值</strong>（终态字段不因缺省翻转——停用档换模型名/换通道不被
+     * 意外复启，显式 true/false 才翻转）。<strong>缺省肢语义在 wire 请求体上保真</strong>
+     * （spec #101）：可空肢 null 在场＝保持现值，不臆造默认值。换通道/升模型版本/停启用
+     * 皆此一处改指向——全部引用自动跟上（改指向下一轮命令构建即生效，装配动态查库）。
+     * 停用＝既有绑定装配报错 PRJ_061、新绑定被即时校验拒绝 PRJ_075（临时下线用停用不删行）。
+     * 值面无动＝幂等回执不落痕；回滚＝留痕旧值快照写回（行在＝PUT、行已删＝按旧值重建行，
+     * 皆一次新变更留新痕）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/model-tiers/{tierKey}}（#367）：请求体
+     * {@code {providerKey, modelName, displayName, enabled}} 逐字镜像
+     * {@code ModelTierUpdateCommand}，HTTP <strong>PUT</strong> 动词——经框架
+     * {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径，通道
+     * 更新先例），返回 {@code ApiResponse<BackofficeModelTierResponse>}（回执与 GET 同形）。
+     * 操作者身份经框架自动带 {@code X-User-Id/X-User-Name} 头（更新必留痕，<strong>缺头
+     * 400 PRJ_034</strong>＝4034）；未知键 404 PRJ_066（4066）；所属通道不存在 400
+     * PRJ_071（4071）；字段不完整 400 PRJ_070（4070）——均原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @param command 更新命令体（由应用层从北向命令映射而来——缺省肢保真直通，合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066、400 PRJ_070/071/034 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse updateTier(
+            String tierKey, AiplatformModelTierUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.updateTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp =
+                    openApiClient.put(url, command, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位删除（透传 aiplatform，模型档位域写口）——删除档位行；仍被智能体运营配置绑定
+     * （{@code model_id}/{@code routing_strong_model_id} 任一＝该语义键）即 409 PRJ_073
+     * （数字业务码 4073——先改绑或清空绑定再删，悬空引用不留静默坑；临时下线用停用不
+     * 删行）。删成落痕（new 全 null，留痕跨行存活）。操作者经框架透传头落痕（缺头 400
+     * PRJ_034＝4034）。
+     *
+     * <p>对接 aiplatform {@code DELETE /api/backoffice/model-tiers/{tierKey}}（#367）：
+     * 无请求体，返回 {@code ApiResponse<Void>}（data null——信封即回执，同通道删除口
+     * 形制）。HTTP <strong>DELETE</strong> 动词——经框架 {@link OpenApiClient#delete}
+     * （通道删除先例）。未知键 404 PRJ_066（4066）原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066、409 PRJ_073、400 PRJ_034 等，不做映射）
+     */
+    public void deleteTier(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.deleteTier: {}", url);
+        try {
+            openApiClient.delete(url, MODEL_TIER_VOID_TYPEREF);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位变更留痕读面（透传 aiplatform，模型档位域读口）——该档位全部变更留痕按时间
+     * 倒序（最近先）。每痕＝一次实际变更（幂等重写不落痕）：前后全量值快照＋操作者＋
+     * 时刻。创建痕 old 全 null、删除痕 new 全 null；newDisplayName null＝本次清空回落
+     * 语义键。append-only 跨行存活——行删除后留痕仍可读。<strong>留痕读面不要求行存在
+     * </strong>——未知键空清单 200 非 404（空清单＝从未有行，行读面负责 404 判别）；
+     * 回滚＝把某痕旧值快照写回（行在＝PUT、行已删＝按旧值重建行）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers/{tierKey}/traces}（#367）：
+     * 返回 {@code ApiResponse<List<BackofficeModelTierTraceResponse>>}——data 为裸 List
+     * （append-only 时间倒序，有界——同通道留痕 List 直出同形，不造分页）。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检——留痕跨行存活，删行键照查）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelTierTraceWireResponse> listTierTraces(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey) + "/traces";
+        log.debug("AiplatformClient.listTierTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelTierTraceWireResponse>> resp =
+                    openApiClient.get(url, MODEL_TIER_TRACE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

@@ -71,6 +71,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProvid
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
@@ -147,7 +151,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * ＋取消门收窄 ORD_047 信封透传＋既有写回执双版本/scope 字段北向断言）+ #110 模型
  * 供应商域 B1——通道 CRUD/远端清单拉取/留痕七端点（model-provider:read 四读端点共用
  * 〔remote-models 只读探测不动库〕＋create/update/delete 三写码；apiKey 掩码照实透传＋
- * 对照结构＋留痕三形北向形状；三写口操作者透传断言＋PRJ_072 引用拦截信封透传））
+ * 对照结构＋留痕三形北向形状；三写口操作者透传断言＋PRJ_072 引用拦截信封透传）+ #111
+ * 模型档位域 B2——档位 CRUD/留痕六端点（model-tier:read 三读端点共用〔traces 留痕读面〕
+ * ＋create/update/delete 三写码；档位行五要素〔enabled=true 键集＝绑定下拉数据源〕＋
+ * 留痕三形北向形状；三写口操作者透传断言＋PRJ_073 绑定引用拦截信封透传））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -167,7 +174,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 各一码，读写不串、两写码互不串——晋升权与拒绝权独立授受）+ 模型供应商域四码
  * （{@code model-provider:read|create|update|delete}——#110 B1：清单/单行/远端清单拉取/
  * 留痕四读端点复用 read〔remote-models 只读探测不动库、traces 留痕读面〕、三写口各一码，
- * 读写不串、三写码互不串）对未登录（401）/
+ * 读写不串、三写码互不串）+ 模型档位域四码
+ * （{@code model-tier:read|create|update|delete}——#111 B2：清单/单行/留痕三读端点复用
+ * read〔traces 留痕读面〕、三写口各一码，读写不串、三写码互不串、与通道四码互不串
+ * 〔通道/档位分权〕）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -415,6 +425,21 @@ class AiplatformRbacEnforcementIntegrationTest {
                     + "\"apiKey\":\"sk-real-secret-key-9f2c\",\"enabled\":null}";
     private static final String MODEL_PROVIDER_UPDATE_BODY =
             "{\"baseUrl\":\"https://ark.cn-beijing.volces.com/api/v4\",\"apiKey\":null,\"enabled\":null}";
+    // 模型档位域（#111 B2——spec #101 B 批，语义键档位 CRUD＋留痕；traces 复用 read——留痕读面）
+    private static final String MODEL_TIER_READ_PERMISSION = "admin:aiplatform:model-tier:read";
+    private static final String MODEL_TIER_CREATE_PERMISSION = "admin:aiplatform:model-tier:create";
+    private static final String MODEL_TIER_UPDATE_PERMISSION = "admin:aiplatform:model-tier:update";
+    private static final String MODEL_TIER_DELETE_PERMISSION = "admin:aiplatform:model-tier:delete";
+    /** 档位语义键（V44 种子三档之一）：flash 快模型档（字符串路径参数透传不预校验，未知键 provider 判 404 PRJ_066）。 */
+    private static final String TIER_KEY = "flash";
+    private static final String MODEL_TIERS_ENDPOINT = "/api/admin/aiplatform/model-tiers";
+    private static final String MODEL_TIER_DETAIL_ENDPOINT = MODEL_TIERS_ENDPOINT + "/" + TIER_KEY;
+    private static final String MODEL_TIER_CREATE_BODY =
+            "{\"tierKey\":\"doubao-lite\",\"providerKey\":\"volcengine\","
+                    + "\"modelName\":\"doubao-seed-2-1-flash-250615\",\"displayName\":null,\"enabled\":null}";
+    private static final String MODEL_TIER_UPDATE_BODY =
+            "{\"providerKey\":\"volcengine\",\"modelName\":\"deepseek-v4-flash-ga-261031\","
+                    + "\"displayName\":null,\"enabled\":null}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -453,6 +478,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithProductionAdvanceOnly;
     private String usernameWithModelProviderWrite;
     private String usernameWithProviderDeleteOnly;
+    private String usernameWithModelTierWrite;
+    private String usernameWithTierDeleteOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -488,6 +515,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String productionWriteUserNickname;
     private Long modelProviderWriteUserId;
     private String modelProviderWriteUserNickname;
+    private Long modelTierWriteUserId;
+    private String modelTierWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -537,6 +566,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithProductionAdvanceOnly = "aiplapadv" + suffix;
         usernameWithModelProviderWrite = "aiplampwr" + suffix;
         usernameWithProviderDeleteOnly = "aiplapdel" + suffix;
+        usernameWithModelTierWrite = "aiplatwr" + suffix;
+        usernameWithTierDeleteOnly = "aiplatdel" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -548,7 +579,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
                         PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
-                        MODEL_PROVIDER_READ_PERMISSION)));
+                        MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -880,6 +911,34 @@ class AiplatformRbacEnforcementIntegrationTest {
         userAppService.assignRoles(providerDeleteOnlyUserId,
                 new AssignRolesCommand(List.of(providerDeleteOnlyRoleId)));
 
+        // 模型档位三写码专用运营（create+update+delete，无读码——读写分权＋通道/档位分权，
+        // #111 B2）——操作者透传断言用其 id/昵称（provider 写操作必留痕、缺头 PRJ_034 拒无名）
+        Long modelTierWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台模型档位写操作_" + suffix, "AIPLATWR_" + suffix,
+                        "AI 平台模型档位创建 + 维护 + 删除权限", 117, null));
+        roleAppService.assignPermissions(modelTierWriteRoleId, new AssignPermissionsCommand(List.of(
+                MODEL_TIER_CREATE_PERMISSION, MODEL_TIER_UPDATE_PERMISSION,
+                MODEL_TIER_DELETE_PERMISSION)));
+        modelTierWriteUserNickname = "档位配置运营_" + suffix;
+        modelTierWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithModelTierWrite, PASSWORD,
+                        modelTierWriteUserNickname, null, null, null));
+        userAppService.assignRoles(modelTierWriteUserId,
+                new AssignRolesCommand(List.of(modelTierWriteRoleId)));
+
+        // 仅 delete 单写码——钉死三写码彼此独立（spec #101 每写操作一码最小授权：临时下线
+        // 走停用〔update 口〕、不可逆删行另授权）
+        Long tierDeleteOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台模型档位仅删除_" + suffix, "AIPLATDEL_" + suffix,
+                        "AI 平台模型档位仅删除权限", 118, null));
+        roleAppService.assignPermissions(tierDeleteOnlyRoleId,
+                new AssignPermissionsCommand(List.of(MODEL_TIER_DELETE_PERMISSION)));
+        Long tierDeleteOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithTierDeleteOnly, PASSWORD,
+                        "档位清理专员_" + suffix, null, null, null));
+        userAppService.assignRoles(tierDeleteOnlyUserId,
+                new AssignRolesCommand(List.of(tierDeleteOnlyRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -1130,6 +1189,37 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true),
                 modelProviderTraceWire("3900000004444444", "https://api.deepseek.com", null, true,
                         null, null, null)));
+        // 模型档位域 mock（#111 B2）：清单/单行读口（档位行五要素——V44/V45 种子实值）+
+        // 创建/更新写口回执（升版后现值＋最近写者）+ 抓取 RequestContext（写操作必留痕——
+        // provider PRJ_034 拒无名）；删除口 void；留痕读面（升版/创建/删除三痕三形——
+        // 留痕读面不要求行存在）
+        when(aiplatformClient.listTiers()).thenReturn(List.of(
+                modelTierWire("doubao-flagship", "doubao-seed-2-1-pro-260915", "豆包旗舰"),
+                modelTierWire(TIER_KEY, "deepseek-v4-flash-ga-260731", "快模型档")));
+        when(aiplatformClient.getTier(eq(TIER_KEY))).thenReturn(
+                modelTierWire(TIER_KEY, "deepseek-v4-flash-ga-261031", "快模型档"));
+        doAnswer(inv -> {
+            capture.run();
+            return modelTierWire("doubao-lite", "doubao-seed-2-1-flash-250615", null);
+        }).when(aiplatformClient).createTier(any(AiplatformModelTierCreateWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return modelTierWire(TIER_KEY, "deepseek-v4-flash-ga-261031", null);
+        }).when(aiplatformClient).updateTier(eq(TIER_KEY), any(AiplatformModelTierUpdateWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return null;
+        }).when(aiplatformClient).deleteTier(eq(TIER_KEY));
+        when(aiplatformClient.listTierTraces(eq(TIER_KEY))).thenReturn(List.of(
+                modelTierTraceWire("3910000005555555",
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true,
+                        "volcengine", "deepseek-v4-flash-ga-260731", "快模型档", true),
+                modelTierTraceWire("3910000004444444",
+                        null, null, null, null,
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true),
+                modelTierTraceWire("3910000007777777",
+                        "volcengine", "deepseek-v4-flash-ga-260731", null, true,
+                        null, null, null, null)));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1727,6 +1817,31 @@ class AiplatformRbacEnforcementIntegrationTest {
                                 "Shutdown", "LLM", List.of())),
                 List.of(new AiplatformRemoteModelCatalogWireResponse.StaleTierWireResponse(
                         "deepseek-v3", "deepseek-v3-0324", "DeepSeek V3（退场版）", false)));
+    }
+
+    /**
+     * 模型档位行的 wire 载荷工厂（#111 B2）：读面/创建/更新回执共形——按参数出档位行五要素
+     * 中三变元（语义键/实际模型名/显示名），所属通道恒 volcengine、enabled 恒 true（原生
+     * boolean 在场）＋最近写者两肢（null＝种子写入）。
+     */
+    private static AiplatformModelTierWireResponse modelTierWire(
+            String tierKey, String modelName, String displayName) {
+        return new AiplatformModelTierWireResponse(
+                tierKey, "volcengine", modelName, displayName, true,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    /**
+     * 模型档位留痕行的 wire 载荷工厂（#111 B2）：按 old/new 四件对参数化——升模型版本痕
+     * （modelName 两侧异值）/创建痕（old 四件 null）/删除痕（new 四件 null）三形。
+     */
+    private static AiplatformModelTierTraceWireResponse modelTierTraceWire(
+            String id, String oldProviderKey, String oldModelName, String oldDisplayName, Boolean oldEnabled,
+            String newProviderKey, String newModelName, String newDisplayName, Boolean newEnabled) {
+        return new AiplatformModelTierTraceWireResponse(
+                id, oldProviderKey, oldModelName, oldDisplayName, oldEnabled,
+                newProviderKey, newModelName, newDisplayName, newEnabled,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
     }
 
     /**
@@ -4928,6 +5043,195 @@ class AiplatformRbacEnforcementIntegrationTest {
         verify(aiplatformClient).updateModelProvider(eq(PROVIDER_KEY), captor.capture());
         assertThat(captor.getValue().baseUrl()).isEqualTo("https://ark.cn-beijing.volces.com/api/v5");
         assertThat(captor.getValue().apiKey()).isNull();
+        assertThat(captor.getValue().enabled()).isNull();
+    }
+
+    // ========== 模型档位域（#111 B2，四码：read 三读端点共用＋三写码）· 三态逐码 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 模型档位六端点 403（model-tier:read 三读端点共用＋三写口各一码——无码不串、通道码不越权档位）")
+    void given_nonSuperAdminWithoutPermission_when_modelTierEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(MODEL_TIERS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(MODEL_TIER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_TIER_DETAIL_ENDPOINT, MODEL_TIER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(MODEL_TIER_DETAIL_ENDPOINT + "/traces", token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        // 通道/档位分权（spec #101 两新域独立 controller 面的本意）：持有通道三写码
+        // （model-provider:create/update/delete）不含档位码——档位端点照 403（权限码精确
+        // 匹配，通道码不越权档位写口）
+        String channelWriteToken = login(usernameWithModelProviderWrite);
+        assertThat(postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, channelWriteToken)
+                .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, channelWriteToken)
+                .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问模型档位六端点返回 401")
+    void given_unauthenticated_when_modelTierEndpoints_then_401() {
+        assertThat(getWithToken(MODEL_TIERS_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(MODEL_TIER_DETAIL_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(MODEL_TIER_DETAIL_ENDPOINT, MODEL_TIER_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(MODEL_TIER_DETAIL_ENDPOINT + "/traces", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 model-tier:read（无写码）→ 三写端点 403（read ≠ 三写码，读写不串——含通道四码亦不越权档位写口）")
+    void given_nonSuperAdminWithModelTierReadOnly_when_writeEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_TIER_DETAIL_ENDPOINT, MODEL_TIER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅 model-tier:delete 单码 → 创建/维护 403（三写码彼此独立——最小授权逐动作授受）")
+    void given_nonSuperAdminWithTierDeleteOnly_when_otherTwoWriteEndpoints_then_403() {
+        String token = login(usernameWithTierDeleteOnly);
+        assertThat(postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_TIER_DETAIL_ENDPOINT, MODEL_TIER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 model-tier:read → 清单/单行/留痕 200（档位行五要素＋enabled=true 键集＝绑定下拉数据源＋留痕三形）")
+    void given_nonSuperAdminWithModelTierRead_when_threeReadEndpoints_then_200AndTierShapeMirrored()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+
+        // 清单：两档行（V44/V45 种子键序）；档位行五要素如实——语义键/实际模型名/所属通道/
+        // 显示名/启用态（enabled=true 键集即绑定改档下拉数据源与即时校验放行值域）
+        ResponseEntity<String> listed = getWithToken(MODEL_TIERS_ENDPOINT, token);
+        assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode tiers = objectMapper.readTree(listed.getBody()).path("data");
+        assertThat(tiers).hasSize(2);
+        assertThat(tiers.get(0).path("tierKey").asText()).isEqualTo("doubao-flagship");
+        assertThat(tiers.get(0).path("providerKey").asText()).isEqualTo("volcengine");
+        assertThat(tiers.get(0).path("modelName").asText()).isEqualTo("doubao-seed-2-1-pro-260915");
+        assertThat(tiers.get(0).path("displayName").asText()).isEqualTo("豆包旗舰");
+        assertThat(tiers.get(0).path("enabled").asBoolean()).isTrue();
+        assertThat(tiers.get(1).path("tierKey").asText()).isEqualTo(TIER_KEY);
+        assertThat(tiers.get(1).path("modelName").asText()).isEqualTo("deepseek-v4-flash-ga-260731");
+
+        // 单行：八件全绑定（升版后现值＋最近写者）
+        ResponseEntity<String> detail = getWithToken(MODEL_TIER_DETAIL_ENDPOINT, token);
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode tier = objectMapper.readTree(detail.getBody()).path("data");
+        assertThat(tier.path("modelName").asText()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(tier.path("displayName").asText()).isEqualTo("快模型档");
+        assertThat(tier.path("operatorId").asText()).isEqualTo("700210");
+        assertThat(tier.path("updatedAt").asText()).isEqualTo("2026-11-02T15:20:00");
+
+        // 留痕：三痕三形（升模型版本痕 modelName 两侧异值/创建痕 old 四件 null/删除痕 new
+        // 四件 null）——append-only 跨行存活；留痕读面不要求行存在（traces 复用 read）
+        ResponseEntity<String> traces = getWithToken(MODEL_TIER_DETAIL_ENDPOINT + "/traces", token);
+        assertThat(traces.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode traceList = objectMapper.readTree(traces.getBody()).path("data");
+        assertThat(traceList).hasSize(3);
+        assertThat(traceList.get(0).path("oldModelName").asText()).isEqualTo("deepseek-v4-flash-ga-260501");
+        assertThat(traceList.get(0).path("newModelName").asText()).isEqualTo("deepseek-v4-flash-ga-260731");
+        assertThat(traceList.get(1).path("oldProviderKey").isNull()).isTrue();
+        assertThat(traceList.get(1).path("oldEnabled").isNull()).isTrue();
+        assertThat(traceList.get(2).path("newModelName").isNull()).isTrue();
+        assertThat(traceList.get(2).path("newEnabled").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 创建/维护/删除 200（回执与 GET 同形＋删除 data null）且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithModelTierWriteCodes_when_threeActions_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithModelTierWrite);
+
+        // 创建：回执＝新档行（勾选入库复用创建写口——modelName 填远端清单条目 modelId）
+        ResponseEntity<String> created =
+                postWithToken(MODEL_TIERS_ENDPOINT, MODEL_TIER_CREATE_BODY, token);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode createReceipt = objectMapper.readTree(created.getBody()).path("data");
+        assertThat(createReceipt.path("tierKey").asText()).isEqualTo("doubao-lite");
+        assertThat(createReceipt.path("modelName").asText()).isEqualTo("doubao-seed-2-1-flash-250615");
+        assertThat(createReceipt.path("displayName").isNull()).isTrue();
+
+        // 维护：回执＝升版后现值（displayName null＝终态清空回落语义键、enabled 缺省＝保持现值）
+        ResponseEntity<String> updated =
+                putWithToken(MODEL_TIER_DETAIL_ENDPOINT, MODEL_TIER_UPDATE_BODY, token);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode updateReceipt = objectMapper.readTree(updated.getBody()).path("data");
+        assertThat(updateReceipt.path("modelName").asText()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(updateReceipt.path("displayName").isNull()).isTrue();
+
+        // 删除：data null（ApiResponse<Void>——信封即回执，无回读面）
+        ResponseEntity<String> deleted = deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, token);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(deleted.getBody()).path("data").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（provider 写操作必留痕、缺头
+        // PRJ_034 拒——前端无法伪造留痕）
+        assertThat(capturedOperatorId.get()).isEqualTo(modelTierWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(modelTierWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("删除下游 PRJ_073（仍被绑定引用）→ 北向 HTTP 409 + 信封 code=4073 + message 原文（不映射）")
+    void given_prj073FromDownstream_when_deleteTier_then_errorEnvelopePassedThrough() throws Exception {
+        doThrow(AiplatformUpstreamException.from(
+                new OpenApiClientException(409,
+                        "{\"code\":4073,\"message\":\"该档位仍被智能体运营配置绑定，先改绑或清空绑定再删"
+                                + "（临时下线用停用不删行）\",\"data\":null}")))
+                .when(aiplatformClient).deleteTier(eq(TIER_KEY));
+
+        String token = login(usernameWithModelTierWrite);
+        ResponseEntity<String> response = deleteWithToken(MODEL_TIER_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4073（PRJ_073＝域码 4×1000＋73）——悬空绑定拦截归 provider
+        // （model_id/routing_strong_model_id 引用面在 provider，BFF 不前置查询不代判）
+        assertThat(root.path("code").asInt()).isEqualTo(4073);
+        assertThat(root.path("message").asText())
+                .isEqualTo("该档位仍被智能体运营配置绑定，先改绑或清空绑定再删（临时下线用停用不删行）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("更新请求体缺字段（不携 displayName/enabled）→ 绑定层落 null 与显式 null 同态＝终态清空/保持现值出站")
+    void given_updateBodyWithMissingLimbs_when_updateTier_then_boundAsNullSameAsExplicit()
+            throws Exception {
+        String token = login(usernameWithModelTierWrite);
+
+        // 缺字段态：请求体只携 providerKey/modelName（displayName/enabled 整体缺省——非显式
+        // null）。北向 Jackson 绑定缺字段＝null，与显式 null 同态：wire 请求体 null 在场＝
+        // displayName 终态清空回落语义键/enabled 保持现值（provider 侧判定，BFF 不臆造默认
+        // 值）；显式 null 态由三写码用例的 MODEL_TIER_UPDATE_BODY 覆盖
+        ResponseEntity<String> response = putWithToken(MODEL_TIER_DETAIL_ENDPOINT,
+                "{\"providerKey\":\"volcengine\",\"modelName\":\"doubao-seed-2-1-flash-261031\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 绑定等价证据：出站 wire 请求体 displayName/enabled 双 null（缺字段 ≡ 显式 null）
+        var captor = ArgumentCaptor.forClass(AiplatformModelTierUpdateWireRequest.class);
+        verify(aiplatformClient).updateTier(eq(TIER_KEY), captor.capture());
+        assertThat(captor.getValue().providerKey()).isEqualTo("volcengine");
+        assertThat(captor.getValue().modelName()).isEqualTo("doubao-seed-2-1-flash-261031");
+        assertThat(captor.getValue().displayName()).isNull();
         assertThat(captor.getValue().enabled()).isNull();
     }
 

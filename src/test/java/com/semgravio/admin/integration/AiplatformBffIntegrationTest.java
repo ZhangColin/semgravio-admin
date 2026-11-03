@@ -26,6 +26,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformModelProviderAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformModelTierAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
@@ -36,6 +37,8 @@ import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderCreateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelTierCreateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelTierUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentNodesCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentRejectCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionActionCommand;
@@ -85,6 +88,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProvid
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
@@ -198,6 +205,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformModelProviderAppService modelProviderAppService;
+
+    @Autowired
+    private AiplatformModelTierAppService modelTierAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -1253,6 +1263,157 @@ class AiplatformBffIntegrationTest {
                     var upstream = (AiplatformUpstreamException) e;
                     // PRJ_034 → HTTP 400 + 数字业务码 4034（写操作必留痕——缺操作者透传头由
                     // provider 域面守卫拦，admin 不拦）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4034);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
+                });
+    }
+
+    // ========== 模型档位域（#111 B2）· 命令映射 + 档位行/留痕映射 + 错误信封透传 ==========
+
+    /** 模型档位 wire 工厂：读面/回执共形——按参数出 modelName（升版后现值）与 displayName。 */
+    private static AiplatformModelTierWireResponse modelTierWire(String modelName, String displayName) {
+        return new AiplatformModelTierWireResponse(
+                "flash", "volcengine", modelName, displayName, true,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_tierWires_when_listAndDetail_then_tierRowShapeMirrored() {
+        when(aiplatformClient.listTiers()).thenReturn(List.of(
+                new AiplatformModelTierWireResponse(
+                        "doubao-flagship", "volcengine", "doubao-seed-2-1-pro-260915",
+                        "豆包旗舰", true, null, null, LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                modelTierWire("deepseek-v4-flash-ga-260731", "快模型档")));
+        when(aiplatformClient.getTier("flash")).thenReturn(
+                modelTierWire("deepseek-v4-flash-ga-261031", "快模型档"));
+
+        var tiers = modelTierAppService.listTiers();
+        var detail = modelTierAppService.getTier("flash");
+
+        // wire → 北向逐字段：档位行形态五要素（语义键/实际模型名/所属通道/显示名/启用态）
+        // ——enabled=true 键集即绑定下拉数据源与校验放行值域；种子行最近写者 null 如实在场
+        assertThat(tiers).hasSize(2);
+        assertThat(tiers.get(0).tierKey()).isEqualTo("doubao-flagship");
+        assertThat(tiers.get(0).displayName()).isEqualTo("豆包旗舰");
+        assertThat(tiers.get(0).operatorId()).isNull();
+        assertThat(tiers.get(1).tierKey()).isEqualTo("flash");
+        assertThat(tiers.get(1).modelName()).isEqualTo("deepseek-v4-flash-ga-260731");
+        assertThat(detail.providerKey()).isEqualTo("volcengine");
+        assertThat(detail.modelName()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(detail.displayName()).isEqualTo("快模型档");
+        assertThat(detail.enabled()).isTrue();
+        assertThat(detail.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(detail.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_createCommand_when_createTier_then_wireCommandMappedAndReceiptBound() {
+        when(aiplatformClient.createTier(any(AiplatformModelTierCreateWireRequest.class)))
+                .thenReturn(modelTierWire("doubao-seed-2-1-flash-250615", null));
+
+        // 「勾选入库」复用创建写口：modelName 填远端清单所选条目 modelId、语义键人工命名
+        var receipt = modelTierAppService.createTier(new AiplatformModelTierCreateCommand(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null));
+
+        // 北向五字段 → wire 五字段逐字段映射（displayName/enabled 装箱 null 透传＝
+        // 回落语义键/provider 缺省 true——语义键已存在/通道不存在守卫归 provider）
+        ArgumentCaptor<AiplatformModelTierCreateWireRequest> createCaptor =
+                ArgumentCaptor.forClass(AiplatformModelTierCreateWireRequest.class);
+        verify(aiplatformClient).createTier(createCaptor.capture());
+        assertThat(createCaptor.getValue()).isEqualTo(new AiplatformModelTierCreateWireRequest(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null));
+
+        // 创建回执映射（与 GET 同形）
+        assertThat(receipt.modelName()).isEqualTo("doubao-seed-2-1-flash-250615");
+        assertThat(receipt.enabled()).isTrue();
+    }
+
+    @Test
+    void given_updateCommandWithDefaultedLimbs_when_updateTier_then_displayNameClearsAndEnabledKeepsCurrent() {
+        when(aiplatformClient.updateTier(eq("flash"), any(AiplatformModelTierUpdateWireRequest.class)))
+                .thenReturn(modelTierWire("deepseek-v4-flash-ga-261031", null));
+
+        // 只升模型版本：displayName null＝终态清空回落语义键（区别于通道 apiKey 的
+        // 「null＝保持现值」）；enabled null＝保持现值——两可空肢在 wire 上保真
+        var receipt = modelTierAppService.updateTier("flash",
+                new AiplatformModelTierUpdateCommand("volcengine",
+                        "deepseek-v4-flash-ga-261031", null, null));
+
+        ArgumentCaptor<AiplatformModelTierUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformModelTierUpdateWireRequest.class);
+        verify(aiplatformClient).updateTier(eq("flash"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformModelTierUpdateWireRequest(
+                "volcengine", "deepseek-v4-flash-ga-261031", null, null));
+
+        // 更新回执映射（升版后现值——清显示名如实 null）
+        assertThat(receipt.modelName()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(receipt.displayName()).isNull();
+    }
+
+    @Test
+    void given_tierKey_when_deleteTier_then_delegatedToClient() {
+        modelTierAppService.deleteTier("flash");
+
+        // 删除纯委托（无命令体无回执面——信封即回执）；绑定引用拦截 PRJ_073 归 provider 裁决
+        verify(aiplatformClient).deleteTier("flash");
+    }
+
+    @Test
+    void given_traceWires_when_listTierTraces_then_fourFormsAndCreateDeleteNullShapesMapped() {
+        when(aiplatformClient.listTierTraces("flash")).thenReturn(List.of(
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000006666666",
+                        "volcengine", "deepseek-v4-flash-ga-260731", "快模型档", true,
+                        "volcengine", "deepseek-v4-flash-ga-260731", null, true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000005555555",
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true,
+                        "volcengine", "deepseek-v4-flash-ga-260731", "快模型档", true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 0, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000004444444",
+                        null, null, null, null,
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true,
+                        "700100", "运营·平台管理员", LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000007777777",
+                        "volcengine", "deepseek-v4-flash-ga-260731", null, true,
+                        null, null, null, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 9, 30, 0))));
+
+        var traces = modelTierAppService.listTraces("flash");
+
+        // 留痕四形映射：清显示名痕（newDisplayName null＝本次清空）/升模型版本痕（modelName
+        // 两侧异值——语义键与模型版本解耦）/创建痕（old 四件 null）/删除痕（new 四件 null）
+        assertThat(traces).hasSize(4);
+        assertThat(traces.get(0).oldDisplayName()).isEqualTo("快模型档");
+        assertThat(traces.get(0).newDisplayName()).isNull();
+        assertThat(traces.get(1).oldModelName()).isEqualTo("deepseek-v4-flash-ga-260501");
+        assertThat(traces.get(1).newModelName()).isEqualTo("deepseek-v4-flash-ga-260731");
+        assertThat(traces.get(2).oldProviderKey()).isNull();
+        assertThat(traces.get(2).oldEnabled()).isNull();
+        assertThat(traces.get(2).newModelName()).isEqualTo("deepseek-v4-flash-ga-260501");
+        assertThat(traces.get(3).newProviderKey()).isNull();
+        assertThat(traces.get(3).newModelName()).isNull();
+        assertThat(traces.get(3).newEnabled()).isNull();
+        assertThat(traces.get(3).operatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 9, 30, 0));
+    }
+
+    @Test
+    void given_prj034FromDownstream_when_createTier_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.createTier(any(AiplatformModelTierCreateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        assertThatThrownBy(() -> modelTierAppService.createTier(new AiplatformModelTierCreateCommand(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_034 → HTTP 400 + 数字业务码 4034（写操作必留痕——缺操作者透传头由
+                    // provider 域面守卫拦，admin 不拦；同通道创建口形制）
                     assertThat(upstream.httpStatus()).isEqualTo(400);
                     assertThat(upstream.envelopeCode()).isEqualTo(4034);
                     assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
