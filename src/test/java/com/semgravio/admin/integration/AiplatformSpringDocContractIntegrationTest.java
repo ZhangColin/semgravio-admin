@@ -61,13 +61,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       SKL_012＝7012（来源包未安装）、SKL_014＝7014（来源包标识不能为空）等关键语义须在
  *       api-docs 在场；北向 schema 的更新命令体 sourcePackage、更新回执 fromVersion/
  *       removedSkillNames/skills 与留痕行 operatedAt 同步自描述；</li>
- *   <li>智能体配置三端点 @Operation 描述镜像（issue #84 镜像 aiplatform #251 技能线 T5）：
- *       读面（生效值＋覆盖标记＋枚举默认预览＋工具开关存储态＋最近写者、无覆盖行＝全回落、
- *       main/executor 两把稳定键、未知键 PRJ_033＝4033）、全量写（PUT 全量语义——请求体即
- *       覆盖态终态、null/缺省/纯空白＝清空回落、开关缺省 true、同值重写幂等不落痕、回滚＝
- *       留痕旧值快照写回、档位不做白名单、缺头 PRJ_034＝4034）与留痕读面（old&#42;/new&#42; 四件对、
- *       时间倒序、append-only）的 summary＋description 逐字镜像 provider；北向 schema 的
- *       agentKey/覆盖标记/默认预览与更新命令体四件、留痕行 operatedAt 同步自描述；</li>
+ *   <li>智能体配置三端点＋边缘调用点三端点 @Operation 描述镜像（issue #84 镜像 aiplatform
+ *       #251 技能线 T5；issue #112 B3 镜像 #366 边缘四点＋#367 档位键即时校验——modelId
+ *       语义改档位键、路由强档三件到场）：读面（生效值＋覆盖标记＋枚举默认预览＋工具开关
+ *       存储态＋路由强档三件＋最近写者、无覆盖行＝全回落、main/executor/designer 三把稳定
+ *       键、未知键 PRJ_033＝4033）、全量写（PUT 全量语义——请求体即覆盖态终态、null/缺省/
+ *       纯空白＝清空回落、开关缺省 true、档位键即时校验缺行 PRJ_074＝4074/停用
+ *       PRJ_075＝4075、同值重写幂等不落痕、回滚＝留痕旧值快照写回、缺头 PRJ_034＝4034）
+ *       与留痕读面（old&#42;/new&#42; 对——prompt/档位/强档三件可空、时间倒序、append-only）
+ *       的 summary＋description 逐字镜像 provider；边缘三端点（值面仅档位键、四把稳定键
+ *       naming/compaction/classification/precheck、缺省档 flash、窄命令体 {modelId}、
+ *       即时校验同口径、未知键 PRJ_064＝4064、快照列与三座同形）同款镜像；北向 schema 的
+ *       agentKey/覆盖标记/默认预览/路由强档三件与更新命令体五件、边缘读面 8 件＋边缘命令
+ *       单字段、留痕行 operatedAt/强档对同步自描述；</li>
  *   <li>工具面两端点 @Operation 描述镜像（issue #85 镜像 aiplatform #252 技能线 T6）：
  *       清单读面（三职能槽位、三呈现源——平台资产骨架/增强＋harness 内建＋子智能体声明面、
  *       骨架结构性锁死 ADR-0021、开关面只收增强两件、清单读面即全集）与增强工具开关
@@ -605,30 +611,37 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84，覆盖标记/默认预览 + 幂等回滚语义 + PRJ_033/034 数字码在场）")
+    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075 数字码在场）")
     void given_agentConfigEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");
 
-        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋最近写者——无覆盖行全回落、两把稳定键、
-        // 未知键 404 PRJ_033 数字码
+        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋最近写者——无覆盖行全
+        // 回落、三把稳定键（designer 到场）、modelId 档位键语义、边缘点指路、未知键 404
+        // PRJ_033 数字码
         JsonNode config = paths.path("/api/admin/aiplatform/agent-configs/{agentKey}").path("get");
         assertThat(config.isMissingNode()).as("api-docs 应含智能体配置读面端点").isFalse();
         assertThat(config.path("summary").asText(""))
                 .contains("智能体配置读面").contains("生效值＋覆盖标记＋默认预览");
         assertThat(config.path("description").asText(""))
                 .contains("库覆盖值或枚举默认")
+                .contains("档位键")
                 .contains("systemPromptOverridden/modelIdOverridden")
                 .contains("defaultSystemPrompt")
                 .contains("清空覆盖即落此值")
                 .contains("webSearchEnabled/fetchUrlEnabled")
+                .contains("routingStrongModelId")
+                .contains("主档/强档同范式")
                 .contains("最近写者")
                 .contains("无覆盖行＝全回落")
                 .contains("main=主智能体").contains("executor=run 执行体")
-                .contains("classify/naming")
+                .contains("designer=设计执行体")
+                .contains("naming/compaction")
+                .contains("/edge/{edgeKey}")
                 .contains("PRJ_033").contains("4033");
 
-        // 全量写：PUT 全量语义（请求体即覆盖态终态）＋清空回落＋开关缺省 true＋幂等不落痕＋
-        // 回滚＝留痕旧值写回＋不做白名单＋缺头 PRJ_034 数字码＋回执同形＋PUT 动词
+        // 全量写：PUT 全量语义（请求体即覆盖态终态）＋清空回落＋开关缺省 true＋档位键即时
+        // 校验（PRJ_074/075）＋幂等不落痕＋回滚＝留痕旧值写回＋缺头 PRJ_034 数字码＋回执
+        // 同形＋PUT 动词
         JsonNode update = paths.path("/api/admin/aiplatform/agent-configs/{agentKey}").path("put");
         assertThat(update.isMissingNode()).as("api-docs 应含智能体配置全量写端点（PUT 动词）").isFalse();
         assertThat(update.path("summary").asText(""))
@@ -637,17 +650,20 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("PUT 全量语义")
                 .contains("null/缺省/纯空白＝清空覆盖")
                 .contains("缺省 true＝开")
+                .contains("即时校验")
+                .contains("PRJ_074").contains("4074")
+                .contains("PRJ_075").contains("4075")
                 .contains("进行中 run 不定格")
                 .contains("append-only")
                 .contains("同值重写＝幂等回执不落痕")
                 .contains("回滚＝把留痕旧值快照写回")
-                .contains("不做白名单校验")
                 .contains("PRJ_034").contains("4034")
                 .contains("PRJ_033").contains("4033")
                 .contains("回执与 GET 同形")
                 .contains("PUT");
 
-        // 留痕读面：时间倒序＋old*/new* 四件对（回滚依据）＋append-only＋未知键数字码
+        // 留痕读面：时间倒序＋old*/new* 对（prompt/档位/强档三件可空——回滚依据）＋
+        // append-only＋未知键数字码
         JsonNode traces = paths.path("/api/admin/aiplatform/agent-configs/{agentKey}/traces").path("get");
         assertThat(traces.isMissingNode()).as("api-docs 应含配置变更留痕读面端点").isFalse();
         assertThat(traces.path("summary").asText(""))
@@ -655,39 +671,145 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(traces.path("description").asText(""))
                 .contains("时间倒序")
                 .contains("同值幂等重写不落痕")
-                .contains("old*/new* 四件对")
+                .contains("old*/new*")
+                .contains("路由强档")
+                .contains("读面可改就必须可回滚")
                 .contains("append-only")
                 .contains("留痕不随任何动作删除")
                 .contains("旧值快照 PUT 回写")
                 .contains("PRJ_033").contains("4033");
 
-        // 读面 schema 自描述：agentKey 两把稳定键＋覆盖标记语义＋默认预览落点＋写者可空
+        // 读面 schema 自描述：agentKey 三把稳定键＋覆盖标记语义＋默认预览落点＋路由强档三件＋写者可空
         JsonNode agentKey = property("AiplatformAgentConfigResponse", "agentKey");
         assertThat(agentKey.path("description").asText(""))
-                .contains("main=主智能体").contains("executor=run 执行体");
+                .contains("main=主智能体").contains("executor=run 执行体")
+                .contains("designer=设计执行体");
         assertThat(exampleText(agentKey)).isEqualTo("main");
+        assertThat(property("AiplatformAgentConfigResponse", "modelId")
+                .path("description").asText("")).contains("档位键");
         assertThat(property("AiplatformAgentConfigResponse", "systemPromptOverridden")
                 .path("description").asText("")).contains("是否库覆盖值");
         assertThat(property("AiplatformAgentConfigResponse", "defaultSystemPrompt")
                 .path("description").asText("")).contains("清空覆盖即落此值");
+        assertThat(property("AiplatformAgentConfigResponse", "routingStrongModelId")
+                .path("description").asText("")).contains("主档/强档同范式");
+        assertThat(property("AiplatformAgentConfigResponse", "defaultRoutingStrongModelId")
+                .path("description").asText("")).contains("清空覆盖即落此值");
         assertThat(property("AiplatformAgentConfigResponse", "operatorId")
                 .path("description").asText("")).contains("null＝从未配置");
 
-        // 全量写命令 schema 自描述：清空回落语义＋开关缺省 true（装箱——缺省≠关）
+        // 全量写命令 schema 自描述：清空回落语义＋档位键即时校验（PRJ_074/075）＋开关缺省
+        // true（装箱——缺省≠关）＋强档同口径
         JsonNode systemPrompt = property("AiplatformAgentConfigUpdateCommand", "systemPrompt");
         assertThat(systemPrompt.path("description").asText("")).contains("null/缺省/纯空白＝清空覆盖");
         assertThat(property("AiplatformAgentConfigUpdateCommand", "modelId")
-                .path("description").asText("")).contains("不做白名单校验");
+                .path("description").asText(""))
+                .contains("即时校验").contains("PRJ_074").contains("PRJ_075");
         assertThat(exampleText(property("AiplatformAgentConfigUpdateCommand", "modelId")))
-                .isEqualTo("deepseek-v4-pro");
+                .isEqualTo("pro");
         assertThat(property("AiplatformAgentConfigUpdateCommand", "webSearchEnabled")
                 .path("description").asText("")).contains("缺省 true＝开");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "routingStrongModelId")
+                .path("description").asText(""))
+                .contains("主档/强档同范式").contains("PRJ_074/075");
+        // example 值逐字对齐 provider swagger（AgentConfigUpdateCommand——强档 example＝pro 代码缺省档）
+        assertThat(exampleText(property("AiplatformAgentConfigUpdateCommand", "routingStrongModelId")))
+                .isEqualTo("pro");
 
-        // 留痕行 schema 自描述：old 侧可空语义（回滚写回依据）＋时刻倒序
+        // 留痕行 schema 自描述：old 侧可空语义（回滚写回依据）＋强档对＋时刻倒序
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldSystemPrompt")
+                .path("description").asText("")).contains("回滚即把此值写回");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingStrongModelId")
                 .path("description").asText("")).contains("回滚即把此值写回");
         assertThat(property("AiplatformAgentConfigTraceResponse", "operatedAt")
                 .path("description").asText("")).contains("时间倒序");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：边缘调用点三端点 @Operation 描述镜像 provider（#112 B3，值面仅档位键 + 四键实值/缺省档 flash + PRJ_064/034/074/075 数字码在场）")
+    void given_edgeModelEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 边缘读面：值面仅模型档位键（无 prompt/开关/路由件）＋四把稳定键（naming=项目取名/
+        // compaction=上下文压缩/classification=入口分类/precheck=技能预检）＋缺省档 flash
+        // ＋档位键语义＋未知键 404 PRJ_064 数字码
+        JsonNode config = paths.path("/api/admin/aiplatform/agent-configs/edge/{edgeKey}").path("get");
+        assertThat(config.isMissingNode()).as("api-docs 应含边缘调用点档位读面端点").isFalse();
+        assertThat(config.path("summary").asText(""))
+                .contains("边缘调用点档位读面").contains("生效值＋覆盖标记＋默认预览");
+        assertThat(config.path("description").asText(""))
+                .contains("值面仅模型档位")
+                .contains("无 prompt")
+                .contains("naming=项目取名")
+                .contains("compaction=上下文压缩")
+                .contains("classification=入口分类")
+                .contains("precheck=技能预检")
+                .contains("flash")
+                .contains("档位键")
+                .contains("下一轮命令构建即生效")
+                .contains("PRJ_064").contains("4064");
+
+        // 边缘写：PUT 全量语义窄值面（{modelId} 单字段）＋清空回落缺省 flash＋即时校验
+        // （PRJ_074/075）＋留痕同机制＋回滚＝modelId 写回＋缺头 PRJ_034＋回执同形＋PUT 动词
+        JsonNode update = paths.path("/api/admin/aiplatform/agent-configs/edge/{edgeKey}").path("put");
+        assertThat(update.isMissingNode()).as("api-docs 应含边缘调用点档位写端点（PUT 动词）").isFalse();
+        assertThat(update.path("summary").asText(""))
+                .contains("边缘调用点档位写").contains("窄值面＋变更留痕");
+        assertThat(update.path("description").asText(""))
+                .contains("PUT 全量语义")
+                .contains("{modelId}")
+                .contains("null/缺省/纯空白＝清空覆盖回落代码缺省 flash")
+                .contains("即时校验")
+                .contains("PRJ_074").contains("4074")
+                .contains("PRJ_075").contains("4075")
+                .contains("值面有动必落痕")
+                .contains("同值幂等重写不落痕")
+                .contains("PRJ_034").contains("4034")
+                .contains("PRJ_064").contains("4064")
+                .contains("回执与 GET 同形")
+                .contains("PUT");
+
+        // 边缘留痕读面：快照列与三座同形（档位列之外恒缺省态）＋回滚＝modelId 写回＋
+        // 未知键 PRJ_064 数字码
+        JsonNode traces = paths.path("/api/admin/aiplatform/agent-configs/edge/{edgeKey}/traces").path("get");
+        assertThat(traces.isMissingNode()).as("api-docs 应含边缘调用点档位留痕读面端点").isFalse();
+        assertThat(traces.path("summary").asText(""))
+                .contains("边缘调用点档位留痕读面").contains("回滚依据");
+        assertThat(traces.path("description").asText(""))
+                .contains("快照列与三座同形")
+                .contains("恒缺省态")
+                .contains("modelId")
+                .contains("不做版本树")
+                .contains("PRJ_064").contains("4064");
+
+        // 边缘读面 schema 自描述：四把稳定键＋档位键语义（即时校验）＋缺省档预览落点＋写者可空
+        JsonNode agentKey = property("AiplatformEdgeModelConfigResponse", "agentKey");
+        assertThat(agentKey.path("description").asText(""))
+                .contains("naming=项目取名").contains("compaction=上下文压缩")
+                .contains("classification=入口分类").contains("precheck=技能预检")
+                .contains("PRJ_064").contains("4064");
+        assertThat(exampleText(agentKey)).isEqualTo("naming");
+        assertThat(property("AiplatformEdgeModelConfigResponse", "modelId")
+                .path("description").asText("")).contains("档位键");
+        // example 值逐字对齐 provider swagger（BackofficeEdgeModelConfigResponse——读面 example
+        // ＝flash 代码缺省档）
+        assertThat(exampleText(property("AiplatformEdgeModelConfigResponse", "modelId")))
+                .isEqualTo("flash");
+        assertThat(property("AiplatformEdgeModelConfigResponse", "modelIdOverridden")
+                .path("description").asText("")).contains("代码缺省 flash");
+        assertThat(exampleText(property("AiplatformEdgeModelConfigResponse", "defaultModelId")))
+                .isEqualTo("flash");
+        assertThat(property("AiplatformEdgeModelConfigResponse", "operatorId")
+                .path("description").asText("")).contains("null＝从未配置");
+
+        // 边缘写命令 schema 自描述：单字段窄形＋清空回落缺省＋即时校验（PRJ_074/075）
+        JsonNode modelId = property("AiplatformEdgeModelUpdateCommand", "modelId");
+        assertThat(modelId.path("description").asText(""))
+                .contains("null/缺省/纯空白＝清空覆盖")
+                .contains("即时校验")
+                .contains("PRJ_074").contains("4074")
+                .contains("PRJ_075").contains("4075");
+        assertThat(exampleText(modelId)).isEqualTo("pro");
     }
 
     @Test

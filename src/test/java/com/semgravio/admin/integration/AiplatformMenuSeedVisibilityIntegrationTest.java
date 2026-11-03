@@ -97,7 +97,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "aiplatform_skill_assignment", "aiplatform_agent_config", "aiplatform_skill_draft",
             "aiplatform_contract", "aiplatform_model_provider", "aiplatform_model_tier");
 
-    /** 权限码清单（58）：十六读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位）＋四十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read〔嵌订单详情无独立页面〕、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码〔嵌项目详情无独立页面〕、三写口各一码；#108 订单域 scope 一码；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read、三写口各一码〔remote-models 只读探测不动库〕；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码）。 */
+    /** 权限码清单（58）：十六读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位）＋四十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#112 B3 边缘调用点三端点复用 agent-config 两码零新码〔58 不变〕；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read〔嵌订单详情无独立页面〕、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码〔嵌项目详情无独立页面〕、三写口各一码；#108 订单域 scope 一码；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read、三写口各一码〔remote-models 只读探测不动库〕；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",

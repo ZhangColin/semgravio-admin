@@ -845,12 +845,15 @@ final class AiplatformWireTestSupport {
     }
 
     /**
-     * 智能体配置域版（#251 技能线 T5，issue #84）——读面/留痕读面走 {@code get}、全量写走
-     * {@code put}（带命令体 {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}}——
-     * {@code OpenApiClient.put} 与 {@code post} 同走 sendWithBody 序列化路径），均按真实
-     * {@code TypeReference} 反序列化；put 把命令体序列化进 wireBodySink（出站 JSON 形状断言
-     * ——四字段无 Long/BigDecimal 特殊口径，boot 默认 mapper 即生产口径；Boolean 装箱开关
-     * null 出站在场——provider 缺省 true 语义的全局 Jackson 含 null 证据）。
+     * 智能体配置域版（#251 技能线 T5，issue #84；#366 边缘四点收编 issue #112 B3——edge
+     * 三端点同域复用）——三座读面/留痕读面/边缘读面/边缘留痕读面走 {@code get}、三座全量写/
+     * 边缘档位写走 {@code put}（带命令体——三座 {@code {systemPrompt, modelId,
+     * webSearchEnabled, fetchUrlEnabled, routingStrongModelId}} 五字段〔B3 增路由强档件〕、
+     * 边缘 {@code {modelId}} 单字段窄形；{@code OpenApiClient.put} 与 {@code post} 同走
+     * sendWithBody 序列化路径），均按真实 {@code TypeReference} 反序列化；put 把命令体序列化进
+     * wireBodySink（出站 JSON 形状断言——字段全 String/Boolean 无 Long/BigDecimal 特殊口径，
+     * boot 默认 mapper 即生产口径；Boolean 装箱开关与可空档位键 null 出站在场——provider
+     * 缺省/清空回落语义的全局 Jackson 含 null 证据）。
      */
     static AiplatformAgentConfigAppService agentConfigAppServiceWithStubTransport(
             String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
@@ -883,7 +886,8 @@ final class AiplatformWireTestSupport {
     /**
      * 智能体配置域版 {@link #accountAppServiceWithErrorTransport}——{@code get} 与
      * {@code put} 都始终抛 {@code OpenApiClientException}（框架对 ≥400 的行为复刻：
-     * 未知键 PRJ_033、操作者缺头 PRJ_034 与读口错误信封同形）。
+     * 未知键 PRJ_033/PRJ_064、操作者缺头 PRJ_034、档位键即时校验 PRJ_074/075 与读口
+     * 错误信封同形）。
      */
     static AiplatformAgentConfigAppService agentConfigAppServiceWithErrorTransport(
             int statusCode, String errorBody, String[] wireUrlSink) {

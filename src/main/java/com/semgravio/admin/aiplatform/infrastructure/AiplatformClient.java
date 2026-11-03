@@ -13,6 +13,8 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfig
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolSlotWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelConfigWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
@@ -23,6 +25,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTr
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
@@ -281,10 +284,14 @@ public class AiplatformClient {
     private static final TypeReference<ApiResponse<AiplatformSkillDraftDetailWireResponse>> SKILL_DRAFT_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
-    // 智能体配置域（#251 技能线 T5）：GET 读面与 PUT 回执同形——单对象（生效值＋覆盖标记＋
-    // 默认预览＋工具开关＋最近写者）；GET /traces data 为裸 List（append-only 时间倒序——
-    // 与技能更新留痕 List 直出同形，不造分页）
+    // 智能体配置域（#251 技能线 T5；#366 边缘四点收编 issue #112 B3）：GET 读面与 PUT 回执
+    // 同形——单对象（生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋最近写者；边缘面
+    // 值面仅档位键 8 件）；GET /traces data 为裸 List（append-only 时间倒序——与技能更新留痕
+    // List 直出同形，不造分页；边缘留痕行与三座同形同 DTO 复用）
     private static final TypeReference<ApiResponse<AiplatformAgentConfigWireResponse>> AGENT_CONFIG_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformEdgeModelConfigWireResponse>> EDGE_MODEL_CONFIG_TYPEREF =
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<List<AiplatformAgentConfigTraceWireResponse>>> AGENT_CONFIG_TRACE_LIST_TYPEREF =
@@ -2306,17 +2313,21 @@ public class AiplatformClient {
     }
 
     /**
-     * 智能体配置读面（透传 aiplatform，技能线 T5 读口）——该智能体生效配置：systemPrompt／
-     * 模型档位生效值（库覆盖值或枚举默认——装配实取值）＋覆盖标记（现在跑的是覆盖还是默认）
-     * ＋枚举默认预览（清空覆盖即落此值）＋增强工具开关存储态＋最近写者。无覆盖行＝全回落
-     * （覆盖标记 false、写者 null）。
+     * 智能体配置读面（透传 aiplatform，技能线 T5 读口；B3 issue #112 档位键语义重对位）——
+     * 该智能体生效配置：systemPrompt／模型档位生效值（库覆盖值或枚举默认——装配实取值；
+     * modelId 语义＝档位键 ADR-0031 语义键）＋覆盖标记（现在跑的是覆盖还是默认）＋枚举
+     * 默认预览（清空覆盖即落此值）＋增强工具开关存储态＋路由强档三件（routingStrongModelId
+     * 生效值/routingStrongModelIdOverridden/defaultRoutingStrongModelId——#354 升档落点，
+     * 主档/强档同范式）＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者 null）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}}（#251）：返回
      * {@code ApiResponse<BackofficeAgentConfigResponse>}。{@code agentKey} 为字符串路径参数
-     * （main/executor 两把稳定键）原样出站——admin 透传不预校验，未知键由 provider 判 404
-     * PRJ_033（数字业务码 4033，classify/naming 等一次性判定不属配置面）原样透传。</p>
+     * （main/executor/designer 三把稳定键）原样出站——admin 透传不预校验，未知键由 provider
+     * 判 404 PRJ_033（数字业务码 4033——边缘调用点走 /edge/{edgeKey}）原样透传。provider
+     * 读面另带路由开关/两阈值六件（#354），B3 票面只点名 routingStrongModelId 一族——六件
+     * 不镜像（Jackson 容错忽略、读面不呈现）。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
      */
     public AiplatformAgentConfigWireResponse getAgentConfig(String agentKey) {
@@ -2331,26 +2342,32 @@ public class AiplatformClient {
     }
 
     /**
-     * 智能体配置全量写（透传 aiplatform，技能线 T5 写口）——PUT 全量语义：请求体即该智能体
-     * 覆盖态终态（systemPrompt/modelId 全文替换，null/缺省/纯空白＝清空覆盖回落枚举默认；
-     * 工具开关缺省 true＝开）。装配生效＝动态查库（变更后下一轮命令构建自然取新值——智能体
-     * 工厂缓存键含 sysPrompt、模型串与工具面规格，新值即新实例，进行中 run 不定格）。
+     * 智能体配置全量写（透传 aiplatform，技能线 T5 写口；B3 issue #112 档位键即时校验＋
+     * 路由强档件）——PUT 全量语义：请求体即该智能体覆盖态终态（systemPrompt/modelId/
+     * routingStrongModelId 全文替换，null/缺省/纯空白＝清空覆盖回落枚举/代码默认；工具开关
+     * 缺省 true＝开）。装配生效＝动态查库（变更后下一轮命令构建自然取新值——智能体工厂
+     * 缓存键含 sysPrompt、模型串与工具面规格，新值即新实例，进行中 run 不定格）。
      *
      * <p>对接 aiplatform {@code PUT /api/backoffice/agent-configs/{agentKey}}（#251）：请求体
-     * {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}} 逐字镜像（开关两件
-     * Boolean 装箱——null 出站在场＝provider 缺省 true），HTTP <strong>PUT</strong> 动词
-     * ——经框架 {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径，
-     * 槽位指派先例），返回 {@code ApiResponse<BackofficeAgentConfigResponse>}（回执与 GET
-     * 同形）。变更留痕 append-only（值面有动必落痕——前后全量值快照＋操作者，traces 可查）；
-     * 同值重写＝幂等回执不落痕；回滚＝留痕旧值快照写回（一次新变更、留新痕）。档位名不做
-     * 白名单校验（错值致新会话失败经留痕写回可回滚）。操作者身份经框架 {@code OpenApiClient}
-     * 自动带 {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕——配置变更
-     * 必留痕，<strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）；寻址同 GET（未知键 404
+     * {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled, routingStrongModelId}}
+     * 逐字镜像 B3 面（开关两件 Boolean 装箱——null 出站在场＝provider 缺省 true），HTTP
+     * <strong>PUT</strong> 动词——经框架 {@link OpenApiClient#put}（与 {@code post} 同走
+     * sendWithBody 序列化＋签名路径，槽位指派先例），返回
+     * {@code ApiResponse<BackofficeAgentConfigResponse>}（回执与 GET 同形）。变更留痕
+     * append-only（值面有动必落痕——前后全量值快照＋操作者，traces 可查）；同值重写＝幂等
+     * 回执不落痕；回滚＝留痕旧值快照写回（一次新变更、留新痕）。档位键即时校验（aiplatform
+     * #367）：modelId 与 routingStrongModelId 非空时必须在模型档位面有行且启用——<strong>
+     * 缺行 400 PRJ_074</strong>＝4074、<strong>停用 400 PRJ_075</strong>＝4075（错值写不
+     * 进去，不再靠留痕回滚兜底；null＝清空回落缺省不校验）。provider 命令另带路由开关/两
+     * 阈值三件（#354），B3 票面不镜像——三肢不出站＝provider null＝缺省态（BFF 是唯一写面、
+     * 三件从无可设处，结构上恒缺省态）。操作者身份经框架 {@code OpenApiClient} 自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕——配置变更必留痕，
+     * <strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）；寻址同 GET（未知键 404
      * PRJ_033＝4033）——均原样透传。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
-     * @param command  配置命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
-     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033、400 PRJ_034 等，不做映射）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
+     * @param command  配置命令体（由应用层从北向命令映射而来，档位键校验归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033、400 PRJ_034/074/075 等，不做映射）
      */
     public AiplatformAgentConfigWireResponse updateAgentConfig(
             String agentKey, AiplatformAgentConfigUpdateWireRequest command) {
@@ -2366,21 +2383,113 @@ public class AiplatformClient {
     }
 
     /**
-     * 配置变更留痕读面（透传 aiplatform，技能线 T5 读口）——该智能体全部配置变更留痕
-     * （变更前后全量值快照 old&#42;/new&#42; 四件对——旧值快照即回滚写回依据），按时间倒序
-     * （最近先）。append-only：留痕不随任何动作删除（历史事实不随配置行消失）。
+     * 配置变更留痕读面（透传 aiplatform，技能线 T5 读口；B3 issue #112 增路由强档两件）——
+     * 该智能体全部配置变更留痕（变更前后全量值快照 old&#42;/new&#42; 对——prompt/档位/强档
+     * 三件可空，旧值快照即回滚写回依据〔含强档——读面可改就必须可回滚〕），按时间倒序
+     * （最近先）。append-only：留痕不随任何动作删除（历史事实不随配置行消失）。provider
+     * 留痕另带路由开关/两阈值六件（#354），同读面口径不镜像。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}/traces}（#251）：
      * 返回 {@code ApiResponse<List<BackofficeAgentConfigTraceResponse>>}——data 为裸 List
      * （append-only 时间倒序，有界——与技能更新留痕 List 直出同形，不造分页）。寻址同 GET
      * （未知键 404 PRJ_033＝4033）原样透传。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
      */
     public List<AiplatformAgentConfigTraceWireResponse> listAgentConfigTraces(String agentKey) {
         String url = baseUrl + "/api/backoffice/agent-configs/" + encode(agentKey) + "/traces";
         log.debug("AiplatformClient.listAgentConfigTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
+                    openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位读面（透传 aiplatform，#366 边缘四点收编——issue #112 B3）——边缘调用点
+     * （一次性轻调用）的模型档位生效值：库覆盖值或代码缺省档位键（各点缺省 flash——轻调用
+     * 不烧重档）＋覆盖标记＋缺省预览＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者
+     * null）。值面仅档位键——无 prompt/工具开关/路由件（字段名对齐三座面）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/edge/{edgeKey}}（#366）：
+     * 返回 {@code ApiResponse<BackofficeEdgeModelConfigResponse>}。{@code edgeKey} 为字符串
+     * 路径参数（四把稳定键：naming=项目取名 / compaction=上下文压缩 / classification=入口
+     * 分类 / precheck=技能预检）原样出站——admin 透传不预校验，未知键由 provider 判 404
+     * PRJ_064（数字业务码 4064）原样透传。改档下一轮命令构建即生效（装配动态查库，进行中
+     * run 不定格）。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064 等，不做映射）
+     */
+    public AiplatformEdgeModelConfigWireResponse getEdgeModelConfig(String edgeKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey);
+        log.debug("AiplatformClient.getEdgeModelConfig: {}", url);
+        try {
+            ApiResponse<AiplatformEdgeModelConfigWireResponse> resp =
+                    openApiClient.get(url, EDGE_MODEL_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位写（透传 aiplatform，#366——issue #112 B3 写口）——PUT 全量语义、值面
+     * 仅模型档位键：请求体 {@code {modelId}} 即该边缘点覆盖态终态（null/缺省/纯空白＝清空
+     * 覆盖回落代码缺省 flash）；换档不发版（装配库值优先，下一轮命令构建即生效）。留痕与
+     * 三座全量写同机制：值面有动必落痕（前后快照＋操作者），同值幂等重写不落痕，回滚＝
+     * 旧值快照写回（一次新变更、留新痕）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/agent-configs/edge/{edgeKey}}（#366）：
+     * 请求体 {@code {modelId}} 单字段逐字镜像 {@code EdgeModelUpdateCommand}（窄形拒绝误带
+     * ——边缘点无 prompt/开关/路由语义），HTTP <strong>PUT</strong> 动词——经框架
+     * {@link OpenApiClient#put}（与三座全量写同走 sendWithBody 序列化＋签名路径），返回
+     * {@code ApiResponse<BackofficeEdgeModelConfigResponse>}（回执与 GET 同形）。档位键即时
+     * 校验与三座同口径（#367：非空须在模型档位面有行且启用——缺行 400 <strong>PRJ_074</strong>
+     * ＝4074、停用 400 <strong>PRJ_075</strong>＝4075，错值写不进去；null＝清空回落缺省
+     * 不校验）。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（provider 落痕——配置变更必留痕，缺头 400 PRJ_034＝4034）；寻址同 GET（未知键
+     * 404 PRJ_064＝4064）——均原样透传。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @param command 边缘档位命令体（由应用层从北向命令映射而来，档位键校验归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064、400 PRJ_034/074/075 等，不做映射）
+     */
+    public AiplatformEdgeModelConfigWireResponse updateEdgeModel(
+            String edgeKey, AiplatformEdgeModelUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey);
+        log.debug("AiplatformClient.updateEdgeModel: {}", url);
+        try {
+            ApiResponse<AiplatformEdgeModelConfigWireResponse> resp =
+                    openApiClient.put(url, command, EDGE_MODEL_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位留痕读面（透传 aiplatform，#366——issue #112 B3 读口）——该边缘点全部
+     * 配置变更留痕，按时间倒序（最近先）。快照列与三座同形（provider 同 DTO 复用）——边缘
+     * 行档位列之外的快照件恒缺省态：prompt null、开关 true、路由件缺省态（provider 边缘写
+     * 把非档位覆盖列结构性归缺省）。回滚＝把某痕旧值快照的 modelId PUT 回写（即一次新变更、
+     * 留新痕，不做版本树）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/edge/{edgeKey}/traces}
+     * （#366）：返回 {@code ApiResponse<List<BackofficeAgentConfigTraceResponse>>}——data 为
+     * 裸 List（append-only 时间倒序、有界，不造分页；与三座留痕读面同形）。寻址同 GET
+     * （未知键 404 PRJ_064＝4064）原样透传。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064 等，不做映射）
+     */
+    public List<AiplatformAgentConfigTraceWireResponse> listEdgeModelTraces(String edgeKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey) + "/traces";
+        log.debug("AiplatformClient.listEdgeModelTraces: {}", url);
         try {
             ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
                     openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);

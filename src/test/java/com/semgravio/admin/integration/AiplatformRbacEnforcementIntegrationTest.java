@@ -47,6 +47,8 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOvervie
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelConfigWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodeWireResponse;
@@ -154,7 +156,11 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 对照结构＋留痕三形北向形状；三写口操作者透传断言＋PRJ_072 引用拦截信封透传）+ #111
  * 模型档位域 B2——档位 CRUD/留痕六端点（model-tier:read 三读端点共用〔traces 留痕读面〕
  * ＋create/update/delete 三写码；档位行五要素〔enabled=true 键集＝绑定下拉数据源〕＋
- * 留痕三形北向形状；三写口操作者透传断言＋PRJ_073 绑定引用拦截信封透传））
+ * 留痕三形北向形状；三写口操作者透传断言＋PRJ_073 绑定引用拦截信封透传）+ #112
+ * agent-configs 档位化与边缘点 B3——边缘调用点读/写/留痕三端点（**复用 agent-config
+ * 两码零新码**——读面/留痕读面 read、写面 update，读写分权行为与三座一致；边缘读面
+ * 8 件＋留痕档位列独动＋routingStrongModelId 字段对随三座读面/回执北向断言；写口
+ * 操作者透传断言＋PRJ_064 未知边缘键/PRJ_075 档位键停用信封透传））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -168,7 +174,8 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 写面独立 assign/update；指派双头预检<strong>复用 assign</strong>（#90：预检触发模型调用有成本，
  * 只读角色不得调用——read≠assign 两码不串；超管 bypass 与其他技能域端点一致，框架级测试钉住））
  * + 智能体配置独立写码
- * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）+ 工具面两码
+ * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面；#112 B3
+ * 边缘调用点三端点复用两码零新码——edge 读面/留痕读面同 read、edge 写面同 update）+ 工具面两码
  * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）+ 草稿审核面三码
  * （{@code skill-draft:read|promote|reject}——issue #92：两读端点复用 read、promote/reject
  * 各一码，读写不串、两写码互不串——晋升权与拒绝权独立授受）+ 模型供应商域四码
@@ -349,7 +356,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String AGENT_CONFIG_TRACES_ENDPOINT = AGENT_CONFIG_ENDPOINT + "/traces";
     private static final String AGENT_CONFIG_UPDATE_BODY =
             "{\"systemPrompt\":\"你是英语学习助手的主智能体：先判意图，再编排执行体。\","
-                    + "\"modelId\":\"deepseek-v4-pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false}";
+                    + "\"modelId\":\"pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false,"
+                    + "\"routingStrongModelId\":\"doubao-flagship\"}";
+    /** 边缘点稳定键（AgentEdgePoint 四把之一）：naming=项目取名——字符串路径参数透传不预校验。 */
+    private static final String EDGE_KEY = "naming";
+    private static final String EDGE_MODEL_CONFIG_ENDPOINT = AGENT_CONFIGS_ENDPOINT + "/edge/" + EDGE_KEY;
+    private static final String EDGE_MODEL_TRACES_ENDPOINT = EDGE_MODEL_CONFIG_ENDPOINT + "/traces";
+    private static final String EDGE_MODEL_UPDATE_BODY = "{\"modelId\":\"pro\"}";
     private static final String AGENT_TOOL_READ_PERMISSION = "admin:aiplatform:agent-tool:read";
     private static final String AGENT_TOOL_TOGGLE_PERMISSION = "admin:aiplatform:agent-tool:toggle";
     /** 增强工具注册名之一（AgentTool 枚举实值）：web_search=联网搜索——开关代表面。 */
@@ -1457,17 +1470,43 @@ class AiplatformRbacEnforcementIntegrationTest {
                     String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
                     LocalDateTime.of(2026, 9, 23, 10, 0, 0));
         }).when(aiplatformClient).updateAgentConfig(eq(AGENT_KEY), any(AiplatformAgentConfigUpdateWireRequest.class));
+        // 边缘调用点档位 mock（issue #112 B3，aiplatform #366 边缘四点收编）：读面＝naming
+        // 有覆盖行代表面（生效档位键 pro＝库覆盖、代码缺省预览 flash——AgentEdgePoint 定死
+        // 轻调用不烧重档）；PUT 抓取 RequestContext（操作者透传契约证据，provider 配置变更
+        // 必留痕、缺头必拦 PRJ_034，断言必带）；留痕读面＝裸 List 时间倒序——快照列与三座
+        // 同形（边缘行非档位快照件恒缺省态：prompt null、开关 true、强档 null）
+        when(aiplatformClient.getEdgeModelConfig(eq(EDGE_KEY))).thenReturn(edgeModelConfigWire(
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0)));
+        doAnswer(inv -> {
+            capture.run();
+            return edgeModelConfigWire(
+                    String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
+                    LocalDateTime.of(2026, 11, 3, 9, 40, 0));
+        }).when(aiplatformClient).updateEdgeModel(eq(EDGE_KEY), any(AiplatformEdgeModelUpdateWireRequest.class));
+        when(aiplatformClient.listEdgeModelTraces(eq(EDGE_KEY))).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000003333333",
+                        null, "flash", true, true, null,
+                        null, "pro", true, true, null,
+                        "700210", "运营·智能体管理员",
+                        LocalDateTime.of(2026, 11, 1, 10, 15, 0)),
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000003222222",
+                        null, null, true, true, null,
+                        null, "flash", true, true, null,
+                        "700100", "运营·平台管理员",
+                        LocalDateTime.of(2026, 10, 22, 16, 40, 0))));
         when(aiplatformClient.listAgentConfigTraces(eq(AGENT_KEY))).thenReturn(List.of(
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000002222222",
-                        "首次覆盖 prompt 全文", "deepseek-v4-pro", true, false,
-                        null, null, true, true,
+                        "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        null, null, true, true, null,
                         String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
                         LocalDateTime.of(2026, 9, 22, 14, 30, 0)),
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000001111111",
-                        null, null, true, true,
-                        "首次覆盖 prompt 全文", "deepseek-v4-pro", true, false,
+                        null, null, true, true, null,
+                        "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
         // 工具面域 mock（issue #85，aiplatform #252 技能线 T6）：清单＝三槽位代表面（main 槽
@@ -1554,10 +1593,24 @@ class AiplatformRbacEnforcementIntegrationTest {
             String operatorId, String operatorName, LocalDateTime updatedAt) {
         return new AiplatformAgentConfigWireResponse(
                 AGENT_KEY, "主智能体",
-                "你是英语学习助手的主智能体：先判意图，再编排执行体。", "deepseek-v4-pro",
+                "你是英语学习助手的主智能体：先判意图，再编排执行体。", "pro",
                 true, true,
-                "你是主智能体。（枚举默认全文）", "deepseek-v4-flash",
+                "你是主智能体。（枚举默认全文）", "flash",
                 true, false,
+                "doubao-flagship", true, "pro",
+                operatorId, operatorName, updatedAt);
+    }
+
+    /**
+     * 边缘调用点档位读面/写回执共用的 wire 载荷工厂（issue #112 B3，naming 有覆盖行代表面）：
+     * 生效档位键＝库覆盖 pro（覆盖标记 true、生效值≠代码缺省 flash）；操作者两肢＋写入时刻
+     * 参数化（读面＝既有写者、写回执＝本次写者——provider 落痕口径：值面有动必落痕）。
+     */
+    private static AiplatformEdgeModelConfigWireResponse edgeModelConfigWire(
+            String operatorId, String operatorName, LocalDateTime updatedAt) {
+        return new AiplatformEdgeModelConfigWireResponse(
+                EDGE_KEY, "项目取名",
+                "pro", true, "flash",
                 operatorId, operatorName, updatedAt);
     }
 
@@ -3676,14 +3729,20 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 键两肢（稳定键 + 展示名 provider 自带 *Name）
         assertThat(data.path("agentKey").asText()).isEqualTo(AGENT_KEY);
         assertThat(data.path("agentName").asText()).isEqualTo("主智能体");
-        // 生效值＝库覆盖（装配实取值）＋覆盖标记 true×2——「现在跑的是覆盖」
+        // 生效值＝库覆盖（装配实取值）＋覆盖标记 true×2——「现在跑的是覆盖」；modelId 语义＝
+        // 档位键（ADR-0031 语义键——V44 存量已刷档）
         assertThat(data.path("systemPrompt").asText()).startsWith("你是英语学习助手的主智能体");
-        assertThat(data.path("modelId").asText()).isEqualTo("deepseek-v4-pro");
+        assertThat(data.path("modelId").asText()).isEqualTo("pro");
         assertThat(data.path("systemPromptOverridden").asBoolean()).isTrue();
         assertThat(data.path("modelIdOverridden").asBoolean()).isTrue();
         // 枚举默认预览（清空覆盖即落此值——恢复默认前可先看落点）
         assertThat(data.path("defaultSystemPrompt").asText()).contains("枚举默认全文");
-        assertThat(data.path("defaultModelId").asText()).isEqualTo("deepseek-v4-flash");
+        assertThat(data.path("defaultModelId").asText()).isEqualTo("flash");
+        // 路由强档三件（B3 忠实跟随——主档/强档同范式）：生效值＝库覆盖 doubao-flagship、
+        // 覆盖标记 true、代码缺省预览 pro
+        assertThat(data.path("routingStrongModelId").asText()).isEqualTo("doubao-flagship");
+        assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
         // 增强工具开关存储态（一开一关代表面）
         assertThat(data.path("webSearchEnabled").asBoolean()).isTrue();
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
@@ -3705,28 +3764,33 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.isArray()).isTrue();
         assertThat(data.size()).isEqualTo(2);
 
-        // 首条最近（清空覆盖变更）：new prompt/档位 null＝本次清空回落枚举默认（如实出 JSON
-        // null——全局 Jackson 含 null）；old 快照＝回滚写回依据
+        // 首条最近（清空覆盖变更）：new prompt/档位/强档 null＝本次清空回落枚举/代码默认
+        // （如实出 JSON null——全局 Jackson 含 null）；old 快照＝回滚写回依据（含强档）
         JsonNode latest = data.get(0);
         assertThat(latest.path("id").asText()).isEqualTo("3900000002222222");
         assertThat(latest.path("oldSystemPrompt").asText()).isEqualTo("首次覆盖 prompt 全文");
-        assertThat(latest.path("oldModelId").asText()).isEqualTo("deepseek-v4-pro");
+        assertThat(latest.path("oldModelId").asText()).isEqualTo("pro");
         assertThat(latest.path("oldWebSearchEnabled").asBoolean()).isTrue();
         assertThat(latest.path("oldFetchUrlEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("oldRoutingStrongModelId").asText()).isEqualTo("doubao-flagship");
         assertThat(latest.path("newSystemPrompt").isNull()).isTrue();
         assertThat(latest.path("newModelId").isNull()).isTrue();
         assertThat(latest.path("newWebSearchEnabled").asBoolean()).isTrue();
         assertThat(latest.path("newFetchUrlEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newRoutingStrongModelId").isNull()).isTrue();
         assertThat(latest.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(latest.path("operatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
 
-        // 次条更早（首次配置）：old prompt/档位 null＝此前即缺省回落（回滚即把 null 写回）——
-        // 留痕链衔接：次条 new＝首条 old（append-only 时间线诚实可查）
+        // 次条更早（首次配置）：old prompt/档位/强档 null＝此前即缺省回落（回滚即把 null
+        // 写回）——留痕链衔接：次条 new＝首条 old（append-only 时间线诚实可查，强档同链）
         JsonNode earlier = data.get(1);
         assertThat(earlier.path("oldSystemPrompt").isNull()).isTrue();
         assertThat(earlier.path("oldModelId").isNull()).isTrue();
+        assertThat(earlier.path("oldRoutingStrongModelId").isNull()).isTrue();
         assertThat(earlier.path("newSystemPrompt").asText()).isEqualTo(latest.path("oldSystemPrompt").asText());
         assertThat(earlier.path("newModelId").asText()).isEqualTo(latest.path("oldModelId").asText());
+        assertThat(earlier.path("newRoutingStrongModelId").asText())
+                .isEqualTo(latest.path("oldRoutingStrongModelId").asText());
     }
 
     @Test
@@ -3743,8 +3807,11 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 最近写者＝登录智能体配置运营（provider 落痕口径：值面有动必落痕）
         assertThat(data.path("agentKey").asText()).isEqualTo(AGENT_KEY);
         assertThat(data.path("systemPromptOverridden").asBoolean()).isTrue();
-        assertThat(data.path("modelId").asText()).isEqualTo("deepseek-v4-pro");
-        assertThat(data.path("defaultModelId").asText()).isEqualTo("deepseek-v4-flash");
+        assertThat(data.path("modelId").asText()).isEqualTo("pro");
+        assertThat(data.path("defaultModelId").asText()).isEqualTo("flash");
+        assertThat(data.path("routingStrongModelId").asText()).isEqualTo("doubao-flagship");
+        assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
         assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(data.path("operatorName").asText()).isEqualTo(agentConfigUpdateUserNickname);
@@ -3800,7 +3867,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 未知键由 provider 裁决（admin 不预检 agentKey 字符串路径参数）
         when(aiplatformClient.getAgentConfig(eq("classify"))).thenThrow(
                 AiplatformUpstreamException.from(new OpenApiClientException(404,
-                        "{\"code\":4033,\"message\":\"智能体不存在（运营配置面只有 main/executor 两座智能体）\","
+                        "{\"code\":4033,\"message\":\"智能体不存在（运营配置面只有 main/executor/designer 三座智能体）\","
                                 + "\"data\":null}")));
 
         String token = login(usernameWithReadPermission);
@@ -3811,7 +3878,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 4033（PRJ_033＝域码 4×1000＋33），而非映射后的 404——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(4033);
         assertThat(root.path("message").asText())
-                .isEqualTo("智能体不存在（运营配置面只有 main/executor 两座智能体）");
+                .isEqualTo("智能体不存在（运营配置面只有 main/executor/designer 三座智能体）");
         assertThat(root.path("data").isNull()).isTrue();
     }
 
@@ -3830,6 +3897,162 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 4034（PRJ_034＝域码 4×1000＋34），而非映射后的 400——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(4034);
         assertThat(root.path("message").asText()).isEqualTo("操作者不能为空");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 边缘调用点档位（#112 B3：edge 三端点复用 agent-config 两码——读面/留痕读面 read、写面 update，零新码）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:read → 边缘档位读面 200，档位键生效值/覆盖标记/缺省预览/最近写者镜像 provider（值面仅档位 8 件）")
+    void given_nonSuperAdminWithAgentConfigRead_when_getEdgeModelConfig_then_200EdgeShapeMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(EDGE_MODEL_CONFIG_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 值面仅档位键一件（#366 同表收编——无 prompt/工具开关/路由件）：键两肢＋生效档位键＝
+        // 库覆盖 pro（覆盖标记 true）＋代码缺省预览 flash（AgentEdgePoint 定死）＋写者两肢＋时刻
+        assertThat(data.path("agentKey").asText()).isEqualTo(EDGE_KEY);
+        assertThat(data.path("agentName").asText()).isEqualTo("项目取名");
+        assertThat(data.path("modelId").asText()).isEqualTo("pro");
+        assertThat(data.path("modelIdOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultModelId").asText()).isEqualTo("flash");
+        assertThat(data.path("operatorId").asText()).isEqualTo("700210");
+        assertThat(data.path("operatorName").asText()).isEqualTo("运营·智能体管理员");
+        assertThat(data.path("updatedAt").asText()).isEqualTo("2026-11-01T10:15:00");
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:read → 边缘档位留痕读面 200，快照列与三座同形（档位列之外恒缺省态）")
+    void given_nonSuperAdminWithAgentConfigRead_when_edgeTraces_then_200TraceListMirrorsProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(EDGE_MODEL_TRACES_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // data 为裸 List（append-only 时间倒序——最近先）；只有档位列在动（首条升档
+        // flash→pro），prompt/强档 null＝边缘行结构性缺省态、开关恒 true
+        assertThat(data.isArray()).isTrue();
+        assertThat(data.size()).isEqualTo(2);
+
+        JsonNode latest = data.get(0);
+        assertThat(latest.path("id").asText()).isEqualTo("3900000003333333");
+        assertThat(latest.path("oldModelId").asText()).isEqualTo("flash");
+        assertThat(latest.path("newModelId").asText()).isEqualTo("pro");
+        assertThat(latest.path("oldSystemPrompt").isNull()).isTrue();
+        assertThat(latest.path("newRoutingStrongModelId").isNull()).isTrue();
+        assertThat(latest.path("oldWebSearchEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newFetchUrlEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("operatorId").asText()).isEqualTo("700210");
+
+        // 次条更早（首次配置）：old 档位 null＝此前即代码缺省 flash——留痕链衔接（次条
+        // new flash＝首条 old）
+        JsonNode earlier = data.get(1);
+        assertThat(earlier.path("oldModelId").isNull()).isTrue();
+        assertThat(earlier.path("newModelId").asText()).isEqualTo(latest.path("oldModelId").asText());
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 agent-config:update → 边缘档位写 200，回执与 GET 同形且 RequestContext 透传登录 operator（复用写码零新码）")
+    void given_nonSuperAdminWithAgentConfigUpdate_when_updateEdgeModel_then_200ReceiptSameShapeAndOperatorCarried()
+            throws Exception {
+        String token = login(usernameWithAgentConfigUpdate);
+
+        ResponseEntity<String> response = putWithToken(EDGE_MODEL_CONFIG_ENDPOINT, EDGE_MODEL_UPDATE_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 回执＝写入后读面（与 GET 同形）：最近写者＝登录智能体配置运营（provider 落痕口径：
+        // 值面有动必落痕）——edge 写口复用 agent-config:update 码（issue #112 验收：零新码）
+        assertThat(data.path("agentKey").asText()).isEqualTo(EDGE_KEY);
+        assertThat(data.path("modelId").asText()).isEqualTo("pro");
+        assertThat(data.path("modelIdOverridden").asBoolean()).isTrue();
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(agentConfigUpdateUserNickname);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 配置变更必留痕、缺头必拦 PRJ_034）
+        assertThat(capturedOperatorId.get()).isEqualTo(agentConfigUpdateUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(agentConfigUpdateUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 agent-config:read（无 update）→ 边缘写 403；仅有 agent-config:update（无 read）→ 边缘读面/留痕读面 403（edge 复用两码读写不串）")
+    void given_readOrUpdateOnly_when_edgeEndpoints_then_403OnTheOtherSide() {
+        // edge 三端点复用 agent-config 两码（issue #112 验收：零新码）——读写分权行为与三座一致
+        String reader = login(usernameWithReadPermission);
+        assertThat(putWithToken(EDGE_MODEL_CONFIG_ENDPOINT, EDGE_MODEL_UPDATE_BODY, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        String updater = login(usernameWithAgentConfigUpdate);
+        assertThat(getWithToken(EDGE_MODEL_CONFIG_ENDPOINT, updater).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(EDGE_MODEL_TRACES_ENDPOINT, updater).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 边缘调用点三端点 403")
+    void given_nonSuperAdminWithoutPermission_when_edgeEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(EDGE_MODEL_CONFIG_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(EDGE_MODEL_CONFIG_ENDPOINT, EDGE_MODEL_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(EDGE_MODEL_TRACES_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问边缘调用点三端点返回 401（含 PUT 档位写）")
+    void given_unauthenticated_when_edgeEndpoints_then_401() {
+        assertThat(getWithToken(EDGE_MODEL_CONFIG_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(EDGE_MODEL_CONFIG_ENDPOINT, EDGE_MODEL_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(EDGE_MODEL_TRACES_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("边缘读面下游 PRJ_064（未知边缘键——档位配置面只有四点）→ 北向 HTTP 404 + 信封 code=4064 + message 原文（不映射）")
+    void given_prj064FromDownstream_when_getEdgeModelConfig_then_errorEnvelopePassedThrough() throws Exception {
+        // 未知键由 provider 裁决（admin 不预检 edgeKey 字符串路径参数）
+        when(aiplatformClient.getEdgeModelConfig(eq("summarize"))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4064,\"message\":\"边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(AGENT_CONFIGS_ENDPOINT + "/edge/summarize", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4064（PRJ_064＝域码 4×1000＋64），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(4064);
+        assertThat(root.path("message").asText())
+                .isEqualTo("边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("边缘写下游 PRJ_075（档位键停用——即时校验负例）→ 北向 HTTP 400 + 信封 code=4075 + message 原文（不映射）")
+    void given_prj075FromDownstream_when_updateEdgeModel_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.updateEdgeModel(eq(EDGE_KEY), any(AiplatformEdgeModelUpdateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4075,\"message\":\"绑定的模型档位已停用：doubao-flagship（启用该档位或改绑其他档位）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithAgentConfigUpdate);
+        ResponseEntity<String> response = putWithToken(EDGE_MODEL_CONFIG_ENDPOINT,
+                "{\"modelId\":\"doubao-flagship\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4075（PRJ_075＝域码 4×1000＋75）——错值档位键写不进去
+        // （#367 即时校验：不再靠留痕回滚兜底）
+        assertThat(root.path("code").asInt()).isEqualTo(4075);
+        assertThat(root.path("message").asText())
+                .isEqualTo("绑定的模型档位已停用：doubao-flagship（启用该档位或改绑其他档位）");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

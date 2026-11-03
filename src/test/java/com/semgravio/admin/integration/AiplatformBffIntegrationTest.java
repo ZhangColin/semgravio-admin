@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 import com.semgravio.admin.aiplatform.application.AiplatformAccountAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformAgentConfigAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
@@ -34,7 +35,9 @@ import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformAgentConfigUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformEdgeModelUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderCreateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelTierCreateCommand;
@@ -77,9 +80,14 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProject
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAccountProfileWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelConfigWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
@@ -150,7 +158,8 @@ import com.cartisan.web.response.PageResponse;
  * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建 + #105 合同域六态推进写口
  * advance/fail/withdraw/void/sign/record + #106 付款核验域计划详情/节点录入/核验/打回/
  * 凭证二进制 + #107 生产承接域详情/整组更新/推进/需用户补充 + #110 模型供应商域通道
- * CRUD/远端清单拉取/留痕）——mock {@link AiplatformClient}，
+ * CRUD/远端清单拉取/留痕 + #112 agent-configs 档位化与边缘点——routingStrongModelId
+ * 字段对映射＋边缘调用点读/写/留痕）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -208,6 +217,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformModelTierAppService modelTierAppService;
+
+    @Autowired
+    private AiplatformAgentConfigAppService agentConfigAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -1417,6 +1429,167 @@ class AiplatformBffIntegrationTest {
                     assertThat(upstream.httpStatus()).isEqualTo(400);
                     assertThat(upstream.envelopeCode()).isEqualTo(4034);
                     assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
+                });
+    }
+
+    // ========== 智能体配置域＋边缘调用点（#112 B3）· routingStrongModelId 字段对映射 + edge 读/写/留痕映射 + 错误信封透传 ==========
+
+    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）。 */
+    private static AiplatformAgentConfigWireResponse agentConfigWire() {
+        return new AiplatformAgentConfigWireResponse(
+                "main", "主智能体",
+                "你是英语学习助手的主智能体：先判意图，再编排执行体。", "pro",
+                true, true,
+                "你是主智能体。（枚举默认全文）", "flash",
+                true, false,
+                "doubao-flagship", true, "pro",
+                "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0));
+    }
+
+    /** 边缘调用点档位 wire 工厂（naming 有覆盖行代表面）：生效档位键＝库覆盖 pro、代码缺省 flash。 */
+    private static AiplatformEdgeModelConfigWireResponse edgeModelConfigWire(
+            String operatorId, String operatorName, LocalDateTime updatedAt) {
+        return new AiplatformEdgeModelConfigWireResponse(
+                "naming", "项目取名",
+                "pro", true, "flash",
+                operatorId, operatorName, updatedAt);
+    }
+
+    @Test
+    void given_agentConfigWireWithStrongTier_when_getConfig_then_sixteenFacetsMirrored() {
+        when(aiplatformClient.getAgentConfig("main")).thenReturn(agentConfigWire());
+
+        var config = agentConfigAppService.getConfig("main");
+
+        // wire → 北向逐字段（16 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
+        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）
+        assertThat(config.agentKey()).isEqualTo("main");
+        assertThat(config.modelId()).isEqualTo("pro");
+        assertThat(config.defaultModelId()).isEqualTo("flash");
+        assertThat(config.routingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(config.routingStrongModelIdOverridden()).isTrue();
+        assertThat(config.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(config.fetchUrlEnabled()).isFalse();
+        assertThat(config.operatorName()).isEqualTo("运营·技能管理员");
+    }
+
+    @Test
+    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredFiveFields() {
+        when(aiplatformClient.updateAgentConfig(eq("main"), any(AiplatformAgentConfigUpdateWireRequest.class)))
+                .thenReturn(agentConfigWire());
+
+        // 北向五字段（含路由强档——主档/强档同范式管理）→ wire 五字段逐字段映射；缺省肢
+        // null 透传（清空回落语义），档位键合法性（PRJ_074/075）归 provider 即时校验
+        var receipt = agentConfigAppService.updateConfig("main",
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship"));
+
+        ArgumentCaptor<AiplatformAgentConfigUpdateWireRequest> captor =
+                ArgumentCaptor.forClass(AiplatformAgentConfigUpdateWireRequest.class);
+        verify(aiplatformClient).updateAgentConfig(eq("main"), captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new AiplatformAgentConfigUpdateWireRequest(
+                "新 prompt", "pro", true, false, "doubao-flagship"));
+
+        // 回执映射（与 GET 同形——强档三件随行）
+        assertThat(receipt.routingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(receipt.defaultRoutingStrongModelId()).isEqualTo("pro");
+    }
+
+    @Test
+    void given_traceWireWithStrongTierPair_when_listTraces_then_oldNewStrongPairMirrored() {
+        when(aiplatformClient.listAgentConfigTraces("main")).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000002222222",
+                        "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        null, null, true, true, null,
+                        "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0))));
+
+        var traces = agentConfigAppService.listTraces("main");
+
+        // 留痕行映射（含强档 old/new 两件——读面可改就必须可回滚）：old 快照＝回滚写回依据
+        assertThat(traces).hasSize(1);
+        assertThat(traces.get(0).oldModelId()).isEqualTo("pro");
+        assertThat(traces.get(0).oldRoutingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(traces.get(0).newModelId()).isNull();
+        assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+    }
+
+    @Test
+    void given_edgeWires_when_getEdgeModelConfig_then_eightFacetsMirrored() {
+        when(aiplatformClient.getEdgeModelConfig("naming")).thenReturn(edgeModelConfigWire(
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0)));
+
+        var config = agentConfigAppService.getEdgeModelConfig("naming");
+
+        // wire → 北向逐字段（8 件，值面仅档位键——字段名对齐三座面）；缺省档 flash＝AgentEdgePoint 定死
+        assertThat(config.agentKey()).isEqualTo("naming");
+        assertThat(config.agentName()).isEqualTo("项目取名");
+        assertThat(config.modelId()).isEqualTo("pro");
+        assertThat(config.modelIdOverridden()).isTrue();
+        assertThat(config.defaultModelId()).isEqualTo("flash");
+        assertThat(config.operatorId()).isEqualTo("700210");
+        assertThat(config.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(config.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 10, 15, 0));
+    }
+
+    @Test
+    void given_edgeUpdateCommand_when_updateEdgeModel_then_singleFieldWireCommandMirrored() {
+        when(aiplatformClient.updateEdgeModel(eq("naming"), any(AiplatformEdgeModelUpdateWireRequest.class)))
+                .thenReturn(edgeModelConfigWire(
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 3, 9, 40, 0)));
+
+        // 北向单字段命令 → wire {modelId} 单字段（窄形拒绝误带——边缘点无 prompt/开关/路由
+        // 语义）；档位键即时校验（PRJ_074/075）归 provider 写用例
+        var receipt = agentConfigAppService.updateEdgeModel("naming",
+                new AiplatformEdgeModelUpdateCommand("pro"));
+
+        ArgumentCaptor<AiplatformEdgeModelUpdateWireRequest> captor =
+                ArgumentCaptor.forClass(AiplatformEdgeModelUpdateWireRequest.class);
+        verify(aiplatformClient).updateEdgeModel(eq("naming"), captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new AiplatformEdgeModelUpdateWireRequest("pro"));
+
+        // 回执映射（与 GET 同形）
+        assertThat(receipt.modelId()).isEqualTo("pro");
+        assertThat(receipt.defaultModelId()).isEqualTo("flash");
+    }
+
+    @Test
+    void given_edgeTraceWires_when_listEdgeModelTraces_then_tierColumnChangesMirrored() {
+        when(aiplatformClient.listEdgeModelTraces("naming")).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000003333333",
+                        null, "flash", true, true, null,
+                        null, "pro", true, true, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0))));
+
+        var traces = agentConfigAppService.listEdgeModelTraces("naming");
+
+        // 边缘留痕与三座同形映射：只有档位列在动（升档 flash→pro），prompt/强档 null＝
+        // 边缘行结构性缺省态、开关恒 true
+        assertThat(traces).hasSize(1);
+        assertThat(traces.get(0).oldModelId()).isEqualTo("flash");
+        assertThat(traces.get(0).newModelId()).isEqualTo("pro");
+        assertThat(traces.get(0).oldSystemPrompt()).isNull();
+        assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+        assertThat(traces.get(0).oldWebSearchEnabled()).isTrue();
+    }
+
+    @Test
+    void given_prj064FromDownstream_when_getEdgeModelConfig_then_errorEnvelopePropagatedWithoutMapping() {
+        when(aiplatformClient.getEdgeModelConfig("summarize")).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4064,\"message\":\"边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）\","
+                                + "\"data\":null}")));
+
+        assertThatThrownBy(() -> agentConfigAppService.getEdgeModelConfig("summarize"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_064 → HTTP 404 + 数字业务码 4064（边缘面只有四点——edgeKey 透传
+                    // 不预校验，未知键归 provider 裁决）
+                    assertThat(upstream.httpStatus()).isEqualTo(404);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4064);
+                    assertThat(upstream.getMessage())
+                            .isEqualTo("边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）");
                 });
     }
 
