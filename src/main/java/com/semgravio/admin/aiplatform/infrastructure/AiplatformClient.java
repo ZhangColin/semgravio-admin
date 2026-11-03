@@ -13,6 +13,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfig
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolSlotWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
@@ -96,8 +101,9 @@ import org.springframework.stereotype.Component;
  * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）、
  * 合同域（#104 第八域——spec #102 A 批）、付款核验域（#106 第九域——spec #102 A 批 A3，
  * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）与
- * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）共用本客户端
- * ——同一 downstream、同一签名身份，各域只加方法。</p>
+ * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）与模型供应商域
+ * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
+ * 拉取）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -285,6 +291,26 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformAgentToolWireResponse>> AGENT_TOOL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 模型供应商域（#367/#368 通道维护＋清单拉取，issue #110 B1——spec #101 B 批）：清单/单行/
+    // 创建/更新回执共形＝ApiResponse<BackofficeModelProviderResponse>（apiKeyMasked 掩码形忠实
+    // 透传）；留痕 data 为裸 List（append-only 时间倒序——同智能体配置留痕 List 直出同形）；
+    // 远端清单拉取回执＝单对象（对照结构 remoteModels/staleTiers 嵌套行）；删除回执＝
+    // ApiResponse<Void>（data null——同生产承接置位口形制）
+    private static final TypeReference<ApiResponse<List<AiplatformModelProviderWireResponse>>> MODEL_PROVIDER_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformModelProviderWireResponse>> MODEL_PROVIDER_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformModelProviderTraceWireResponse>>> MODEL_PROVIDER_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformRemoteModelCatalogWireResponse>> REMOTE_MODEL_CATALOG_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> MODEL_PROVIDER_VOID_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -2397,6 +2423,201 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformAgentToolWireResponse> resp =
                     openApiClient.put(url, command, AGENT_TOOL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道清单读面（透传 aiplatform，模型供应商域读口）——全部通道行按键序；apiKey 只出
+     * 掩码形（尾 4 位，null＝未配置）——接口回显面零明文 key，admin 忠实透传掩码值不二次
+     * 处理（spec #101）。种子两通道：volcengine 主用（火山方舟）＋deepseek 官方备胎。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers}（#367）：返回
+     * {@code ApiResponse<List<BackofficeModelProviderResponse>>}——data 为裸 List（通道
+     * 行有界，List 直出同形不造分页）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelProviderWireResponse> listModelProviders() {
+        String url = baseUrl + "/api/backoffice/model-providers";
+        log.debug("AiplatformClient.listModelProviders: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelProviderWireResponse>> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道单行读面（透传 aiplatform，模型供应商域读口）——该通道行（掩码形同清单）。
+     * {@code providerKey} 为字符串路径参数（键名即协议路由前缀——volcengine/deepseek 等）
+     * 原样出站，admin 透传不预校验。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 返回 {@code ApiResponse<BackofficeModelProviderResponse>}。未知键 404 PRJ_065
+     * （数字业务码 4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse getModelProvider(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.getModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道创建（透传 aiplatform，模型供应商域写口）——新建接入通道：键名（＝协议路由
+     * 前缀，OpenAI 兼容统一接、SDK 内置前缀走原生 provider）随体、已存在 409 PRJ_067
+     * （数字业务码 4067）；baseUrl 必填（400 PRJ_069＝4069）；apiKey 收全量值（写面唯一
+     * 明文入口——null/空白＝暂不配置，装配按 PRJ_063 明确报错）；enabled 缺省 true。
+     * 回执 apiKey 已掩码（尾 4 位忠实透传）。创建即落痕（old 全 null）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-providers}（#367）：请求体
+     * {@code {providerKey, baseUrl, apiKey, enabled}} 逐字镜像 {@code ModelProviderCreateCommand}
+     * （enabled Boolean 装箱——null 出站在场＝provider 缺省 true），返回
+     * {@code ApiResponse<BackofficeModelProviderResponse>}（回执与 GET 同形）。操作者身份经
+     * 框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name} 头（创建即留痕，
+     * <strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）——均原样透传。</p>
+     *
+     * @param command 创建命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（409 PRJ_067、400 PRJ_069/034 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse createModelProvider(
+            AiplatformModelProviderCreateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-providers";
+        log.debug("AiplatformClient.createModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.post(url, command, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道更新（透传 aiplatform，模型供应商域写口）——PUT 全量语义：baseUrl 终态替换；
+     * apiKey 与 enabled <strong>缺省＝保持现值</strong>（apiKey 读面只出掩码、缺省清空＝
+     * 读一次即丢 key；enabled 缺省翻转会把停用通道在换 key 时意外复启——两肢皆显式写
+     * 才动）。<strong>缺省肢语义在 wire 请求体上保真</strong>（spec #101）：可空肢 null
+     * 在场＝保持现值，不臆造默认值。换 key 携全量新值（写面唯一明文入口）；清除 key 无
+     * 写面（下线通道走 enabled=false）。换 key/换 baseUrl 下一轮命令构建即生效（模型
+     * 实例缓存键含通道指纹——同模型串换 key 换地址＝新实例，进行中 run 不定格）。值面
+     * 无动＝幂等回执不落痕；回滚＝留痕旧值快照写回（换 key 回滚＝操作者重输旧 key 全量
+     * 值——留痕只出掩码，不作密钥找回面）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 请求体 {@code {baseUrl, apiKey, enabled}} 逐字镜像 {@code ModelProviderUpdateCommand}
+     * （apiKey/enabled 可空肢——null 出站在场＝保持现值；携现值掩码形同判保持＝掩码回显
+     * 的 round-trip 安全），HTTP <strong>PUT</strong> 动词——经框架 {@link OpenApiClient#put}
+     * （与 {@code post} 同走 sendWithBody 序列化＋签名路径，智能体配置先例），返回
+     * {@code ApiResponse<BackofficeModelProviderResponse>}（回执与 GET 同形）。操作者身份
+     * 经框架自动带 {@code X-User-Id/X-User-Name} 头（更新必留痕，<strong>缺头 400
+     * PRJ_034</strong>＝4034）；未知键 404 PRJ_065（4065）——均原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @param command     更新命令体（由应用层从北向命令映射而来——缺省肢保真直通，合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065、400 PRJ_069/034 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse updateModelProvider(
+            String providerKey, AiplatformModelProviderUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.updateModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.put(url, command, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道删除（透传 aiplatform，模型供应商域写口）——删除通道行；仍被档位行引用即 409
+     * PRJ_072（数字业务码 4072——先删改挂其下的档位行，悬空引用不留静默坑）。删成落痕
+     * （new 全 null，留痕跨行存活）。操作者经框架透传头落痕（缺头 400 PRJ_034＝4034）。
+     *
+     * <p>对接 aiplatform {@code DELETE /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 无请求体，返回 {@code ApiResponse<Void>}（data null——信封即回执，同生产承接置位口
+     * 形制）。HTTP <strong>DELETE</strong> 动词——经框架 {@link OpenApiClient#delete}
+     * （知识素材卸载/删除先例）。未知键 404 PRJ_065（4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065、409 PRJ_072、400 PRJ_034 等，不做映射）
+     */
+    public void deleteModelProvider(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.deleteModelProvider: {}", url);
+        try {
+            openApiClient.delete(url, MODEL_PROVIDER_VOID_TYPEREF);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 远端模型清单手动拉取（透传 aiplatform，模型供应商域只读探测）——按通道行真拉远端
+     * 模型清单（OpenAI 兼容 GET {baseUrl}/models，方舟端点实测同形状）并与库内档位对照：
+     * 条目 trackedTierKeys 空＝远端有库里无（建议入库）；staleTiers＝库内指向远端已无
+     * （提示过时）。每次全量真拉无缓存（手动同步——自动定时同步明确不做，ADR-0031）。
+     * 条目 status 如实转述上游（方舟：无 status＝活跃、Shutdown/Retiring＝下架/退场中）。
+     * 纯读动作零留痕——「勾选入库」不经此响应回写，复用档位创建写口（POST
+     * /model-tiers——权限在彼处自然拦截）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-providers/{providerKey}/remote-models}
+     * （#368）：无请求体（null body 发空 body，同重试归档先例），返回
+     * {@code ApiResponse<BackofficeRemoteModelCatalogResponse>}——对照结构（remoteModels
+     * 嵌套行含 trackedTierKeys、staleTiers 嵌套行）逐字镜像。上游不可用明确报错不静默
+     * （502 PRJ_077＝数字业务码 4077 带理由）；通道 key 空 400 PRJ_076（4076——无凭证
+     * 不打上游）；停用通道可拉（巡检语义）；未知键 404 PRJ_065（4065）——均原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（502 PRJ_077、400 PRJ_076、404 PRJ_065 等，不做映射）
+     */
+    public AiplatformRemoteModelCatalogWireResponse pullRemoteModels(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey) + "/remote-models";
+        log.debug("AiplatformClient.pullRemoteModels: {}", url);
+        try {
+            ApiResponse<AiplatformRemoteModelCatalogWireResponse> resp =
+                    openApiClient.post(url, null, REMOTE_MODEL_CATALOG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道变更留痕读面（透传 aiplatform，模型供应商域读口）——该通道全部变更留痕按时间
+     * 倒序（最近先）。每痕＝一次实际变更（幂等重写不落痕）：前后全量值快照（apiKey 快照
+     * 读面一律掩码——尾 4 位足以比对哪次换了哪把 key，不作密钥找回面；admin 忠实透传）
+     * ＋操作者＋时刻。创建痕 old 全 null、删除痕 new 全 null；append-only 跨行存活——
+     * 行删除后留痕仍可读（空清单＝从未有行，行读面负责 404 判别）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers/{providerKey}/traces}
+     * （#367）：返回 {@code ApiResponse<List<BackofficeModelProviderTraceResponse>>}——
+     * data 为裸 List（append-only 时间倒序，有界——同智能体配置留痕 List 直出同形，
+     * 不造分页）。寻址同 GET（未知键 404 PRJ_065＝4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065 等，不做映射）
+     */
+    public List<AiplatformModelProviderTraceWireResponse> listModelProviderTraces(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey) + "/traces";
+        log.debug("AiplatformClient.listModelProviderTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelProviderTraceWireResponse>> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_TRACE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

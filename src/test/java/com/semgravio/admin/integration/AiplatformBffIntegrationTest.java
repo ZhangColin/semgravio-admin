@@ -25,6 +25,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformAccountAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformModelProviderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
@@ -33,6 +34,8 @@ import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderCreateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderUpdateCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentNodesCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentRejectCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionActionCommand;
@@ -77,6 +80,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversatio
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
@@ -134,7 +142,8 @@ import com.cartisan.web.response.PageResponse;
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
  * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建 + #105 合同域六态推进写口
  * advance/fail/withdraw/void/sign/record + #106 付款核验域计划详情/节点录入/核验/打回/
- * 凭证二进制 + #107 生产承接域详情/整组更新/推进/需用户补充）——mock {@link AiplatformClient}，
+ * 凭证二进制 + #107 生产承接域详情/整组更新/推进/需用户补充 + #110 模型供应商域通道
+ * CRUD/远端清单拉取/留痕）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -186,6 +195,9 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformProductionAppService productionAppService;
+
+    @Autowired
+    private AiplatformModelProviderAppService modelProviderAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -1076,6 +1088,174 @@ class AiplatformBffIntegrationTest {
                     assertThat(upstream.httpStatus()).isEqualTo(400);
                     assertThat(upstream.envelopeCode()).isEqualTo(4059);
                     assertThat(upstream.getMessage()).isEqualTo("操作者必填（生产承接动作须携带操作者身份）");
+                });
+    }
+
+    // ========== 模型供应商域（#110 B1）· 命令映射 + 掩码/对照结构/留痕映射 + 错误信封透传 ==========
+
+    /** 模型供应商 wire 工厂：读面/回执共形——掩码两面（null＝未配置/尾 4 位＝已配置）按参数出。 */
+    private static AiplatformModelProviderWireResponse modelProviderWire(String apiKeyMasked) {
+        return new AiplatformModelProviderWireResponse(
+                "volcengine", "https://ark.cn-beijing.volces.com/api/v3", apiKeyMasked, true,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_providerWires_when_listAndDetail_then_maskedKeyMirroredAsIs() {
+        when(aiplatformClient.listModelProviders()).thenReturn(List.of(
+                new AiplatformModelProviderWireResponse(
+                        "deepseek", "https://api.deepseek.com", null, true,
+                        null, null, LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                modelProviderWire("****cd12")));
+        when(aiplatformClient.getModelProvider("volcengine")).thenReturn(modelProviderWire("****cd12"));
+
+        var providers = modelProviderAppService.listProviders();
+        var detail = modelProviderAppService.getProvider("volcengine");
+
+        // wire → 北向逐字段：掩码值忠实透传（不二次处理不尝试解掩）——null＝未配置如实在场
+        assertThat(providers).hasSize(2);
+        assertThat(providers.get(0).apiKeyMasked()).isNull();
+        assertThat(providers.get(1).apiKeyMasked()).isEqualTo("****cd12");
+        assertThat(detail.providerKey()).isEqualTo("volcengine");
+        assertThat(detail.baseUrl()).isEqualTo("https://ark.cn-beijing.volces.com/api/v3");
+        assertThat(detail.apiKeyMasked()).isEqualTo("****cd12");
+        assertThat(detail.enabled()).isTrue();
+        assertThat(detail.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(detail.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_createCommand_when_createProvider_then_wireCommandMappedAndMaskedReceipt() {
+        when(aiplatformClient.createModelProvider(any(AiplatformModelProviderCreateWireRequest.class)))
+                .thenReturn(modelProviderWire("****9f2c"));
+
+        var receipt = modelProviderAppService.createProvider(new AiplatformModelProviderCreateCommand(
+                "moonshot", "https://api.moonshot.cn/v1", "sk-real-secret-key-9f2c", null));
+
+        // 北向四字段 → wire 四字段逐字段映射（enabled 装箱 null 透传＝provider 缺省 true）
+        ArgumentCaptor<AiplatformModelProviderCreateWireRequest> createCaptor =
+                ArgumentCaptor.forClass(AiplatformModelProviderCreateWireRequest.class);
+        verify(aiplatformClient).createModelProvider(createCaptor.capture());
+        assertThat(createCaptor.getValue()).isEqualTo(new AiplatformModelProviderCreateWireRequest(
+                "moonshot", "https://api.moonshot.cn/v1", "sk-real-secret-key-9f2c", null));
+
+        // 创建回执映射：apiKey 已掩码（provider 单点掩码——admin 全链零明文 key 回显）
+        assertThat(receipt.apiKeyMasked()).isEqualTo("****9f2c");
+    }
+
+    @Test
+    void given_updateCommandWithDefaultedLimbs_when_updateProvider_then_nullLimbsPreservedOnWire() {
+        when(aiplatformClient.updateModelProvider(eq("volcengine"),
+                any(AiplatformModelProviderUpdateWireRequest.class)))
+                .thenReturn(modelProviderWire("****cd12"));
+
+        var receipt = modelProviderAppService.updateProvider("volcengine",
+                new AiplatformModelProviderUpdateCommand("https://ark.cn-beijing.volces.com/api/v4", null, null));
+
+        // 缺省肢保真：北向 null → wire null（apiKey/enabled＝保持现值——不臆造默认值，
+        // 判定全在 provider 侧）
+        ArgumentCaptor<AiplatformModelProviderUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformModelProviderUpdateWireRequest.class);
+        verify(aiplatformClient).updateModelProvider(eq("volcengine"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformModelProviderUpdateWireRequest(
+                "https://ark.cn-beijing.volces.com/api/v4", null, null));
+
+        // 更新回执映射（更新后现值——掩码照实）
+        assertThat(receipt.apiKeyMasked()).isEqualTo("****cd12");
+    }
+
+    @Test
+    void given_providerKey_when_deleteProvider_then_delegatedToClient() {
+        modelProviderAppService.deleteProvider("volcengine");
+
+        // 删除纯委托（无命令体无回执面——信封即回执）；引用拦截 PRJ_072 归 provider 裁决
+        verify(aiplatformClient).deleteModelProvider("volcengine");
+    }
+
+    @Test
+    void given_remoteCatalogWire_when_pullRemoteModels_then_comparisonStructureMapped() {
+        when(aiplatformClient.pullRemoteModels("volcengine")).thenReturn(
+                new AiplatformRemoteModelCatalogWireResponse(
+                        "volcengine", LocalDateTime.of(2026, 11, 3, 9, 0, 0),
+                        List.of(
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "deepseek-v4-flash-ga-260731", "DeepSeek V4 Flash",
+                                        null, "LLM", List.of("flash")),
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "doubao-seed-2-1-flash-250615", "Doubao Seed 2.1 Flash",
+                                        null, "LLM", List.of()),
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "doubao-seed-1-6-250615", "Doubao Seed 1.6",
+                                        "Shutdown", "LLM", List.of())),
+                        List.of(new AiplatformRemoteModelCatalogWireResponse.StaleTierWireResponse(
+                                "deepseek-v3", "deepseek-v3-0324", "DeepSeek V3（退场版）", false))));
+
+        var catalog = modelProviderAppService.pullRemoteModels("volcengine");
+
+        // 对照结构逐字镜像：trackedTierKeys 空/非空两态＋status 如实转述＋staleTiers 过时行
+        // （实际模型名不在远端清单——对照语义的定义判据）
+        assertThat(catalog.providerKey()).isEqualTo("volcengine");
+        assertThat(catalog.pulledAt()).isEqualTo(LocalDateTime.of(2026, 11, 3, 9, 0, 0));
+        assertThat(catalog.remoteModels()).hasSize(3);
+        assertThat(catalog.remoteModels().get(0).trackedTierKeys()).containsExactly("flash");
+        assertThat(catalog.remoteModels().get(1).trackedTierKeys()).isEmpty();
+        assertThat(catalog.remoteModels().get(1).modelId()).isEqualTo("doubao-seed-2-1-flash-250615");
+        assertThat(catalog.remoteModels().get(2).status()).isEqualTo("Shutdown");
+        assertThat(catalog.staleTiers()).hasSize(1);
+        assertThat(catalog.staleTiers().get(0).tierKey()).isEqualTo("deepseek-v3");
+        assertThat(catalog.staleTiers().get(0).enabled()).isFalse();
+    }
+
+    @Test
+    void given_traceWires_when_listTraces_then_maskedSnapshotsAndCreateDeleteNullShapesMapped() {
+        when(aiplatformClient.listModelProviderTraces("volcengine")).thenReturn(List.of(
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000003333333",
+                        "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true,
+                        "https://ark.cn-beijing.volces.com/api/v3", "****cd12", true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0)),
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000002222222",
+                        null, null, null,
+                        "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true,
+                        "700100", "运营·平台管理员", LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000004444444",
+                        "https://api.deepseek.com", null, true,
+                        null, null, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 9, 30, 0))));
+
+        var traces = modelProviderAppService.listTraces("volcengine");
+
+        // 留痕三形映射：换 key 痕（掩码两侧各一面）/创建痕（old 三件 null）/删除痕（new 三件 null）
+        assertThat(traces).hasSize(3);
+        assertThat(traces.get(0).oldApiKeyMasked()).isEqualTo("****ab12");
+        assertThat(traces.get(0).newApiKeyMasked()).isEqualTo("****cd12");
+        assertThat(traces.get(1).oldBaseUrl()).isNull();
+        assertThat(traces.get(1).oldEnabled()).isNull();
+        assertThat(traces.get(1).newApiKeyMasked()).isEqualTo("****ab12");
+        assertThat(traces.get(2).newBaseUrl()).isNull();
+        assertThat(traces.get(2).newApiKeyMasked()).isNull();
+        assertThat(traces.get(2).newEnabled()).isNull();
+        assertThat(traces.get(2).operatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 9, 30, 0));
+    }
+
+    @Test
+    void given_prj034FromDownstream_when_createProvider_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.createModelProvider(any(AiplatformModelProviderCreateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        assertThatThrownBy(() -> modelProviderAppService.createProvider(
+                new AiplatformModelProviderCreateCommand("moonshot", "https://api.moonshot.cn/v1", null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_034 → HTTP 400 + 数字业务码 4034（写操作必留痕——缺操作者透传头由
+                    // provider 域面守卫拦，admin 不拦）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4034);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
                 });
     }
 

@@ -130,6 +130,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       PRJ_001/055/056/057/058/059 数字码须在 api-docs 在场；北向 schema 的两态
  *       status、留痕行 action（1=创建 2=推进 3=信息更新）与命令体（更新五字段/依据/
  *       required 布尔）同步自描述。</li>
+ *   <li>模型供应商域七端点 @Operation 描述镜像（issue #110，spec #101 B 批 B1——镜像
+ *       aiplatform #367/#368 通道维护＋清单拉取）：清单/单行（<strong>apiKey 一律掩码</strong>
+ *       尾 4 位——provider 单点掩码、admin 忠实透传<strong>不二次处理不尝试解掩</strong>）、
+ *       创建（键名即协议路由前缀、apiKey 收全量值＝写面唯一明文入口、创建即留痕）、更新
+ *       （baseUrl 终态替换；apiKey/enabled <strong>缺省＝保持现值</strong>——缺省肢在 wire
+ *       请求体上保真不臆造默认值；换 key 携现值掩码形同判保持＝round-trip 安全）、删除
+ *       （被档位引用 409 PRJ_072）、远端清单拉取（对照结构 trackedTierKeys/staleTiers、
+ *       只读探测不动库、勾选入库复用档位创建写口、上游不可用 502 PRJ_077）、留痕（key
+ *       快照掩码、append-only 跨行存活）的 summary＋description 逐字镜像 provider——
+ *       <strong>换 key/换 baseUrl 不重启</strong>（下一轮命令构建即生效——模型实例缓存键
+ *       含通道指纹）与 PRJ_063/065/067/069/034/072/076/077 数字码须在 api-docs 在场；
+ *       北向 schema 的 apiKeyMasked 掩码口径、留痕行掩码快照两肢、更新命令体缺省肢语义、
+ *       创建命令体 enabled 缺省 true 装箱与对照结构（RemoteModelEntry/StaleTier 嵌套行）
+ *       同步自描述。</li>
  * </ul>
  *
  * <p>载具照 {@link AiplatformNorthboundSmokeIntegrationTest} 先例（RANDOM_PORT 真实 MVC
@@ -1422,6 +1436,157 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText(""))
                 .contains("true＝置位")
                 .contains("对话区沟通");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：模型供应商域七端点 @Operation 描述镜像 provider（#110，通道语义/掩码口径/缺省肢语义/换 key 不重启 + PRJ_065~077 数字码在场）")
+    void given_modelProviderEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：apiKey 一律掩码＋admin 忠实透传不二次处理＋换 key/换 baseUrl 不重启口径
+        JsonNode list = paths.path("/api/admin/aiplatform/model-providers").path("get");
+        assertThat(list.isMissingNode()).as("api-docs 应含模型供应商清单端点").isFalse();
+        assertThat(list.path("summary").asText(""))
+                .contains("通道清单读面").contains("apiKey 一律掩码");
+        assertThat(list.path("description").asText(""))
+                .contains("尾 4 位")
+                .contains("忠实透传不二次处理不尝试解掩")
+                .contains("零明文 key")
+                .contains("不发版不重启")
+                .contains("下一轮命令构建即生效")
+                .contains("通道指纹");
+
+        // 单行：掩码形同清单＋寻址键即协议路由前缀＋PRJ_065
+        JsonNode detail = paths.path("/api/admin/aiplatform/model-providers/{providerKey}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含模型供应商单行端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("通道单行读面").contains("掩码形");
+        assertThat(detail.path("description").asText(""))
+                .contains("掩码形同清单")
+                .contains("协议路由前缀")
+                .contains("不解析不预校验")
+                .contains("PRJ_065").contains("4065");
+
+        // 创建：apiKey 收全量值（写面唯一明文入口）＋创建即留痕＋键名即协议路由前缀
+        JsonNode create = paths.path("/api/admin/aiplatform/model-providers").path("post");
+        assertThat(create.isMissingNode()).as("api-docs 应含模型供应商创建端点").isFalse();
+        assertThat(create.path("summary").asText(""))
+                .contains("通道创建").contains("创建即留痕");
+        assertThat(create.path("description").asText(""))
+                .contains("apiKey 收").contains("全量值")
+                .contains("唯一明文入口")
+                .contains("暂不配置")
+                .contains("PRJ_063")
+                .contains("PRJ_067").contains("4067")
+                .contains("PRJ_069").contains("4069")
+                .contains("缺省 true")
+                .contains("PRJ_034").contains("4034");
+
+        // 更新：baseUrl 终态替换＋缺省肢＝保持现值（wire 保真不臆造默认值）＋换 key 不重启＋round-trip
+        JsonNode update = paths.path("/api/admin/aiplatform/model-providers/{providerKey}").path("put");
+        assertThat(update.isMissingNode()).as("api-docs 应含模型供应商更新端点").isFalse();
+        assertThat(update.path("summary").asText(""))
+                .contains("通道更新").contains("换 key").contains("停启用");
+        assertThat(update.path("description").asText(""))
+                .contains("baseUrl 终态替换")
+                .contains("缺省＝保持现值")
+                .contains("意外复启")
+                .contains("缺省肢在 wire 请求体上保真")
+                .contains("不臆造默认值")
+                .contains("round-trip 安全")
+                .contains("清除 key 无写面")
+                .contains("换 key/换 baseUrl 不重启")
+                .contains("进行中 run 不定格")
+                .contains("不作密钥找回面")
+                .contains("PRJ_065").contains("4065")
+                .contains("PRJ_069").contains("4069")
+                .contains("PRJ_034").contains("4034");
+
+        // 删除：被档位引用即拒（悬空引用不留静默坑）＋删成落痕跨行存活
+        JsonNode delete = paths.path("/api/admin/aiplatform/model-providers/{providerKey}").path("delete");
+        assertThat(delete.isMissingNode()).as("api-docs 应含模型供应商删除端点").isFalse();
+        assertThat(delete.path("summary").asText(""))
+                .contains("通道删除").contains("被档位引用即拒");
+        assertThat(delete.path("description").asText(""))
+                .contains("PRJ_072").contains("4072")
+                .contains("先删改挂其下的档位行")
+                .contains("留痕跨行存活")
+                .contains("PRJ_065").contains("4065")
+                .contains("PRJ_034").contains("4034");
+
+        // 远端清单拉取：对照结构（trackedTierKeys/staleTiers）＋只读探测不动库＋勾选入库复用档位创建写口
+        JsonNode pull = paths
+                .path("/api/admin/aiplatform/model-providers/{providerKey}/remote-models").path("post");
+        assertThat(pull.isMissingNode()).as("api-docs 应含远端模型清单拉取端点").isFalse();
+        assertThat(pull.path("summary").asText(""))
+                .contains("远端模型清单手动拉取").contains("对照库内档位");
+        assertThat(pull.path("description").asText(""))
+                .contains("GET {baseUrl}/models")
+                .contains("远端有库里无（建议入库）")
+                .contains("库内指向远端已无（提示过时）")
+                .contains("每次全量真拉无缓存")
+                .contains("自动定时同步明确不做")
+                .contains("只读探测不动库")
+                .contains("复用档位创建写口")
+                .contains("权限在彼处自然拦截")
+                .contains("Shutdown/Retiring")
+                .contains("上游不可用明确报错不静默")
+                .contains("PRJ_077").contains("4077")
+                .contains("PRJ_076").contains("4076")
+                .contains("停用通道可拉")
+                .contains("纯读动作零留痕");
+
+        // 留痕：key 快照掩码＋append-only 跨行存活＋创建痕/删除痕 null 形
+        JsonNode traces =
+                paths.path("/api/admin/aiplatform/model-providers/{providerKey}/traces").path("get");
+        assertThat(traces.isMissingNode()).as("api-docs 应含通道变更留痕端点").isFalse();
+        assertThat(traces.path("summary").asText(""))
+                .contains("通道变更留痕读面").contains("key 快照掩码");
+        assertThat(traces.path("description").asText(""))
+                .contains("时间倒序")
+                .contains("幂等重写不落痕")
+                .contains("掩码")
+                .contains("不作密钥找回面")
+                .contains("创建痕 old 全 null")
+                .contains("删除痕 new 全 null")
+                .contains("跨行存活")
+                .contains("行读面负责 404 判别")
+                .contains("PRJ_065").contains("4065");
+
+        // 读面 schema 自描述：掩码口径（provider 已掩码、admin 忠实透传不二次处理不尝试解掩）
+        assertThat(property("AiplatformModelProviderResponse", "apiKeyMasked")
+                .path("description").asText(""))
+                .contains("尾 4 位")
+                .contains("未配置")
+                .contains("不二次处理不尝试解掩");
+        // 留痕行 schema 自描述：掩码快照两肢（创建痕/删除痕对应侧 null）
+        assertThat(property("AiplatformModelProviderTraceResponse", "oldApiKeyMasked")
+                .path("description").asText(""))
+                .contains("尾 4 位")
+                .contains("此前未配置或创建痕");
+        // 命令体 schema 自描述：缺省肢语义（apiKey round-trip 安全/enabled 保持现值/创建缺省 true 装箱）
+        assertThat(property("AiplatformModelProviderUpdateCommand", "apiKey")
+                .path("description").asText(""))
+                .contains("全量新值＝换 key")
+                .contains("null/空白/等于现值掩码形＝保持现值")
+                .contains("round-trip")
+                .contains("清除 key 无写面");
+        assertThat(property("AiplatformModelProviderUpdateCommand", "enabled")
+                .path("description").asText(""))
+                .contains("缺省＝保持现值")
+                .contains("意外复启");
+        assertThat(property("AiplatformModelProviderCreateCommand", "enabled")
+                .path("description").asText(""))
+                .contains("缺省 true")
+                .contains("不静默换道");
+        // 对照结构 schema 自描述：trackedTierKeys（空＝建议入库）＋staleTiers（过时判据）
+        assertThat(property("RemoteModelEntry", "trackedTierKeys")
+                .path("description").asText(""))
+                .contains("空＝远端有库里无——建议入库")
+                .contains("复用档位创建写口");
+        assertThat(property("StaleTier", "modelName")
+                .path("description").asText(""))
+                .contains("不在远端清单——过时判据");
     }
 
     // ---------- 装载 ----------

@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -19,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -64,6 +67,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSig
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderDetailWireResponse;
@@ -136,7 +144,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * ——承接详情读口（production:read）＋信息更新/推进/置位三写码（两态实值/留痕时间线
  * 系统建档行北向形状；操作者透传断言＋PRJ_056 信封透传）+ #108 订单域 A5——范围录入
  * 独立写码（scope 三段现值回显＋双版本引用随回执在场；工作副本无留痕故无操作者断言）
- * ＋取消门收窄 ORD_047 信封透传＋既有写回执双版本/scope 字段北向断言））
+ * ＋取消门收窄 ORD_047 信封透传＋既有写回执双版本/scope 字段北向断言）+ #110 模型
+ * 供应商域 B1——通道 CRUD/远端清单拉取/留痕七端点（model-provider:read 四读端点共用
+ * 〔remote-models 只读探测不动库〕＋create/update/delete 三写码；apiKey 掩码照实透传＋
+ * 对照结构＋留痕三形北向形状；三写口操作者透传断言＋PRJ_072 引用拦截信封透传））
  * ——真实 Sa-Token 过滤链，断言 {@code admin:aiplatform:account:read} / {@code admin:aiplatform:order:read} /
  * {@code admin:aiplatform:project:read} / {@code admin:aiplatform:workspace:read} /
  * {@code admin:aiplatform:cost:read} / {@code admin:aiplatform:price-entry:read} /
@@ -153,7 +164,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * （{@code agent-config:update}——读面/留痕读面复用 read，高敏感独立授权面）+ 工具面两码
  * （{@code agent-tool:read|toggle}——清单读面与开关写面分权）+ 草稿审核面三码
  * （{@code skill-draft:read|promote|reject}——issue #92：两读端点复用 read、promote/reject
- * 各一码，读写不串、两写码互不串——晋升权与拒绝权独立授受）对未登录（401）/
+ * 各一码，读写不串、两写码互不串——晋升权与拒绝权独立授受）+ 模型供应商域四码
+ * （{@code model-provider:read|create|update|delete}——#110 B1：清单/单行/远端清单拉取/
+ * 留痕四读端点复用 read〔remote-models 只读探测不动库、traces 留痕读面〕、三写口各一码，
+ * 读写不串、三写码互不串）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -386,6 +400,21 @@ class AiplatformRbacEnforcementIntegrationTest {
                     + "\"basis\":\"首次排期录入\"}";
     private static final String PRODUCTION_ADVANCE_BODY = "{\"basis\":\"排期落定，今日开工\"}";
     private static final String PRODUCTION_SUPPLEMENT_BODY = "{\"required\":true}";
+    // 模型供应商域（#110 B1——spec #101 B 批，通道 CRUD＋远端清单拉取＋留痕；remote-models/
+    // traces 复用 read——只读探测不动库/留痕读面）
+    private static final String MODEL_PROVIDER_READ_PERMISSION = "admin:aiplatform:model-provider:read";
+    private static final String MODEL_PROVIDER_CREATE_PERMISSION = "admin:aiplatform:model-provider:create";
+    private static final String MODEL_PROVIDER_UPDATE_PERMISSION = "admin:aiplatform:model-provider:update";
+    private static final String MODEL_PROVIDER_DELETE_PERMISSION = "admin:aiplatform:model-provider:delete";
+    /** 通道键（V44 种子主用通道——字符串路径参数透传不预校验，未知键 provider 判 404 PRJ_065）。 */
+    private static final String PROVIDER_KEY = "volcengine";
+    private static final String MODEL_PROVIDERS_ENDPOINT = "/api/admin/aiplatform/model-providers";
+    private static final String MODEL_PROVIDER_DETAIL_ENDPOINT = MODEL_PROVIDERS_ENDPOINT + "/" + PROVIDER_KEY;
+    private static final String MODEL_PROVIDER_CREATE_BODY =
+            "{\"providerKey\":\"moonshot\",\"baseUrl\":\"https://api.moonshot.cn/v1\","
+                    + "\"apiKey\":\"sk-real-secret-key-9f2c\",\"enabled\":null}";
+    private static final String MODEL_PROVIDER_UPDATE_BODY =
+            "{\"baseUrl\":\"https://ark.cn-beijing.volces.com/api/v4\",\"apiKey\":null,\"enabled\":null}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -422,6 +451,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithVerifyOnly;
     private String usernameWithProductionWrite;
     private String usernameWithProductionAdvanceOnly;
+    private String usernameWithModelProviderWrite;
+    private String usernameWithProviderDeleteOnly;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -455,6 +486,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String paymentWriteUserNickname;
     private Long productionWriteUserId;
     private String productionWriteUserNickname;
+    private Long modelProviderWriteUserId;
+    private String modelProviderWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -502,6 +535,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithVerifyOnly = "aiplavfyo" + suffix;
         usernameWithProductionWrite = "aiplapdwr" + suffix;
         usernameWithProductionAdvanceOnly = "aiplapadv" + suffix;
+        usernameWithModelProviderWrite = "aiplampwr" + suffix;
+        usernameWithProviderDeleteOnly = "aiplapdel" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -512,7 +547,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                         PRICE_ENTRY_READ_PERMISSION, MATERIAL_READ_PERMISSION, SKILL_READ_PERMISSION,
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
-                        PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION)));
+                        PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
+                        MODEL_PROVIDER_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -816,6 +852,34 @@ class AiplatformRbacEnforcementIntegrationTest {
         userAppService.assignRoles(productionAdvanceOnlyUserId,
                 new AssignRolesCommand(List.of(productionAdvanceOnlyRoleId)));
 
+        // 模型供应商三写码专用运营（create+update+delete，无读码——读写分权，#110 B1）
+        // ——操作者透传断言用其 id/昵称（provider 写操作必留痕、缺头 PRJ_034 拒无名）
+        Long modelProviderWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台模型供应商写操作_" + suffix, "AIPLAMPWR_" + suffix,
+                        "AI 平台模型供应商创建 + 维护 + 删除权限", 115, null));
+        roleAppService.assignPermissions(modelProviderWriteRoleId, new AssignPermissionsCommand(List.of(
+                MODEL_PROVIDER_CREATE_PERMISSION, MODEL_PROVIDER_UPDATE_PERMISSION,
+                MODEL_PROVIDER_DELETE_PERMISSION)));
+        modelProviderWriteUserNickname = "模型通道运营_" + suffix;
+        modelProviderWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithModelProviderWrite, PASSWORD,
+                        modelProviderWriteUserNickname, null, null, null));
+        userAppService.assignRoles(modelProviderWriteUserId,
+                new AssignRolesCommand(List.of(modelProviderWriteRoleId)));
+
+        // 仅 delete 单写码——钉死三写码彼此独立（spec #101 每写操作一码最小授权：可逆维护
+        // 与不可逆删除分权）
+        Long providerDeleteOnlyRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台模型供应商仅删除_" + suffix, "AIPLAPDEL_" + suffix,
+                        "AI 平台模型供应商仅删除权限", 116, null));
+        roleAppService.assignPermissions(providerDeleteOnlyRoleId,
+                new AssignPermissionsCommand(List.of(MODEL_PROVIDER_DELETE_PERMISSION)));
+        Long providerDeleteOnlyUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithProviderDeleteOnly, PASSWORD,
+                        "通道下线专员_" + suffix, null, null, null));
+        userAppService.assignRoles(providerDeleteOnlyUserId,
+                new AssignRolesCommand(List.of(providerDeleteOnlyRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -1032,6 +1096,40 @@ class AiplatformRbacEnforcementIntegrationTest {
             return null;
         }).when(aiplatformClient).setProductionNeedsUserSupplement(eq(PROJECT_ID),
                 any(AiplatformProductionSupplementWireRequest.class));
+        // 模型供应商域 mock（#110 B1）：清单/单行读口（掩码形照实——未配置 null/已配置尾 4 位
+        // 两面）+ 创建/更新写口回执（掩码＋最近写者）+ 抓取 RequestContext（写操作必留痕——
+        // provider PRJ_034 拒无名）；删除口 void；远端清单拉取（对照结构）+ 留痕读面（换 key/
+        // 创建/删除三痕三形）
+        when(aiplatformClient.listModelProviders()).thenReturn(List.of(
+                modelProviderWire("deepseek", "https://api.deepseek.com", null, null, null),
+                modelProviderWire(PROVIDER_KEY, "https://ark.cn-beijing.volces.com/api/v3",
+                        "****cd12", "700210", "运营·智能体管理员")));
+        when(aiplatformClient.getModelProvider(eq(PROVIDER_KEY))).thenReturn(
+                modelProviderWire(PROVIDER_KEY, "https://ark.cn-beijing.volces.com/api/v3",
+                        "****cd12", "700210", "运营·智能体管理员"));
+        doAnswer(inv -> {
+            capture.run();
+            return modelProviderWire("moonshot", "https://api.moonshot.cn/v1",
+                    "****9f2c", "700210", "运营·智能体管理员");
+        }).when(aiplatformClient).createModelProvider(any(AiplatformModelProviderCreateWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return modelProviderWire(PROVIDER_KEY, "https://ark.cn-beijing.volces.com/api/v4",
+                    "****77e1", "700210", "运营·智能体管理员");
+        }).when(aiplatformClient).updateModelProvider(eq(PROVIDER_KEY),
+                any(AiplatformModelProviderUpdateWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return null;
+        }).when(aiplatformClient).deleteModelProvider(eq(PROVIDER_KEY));
+        when(aiplatformClient.pullRemoteModels(eq(PROVIDER_KEY))).thenReturn(remoteCatalogWire());
+        when(aiplatformClient.listModelProviderTraces(eq(PROVIDER_KEY))).thenReturn(List.of(
+                modelProviderTraceWire("3900000003333333", "https://ark.cn-beijing.volces.com/api/v3",
+                        "****ab12", true, "https://ark.cn-beijing.volces.com/api/v3", "****cd12", true),
+                modelProviderTraceWire("3900000002222222", null, null, null,
+                        "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true),
+                modelProviderTraceWire("3900000004444444", "https://api.deepseek.com", null, true,
+                        null, null, null)));
         doAnswer(inv -> {
             capture.run();
             return workspaceActionReceiptWire(1, "运行", 1, "运行中", null, null);
@@ -1575,6 +1673,60 @@ class AiplatformRbacEnforcementIntegrationTest {
                 "3829410000000001", PROJECT_ID, ORDER_ID,
                 2, "生产中", null, null, null, null,
                 LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of());
+    }
+
+    /**
+     * 模型供应商通道行的 wire 载荷工厂（#110 B1）：读面/创建/更新回执共形——按参数化
+     * 出掩码两面（apiKeyMasked null＝未配置〔V44 种子 deepseek 备胎形〕/尾 4 位〔已配置〕）
+     * ＋最近写者两肢（null＝种子写入）；enabled 恒 true（原生 boolean 在场）。
+     */
+    private static AiplatformModelProviderWireResponse modelProviderWire(
+            String providerKey, String baseUrl, String apiKeyMasked,
+            String operatorId, String operatorName) {
+        return new AiplatformModelProviderWireResponse(
+                providerKey, baseUrl, apiKeyMasked, true,
+                operatorId, operatorName, LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    /**
+     * 模型供应商留痕行的 wire 载荷工厂（#110 B1）：按 old/new 三件对参数化——换 key 痕
+     * （两侧掩码各一面）/创建痕（old 三件 null）/删除痕（new 三件 null）三形。
+     */
+    private static AiplatformModelProviderTraceWireResponse modelProviderTraceWire(
+            String id, String oldBaseUrl, String oldApiKeyMasked, Boolean oldEnabled,
+            String newBaseUrl, String newApiKeyMasked, Boolean newEnabled) {
+        return new AiplatformModelProviderTraceWireResponse(
+                id, oldBaseUrl, oldApiKeyMasked, oldEnabled, newBaseUrl, newApiKeyMasked, newEnabled,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    /**
+     * 远端模型清单拉取的 wire 载荷工厂（#110 B1）：对照结构代表面——已入库三条
+     * （trackedTierKeys 非空，V44 真实配对 flash/pro/doubao-flagship）＋建议入库一条（空）
+     * ＋下架一条（status=Shutdown 如实转述、未入库）＋过时档位一行（staleTiers——实际
+     * 模型名不在远端清单，对照语义的定义判据）。
+     */
+    private static AiplatformRemoteModelCatalogWireResponse remoteCatalogWire() {
+        return new AiplatformRemoteModelCatalogWireResponse(
+                PROVIDER_KEY, LocalDateTime.of(2026, 11, 3, 9, 0, 0),
+                List.of(
+                        new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                "deepseek-v4-flash-ga-260731", "DeepSeek V4 Flash",
+                                null, "LLM", List.of("flash")),
+                        new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                "deepseek-v4-pro-ga-260813", "DeepSeek V4 Pro",
+                                null, "LLM", List.of("pro")),
+                        new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                "doubao-seed-2-1-flash-250615", "Doubao Seed 2.1 Flash",
+                                null, "LLM", List.of()),
+                        new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                "doubao-seed-2-1-pro-260915", "Doubao Seed 2.1 Pro",
+                                null, "LLM", List.of("doubao-flagship")),
+                        new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                "doubao-seed-1-6-250615", "Doubao Seed 1.6",
+                                "Shutdown", "LLM", List.of())),
+                List.of(new AiplatformRemoteModelCatalogWireResponse.StaleTierWireResponse(
+                        "deepseek-v3", "deepseek-v3-0324", "DeepSeek V3（退场版）", false)));
     }
 
     /**
@@ -4577,6 +4729,206 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("code").asInt()).isEqualTo(4056);
         assertThat(root.path("message").asText()).isEqualTo("生产承接当前状态不允许该操作");
         assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 模型供应商域（#110 B1，四码：read 四读端点共用＋三写码）· 三态逐码 + 北向出口形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 模型供应商七端点 403（model-provider:read 四读端点共用＋三写口各一码——无码不串）")
+    void given_nonSuperAdminWithoutPermission_when_modelProviderEndpoints_then_403() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(MODEL_PROVIDERS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(MODEL_PROVIDERS_ENDPOINT, MODEL_PROVIDER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, MODEL_PROVIDER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/remote-models", token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/traces", token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("未登录访问模型供应商七端点返回 401")
+    void given_unauthenticated_when_modelProviderEndpoints_then_401() {
+        assertThat(getWithToken(MODEL_PROVIDERS_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(MODEL_PROVIDERS_ENDPOINT, MODEL_PROVIDER_CREATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, MODEL_PROVIDER_UPDATE_BODY, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(deleteWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/remote-models", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/traces", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("仅有 model-provider:read（无写码）→ 三写端点 403（read ≠ 三写码，读写不串——remote-models 只读探测复用 read 不越权写）")
+    void given_nonSuperAdminWithModelProviderReadOnly_when_writeEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(MODEL_PROVIDERS_ENDPOINT, MODEL_PROVIDER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, MODEL_PROVIDER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(deleteWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("仅 model-provider:delete 单码 → 创建/维护 403（三写码彼此独立——最小授权逐动作授受）")
+    void given_nonSuperAdminWithDeleteOnly_when_otherTwoWriteEndpoints_then_403() {
+        String token = login(usernameWithProviderDeleteOnly);
+        assertThat(postWithToken(MODEL_PROVIDERS_ENDPOINT, MODEL_PROVIDER_CREATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, MODEL_PROVIDER_UPDATE_BODY, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 model-provider:read → 清单/单行/远端清单/留痕 200（apiKey 掩码照实透传＋对照结构＋留痕三形）")
+    void given_nonSuperAdminWithModelProviderRead_when_fourReadEndpoints_then_200AndMaskedMirrored()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+
+        // 清单：两通道行（V44 种子键序——deepseek 备胎在前）；掩码两面如实透传：null＝未配置、
+        // 尾 4 位＝已配置（provider 单点掩码，admin 不二次处理不尝试解掩）
+        ResponseEntity<String> listed = getWithToken(MODEL_PROVIDERS_ENDPOINT, token);
+        assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode providers = objectMapper.readTree(listed.getBody()).path("data");
+        assertThat(providers).hasSize(2);
+        assertThat(providers.get(0).path("providerKey").asText()).isEqualTo("deepseek");
+        assertThat(providers.get(0).path("apiKeyMasked").isNull()).isTrue();
+        assertThat(providers.get(1).path("providerKey").asText()).isEqualTo(PROVIDER_KEY);
+        assertThat(providers.get(1).path("apiKeyMasked").asText()).isEqualTo("****cd12");
+        assertThat(providers.get(1).path("enabled").asBoolean()).isTrue();
+
+        // 单行：七件全绑定（掩码＋最近写者）
+        ResponseEntity<String> detail = getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token);
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode provider = objectMapper.readTree(detail.getBody()).path("data");
+        assertThat(provider.path("baseUrl").asText()).isEqualTo("https://ark.cn-beijing.volces.com/api/v3");
+        assertThat(provider.path("apiKeyMasked").asText()).isEqualTo("****cd12");
+        assertThat(provider.path("operatorId").asText()).isEqualTo("700210");
+        assertThat(provider.path("updatedAt").asText()).isEqualTo("2026-11-02T15:20:00");
+
+        // 远端清单：对照结构（trackedTierKeys 空＝建议入库、非空＝已入库〔V44 真实配对〕；
+        // status=Shutdown 如实转述；staleTiers 过时一行——实际模型名不在远端清单）——只读探测不动库
+        ResponseEntity<String> pulled =
+                postWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/remote-models", token);
+        assertThat(pulled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode catalog = objectMapper.readTree(pulled.getBody()).path("data");
+        assertThat(catalog.path("providerKey").asText()).isEqualTo(PROVIDER_KEY);
+        assertThat(catalog.path("remoteModels")).hasSize(5);
+        assertThat(catalog.path("remoteModels").get(0).path("trackedTierKeys").get(0).asText())
+                .isEqualTo("flash");
+        assertThat(catalog.path("remoteModels").get(1).path("trackedTierKeys").get(0).asText())
+                .isEqualTo("pro");
+        assertThat(catalog.path("remoteModels").get(2).path("trackedTierKeys").isEmpty()).isTrue();
+        assertThat(catalog.path("remoteModels").get(3).path("trackedTierKeys").get(0).asText())
+                .isEqualTo("doubao-flagship");
+        assertThat(catalog.path("remoteModels").get(4).path("status").asText()).isEqualTo("Shutdown");
+        assertThat(catalog.path("staleTiers").get(0).path("tierKey").asText()).isEqualTo("deepseek-v3");
+        assertThat(catalog.path("staleTiers").get(0).path("enabled").asBoolean()).isFalse();
+
+        // 留痕：三痕三形（换 key 痕掩码两侧各一面/创建痕 old 全 null/删除痕 new 全 null）——
+        // append-only 跨行存活
+        ResponseEntity<String> traces =
+                getWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT + "/traces", token);
+        assertThat(traces.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode traceList = objectMapper.readTree(traces.getBody()).path("data");
+        assertThat(traceList).hasSize(3);
+        assertThat(traceList.get(0).path("oldApiKeyMasked").asText()).isEqualTo("****ab12");
+        assertThat(traceList.get(0).path("newApiKeyMasked").asText()).isEqualTo("****cd12");
+        assertThat(traceList.get(1).path("oldApiKeyMasked").isNull()).isTrue();
+        assertThat(traceList.get(1).path("oldEnabled").isNull()).isTrue();
+        assertThat(traceList.get(2).path("newBaseUrl").isNull()).isTrue();
+        assertThat(traceList.get(2).path("newEnabled").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 创建/维护/删除 200（回执掩码＋删除 data null）且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithModelProviderWriteCodes_when_threeActions_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithModelProviderWrite);
+
+        // 创建：回执 apiKey 已掩码（尾 4 位忠实透传——admin 全链零明文 key 回显）
+        ResponseEntity<String> created =
+                postWithToken(MODEL_PROVIDERS_ENDPOINT, MODEL_PROVIDER_CREATE_BODY, token);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode createReceipt = objectMapper.readTree(created.getBody()).path("data");
+        assertThat(createReceipt.path("providerKey").asText()).isEqualTo("moonshot");
+        assertThat(createReceipt.path("apiKeyMasked").asText()).isEqualTo("****9f2c");
+
+        // 维护：回执＝更新后现值（baseUrl 终态替换＋缺省肢保真——apiKey/enabled null＝保持现值，
+        // 换 key 后回执出新 key 掩码）
+        ResponseEntity<String> updated =
+                putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, MODEL_PROVIDER_UPDATE_BODY, token);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode updateReceipt = objectMapper.readTree(updated.getBody()).path("data");
+        assertThat(updateReceipt.path("baseUrl").asText()).isEqualTo("https://ark.cn-beijing.volces.com/api/v4");
+        assertThat(updateReceipt.path("apiKeyMasked").asText()).isEqualTo("****77e1");
+
+        // 删除：data null（ApiResponse<Void>——信封即回执，无回读面）
+        ResponseEntity<String> deleted = deleteWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(deleted.getBody()).path("data").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（provider 写操作必留痕、缺头
+        // PRJ_034 拒——前端无法伪造留痕）
+        assertThat(capturedOperatorId.get()).isEqualTo(modelProviderWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(modelProviderWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("删除下游 PRJ_072（仍被档位引用）→ 北向 HTTP 409 + 信封 code=4072 + message 原文（不映射）")
+    void given_prj072FromDownstream_when_deleteProvider_then_errorEnvelopePassedThrough() throws Exception {
+        doThrow(AiplatformUpstreamException.from(
+                new OpenApiClientException(409,
+                        "{\"code\":4072,\"message\":\"该通道仍被模型档位引用，先删改这些档位行再删通道\","
+                                + "\"data\":null}")))
+                .when(aiplatformClient).deleteModelProvider(eq(PROVIDER_KEY));
+
+        String token = login(usernameWithModelProviderWrite);
+        ResponseEntity<String> response = deleteWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 4072（PRJ_072＝域码 4×1000＋72）——悬空引用拦截归 provider，
+        // BFF 不前置查询不代判
+        assertThat(root.path("code").asInt()).isEqualTo(4072);
+        assertThat(root.path("message").asText())
+                .isEqualTo("该通道仍被模型档位引用，先删改这些档位行再删通道");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("更新请求体缺字段（不携 apiKey/enabled）→ 绑定层落 null 与显式 null 同态＝保持现值出站")
+    void given_updateBodyWithMissingLimbs_when_updateProvider_then_boundAsNullSameAsExplicit()
+            throws Exception {
+        String token = login(usernameWithModelProviderWrite);
+
+        // 缺字段态：请求体只携 baseUrl（apiKey/enabled 整体缺省——非显式 null）。北向 Jackson
+        // 绑定缺字段＝null，与显式 null 同态：wire 请求体 null 在场＝保持现值（provider 侧
+        // 判定，BFF 不臆造默认值）；显式 null 态由三写码用例的 MODEL_PROVIDER_UPDATE_BODY 覆盖
+        ResponseEntity<String> response = putWithToken(MODEL_PROVIDER_DETAIL_ENDPOINT,
+                "{\"baseUrl\":\"https://ark.cn-beijing.volces.com/api/v5\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 绑定等价证据：出站 wire 请求体 apiKey/enabled 双 null（缺字段 ≡ 显式 null）
+        var captor = ArgumentCaptor.forClass(AiplatformModelProviderUpdateWireRequest.class);
+        verify(aiplatformClient).updateModelProvider(eq(PROVIDER_KEY), captor.capture());
+        assertThat(captor.getValue().baseUrl()).isEqualTo("https://ark.cn-beijing.volces.com/api/v5");
+        assertThat(captor.getValue().apiKey()).isNull();
+        assertThat(captor.getValue().enabled()).isNull();
     }
 
     // ========== 错误信封透传（忠实透传，不做映射） ==========

@@ -6,6 +6,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformAgentToolAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformModelProviderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
@@ -41,7 +42,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformAgentConfigClientContractTest} / {@code AiplatformAgentToolClientContractTest} /
  * {@code AiplatformContractClientContractTest}（#104 合同域）/
  * {@code AiplatformPaymentClientContractTest}（#106 付款核验域）/
- * {@code AiplatformProductionClientContractTest}（#107 生产承接域）复用；
+ * {@code AiplatformProductionClientContractTest}（#107 生产承接域）/
+ * {@code AiplatformModelProviderClientContractTest}（#110 模型供应商域——spec #101 B 批）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -1185,6 +1187,103 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformProductionAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 模型供应商域版（issue #110 B1，spec #101 B 批）——四动词全形制：清单/单行/留痕读面走
+     * {@code get}、创建走 {@code post}（带命令体）、远端清单拉取走 {@code post}
+     * （<strong>无请求体</strong>——null body 原样记 null，钉死只读探测动作无请求体契约，
+     * 同重试归档先例）、更新走 {@code put}（带命令体——{@code OpenApiClient.put} 与
+     * {@code post} 同走 sendWithBody 序列化路径）、删除走 {@code delete}（无 body——
+     * DELETE 动词唯一出口），均按真实 {@code TypeReference} 反序列化；post/put 把命令体
+     * 序列化进 wireBodySink（出站 JSON 形状断言——字段全 String/Boolean，无 Long/
+     * BigDecimal 特殊口径，boot 默认 mapper 即生产口径；缺省肢 null 出站在场＝保持现值
+     * 语义的全局 Jackson 含 null 证据）。
+     */
+    static AiplatformModelProviderAppService modelProviderAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T delete(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                wireBodySink[0] = null;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformModelProviderAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 模型供应商域版 {@link #accountAppServiceWithErrorTransport}——{@code get}/{@code post}/
+     * {@code put}/{@code delete} 都始终抛 {@link OpenApiClientException}（框架对 ≥400 的
+     * 行为复刻：404 PRJ_065、409 PRJ_067/072、400 PRJ_069/034/076、502 PRJ_077 与读口
+     * 错误信封同形）。
+     */
+    static AiplatformModelProviderAppService modelProviderAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T put(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T delete(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformModelProviderAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     private static ObjectMapper bootDefaultMapper() {
