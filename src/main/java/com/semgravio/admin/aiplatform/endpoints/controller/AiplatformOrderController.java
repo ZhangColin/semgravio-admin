@@ -6,6 +6,7 @@ import java.util.List;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformDesignPackageResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderDetailResponse;
@@ -32,9 +33,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * AI 平台订单控制器——BFF 读路径（清单/详情/源码包，issue #64）＋写路径三操作
- * （报价/改价、运营取消、重试归档，issue #70）＋设计面增量（交付物类型字段对＋设计资产包
- * 取件端点，issue #96 镜像 provider #297/#298，#95 设计能力线 T1）。
+ * AI 平台订单控制器——BFF 读路径（清单/详情/源码包，issue #64）＋写路径四操作
+ * （报价/改价、范围录入、运营取消、重试归档——前三者 issue #70、scope issue #108）＋
+ * 设计面增量（交付物类型字段对＋设计资产包取件端点，issue #96 镜像 provider #297/#298，
+ * #95 设计能力线 T1）＋V37 双版本引用/范围文本三段字段镜像与四态语义重对位
+ * （issue #108，spec #102 A 批 A5——provider #335/#336/#338）。
  *
  * <p>北向 {@code /api/admin/aiplatform/orders/**} 逐字镜像 aiplatform
  * {@code /api/backoffice/orders/**}（#155/#156/#29/#157/#158 已冻结）——查询参数名、缺省值、
@@ -42,15 +45,24 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code AiplatformUpstreamErrorAdvice} 原样透传（如 404 ORD_001→5001、400 ORD_010→5010、
  * 409 PRJ_013→4013 跨域码）。</p>
  *
+ * <p>订单状态四态语义重对位（provider #335/#338，#108 文档化——Integer code＋statusName
+ * 直通结构零改码、不建 typed enum）：1=待报价（确认 Demo 下单起，双版本随单冻结）、
+ * 2=已报价（后台落定报价后，改价仅限本态）、<strong>3=已支付＝开工条件满足</strong>
+ * （合同签署完成＋开工门节点全部到账双门禁判定落定，归 provider KickoffAppService）、
+ * <strong>4=已归档＝后台人工终局</strong>（交付完成、尾款核验后不再自动——归档触发只剩
+ * retry-archive 后台口）、5=已取消（取消门收窄：合同签署完成后关门 ORD_047）。</p>
+ *
  * <p>分页（spec #62 平台分页统一决议目标态；#73 起全平台收口同语义，见 ADR-0012）：
  * 北向请求 page 1-based、回显 provider 1-based 原值，全链零换算；provider clamp
  * （page≥1、size∈[1,100]）行为透传，BFF 不重复夹取。</p>
  *
- * <p>权限码（spec #62）：读 {@code order:read} 一码（#64）；三写操作各自独立成码
- * （{@code order:quote|cancel|retry-archive}，issue #70）——最小授权（如只给定价员配报价
- * 而不给取消/归档）。操作者身份由框架 OpenApiClient 自动透传 {@code X-User-Id/X-User-Name}
- * 出站头（identity 同款），provider 落痕价目行（报价）/订单行（取消/归档）——认知口径：
- * 操作者＝admin 侧管理员，非 aiplatform 平台用户；北向无操作者字段，前端无法伪造留痕。</p>
+ * <p>权限码（spec #62）：读 {@code order:read} 一码（#64）；四写操作各自独立成码
+ * （{@code order:quote|scope|cancel|retry-archive}——scope #108）——最小授权（如只给
+ * 定价员配报价、给商务配范围录入，而不给取消/归档）。操作者身份由框架 OpenApiClient
+ * 自动透传 {@code X-User-Id/X-User-Name} 出站头（identity 同款），provider 落痕价目行
+ * （报价）/订单行（取消/归档）；scope 工作副本现值语义无 append-only 留痕——操作者不落痕。
+ * 认知口径：操作者＝admin 侧管理员，非 aiplatform 平台用户；北向无操作者字段，
+ * 前端无法伪造留痕。</p>
  *
  * @since 0.1.0
  */
@@ -78,7 +90,11 @@ public class AiplatformOrderController {
     @Operation(summary = "订单清单（四维检索，分页 1-based）——透传 aiplatform",
             description = "运营工作清单：新单在前（TSID 倒序，provider 定死）。四维可组合、均可缺省"
                     + "（缺省＝全量）：① status 状态多选，Integer code 逗号分隔单值（如 status=1,5；"
-                    + "1=待报价 2=已报价 3=已支付 4=已归档 5=已取消）；② createdFrom/createdTo 创建时间区间"
+                    + "1=待报价 2=已报价 3=已支付 4=已归档 5=已取消——四态语义重对位〔#108，provider "
+                    + "#335/#338〕：<strong>3=已支付即开工条件满足</strong>〔合同签署完成＋开工门节点"
+                    + "全部到账双门禁判定落定〕、<strong>4=已归档即后台人工终局</strong>〔交付完成、"
+                    + "尾款核验后不再自动——归档触发只剩 retry-archive 后台口〕，词表与操作位照此对位）；"
+                    + "② createdFrom/createdTo 创建时间区间"
                     + "（ISO-8601，含两端，如 2026-09-01T00:00:00）；③ externalId 下单账号（provider 换算，"
                     + "换算不到＝空清单 200）；④ orderId 订单号精确（TSID 十进制，查无/非数值→空清单 200）。"
                     + "page 1 基（缺省 1）、size 缺省 20（provider 上界 100），clamp 由 provider 执行、"
@@ -111,9 +127,15 @@ public class AiplatformOrderController {
             scope = AdminScopes.ADMIN
     )
     @Operation(summary = "订单详情（含 append-only 价目历史）——透传 aiplatform",
-            description = "报价依据全量：状态、交付物类型（deliverableType/deliverableTypeName，"
+            description = "报价依据全量：状态（1=待报价 2=已报价 3=已支付 4=已归档 5=已取消——四态语义"
+                    + "重对位〔#108〕：<strong>3=已支付即开工条件满足</strong>〔合同签署完成＋开工门"
+                    + "节点全部到账双门禁判定落定，paidAt 即落定刻〕、<strong>4=已归档即后台人工终局"
+                    + "</strong>〔交付完成、尾款核验后不再自动——归档触发只剩 retry-archive 后台口〕）、"
+                    + "交付物类型（deliverableType/deliverableTypeName，"
                     + "#96：1=设计 2=系统 3=系统＋设计——下单冻结自项目终点类型，设计单 PRD 快照"
-                    + "即含设计物清单章）、金额+最新备注、价目历史（append-only 全量，新→旧，"
+                    + "即含设计物清单章）、金额+最新备注、范围文本三段（scopeDeliverables/"
+                    + "scopeAcceptance/scopeTimeline——#108：scope 工作副本现值，范围录入端点的"
+                    + "读面、合同冻结集底稿，未录入 null）、价目历史（append-only 全量，新→旧，"
                     + "每条带操作者——存量行操作者为空）、PRD 快照正文（下单冻结）、项目名、下单用户昵称、"
                     + "状态时点组（含取消/归档操作者留痕两肢）。金额 Long（分）。订单不存在 404 ORD_001"
                     + "（数字业务码 5001）。")
@@ -176,19 +198,49 @@ public class AiplatformOrderController {
             scope = AdminScopes.ADMIN
     )
     @Operation(summary = "提交报价（已报价态重复提交＝改价）——透传 aiplatform",
-            description = "交易定价写口：待报价态首次提交＝报价（→已报价）；已报价态重复提交＝改价"
+            description = "交易定价写口（<strong>人工落定</strong>报价/改价——报价确认是后台运营的"
+                    + "人工决定，非系统推导）：待报价态首次提交＝报价（→已报价）；已报价态重复提交＝改价"
                     + "（状态不变，append-only 价目行留痕、订单现值取最新行，改价历史用户面可见）"
                     + "——<strong>语义由 provider 承担、BFF 不解释</strong>（同一端点同一命令体，前端"
                     + "无需区分模式）。命令体逐字镜像 {amount, note}：amount 总价（分，正整数，"
                     + "JSON string——Long 出口口径）；note 报价备注（可空，至多 1000 字，用户面展示）。"
                     + "回执＝OrderResponse（provider 用户面同构：金额/备注取最新价目行＋改价历史"
-                    + "新→旧，价目行五字段无操作者——查全量留痕转后台详情读口）。X-User-Id/"
+                    + "新→旧，价目行五字段无操作者——查全量留痕转后台详情读口；双版本引用 prdVersionNo/"
+                    + "demoVersionNo 与 scope 三段随单在场〔#108〕）。X-User-Id/"
                     + "X-User-Name 透传头自动落痕价目行（缺头落空）。订单不存在（含畸形 id）"
                     + " 404 ORD_001（数字业务码 5001）；限未支付态：已支付/已终结 409 ORD_007（5007）；"
                     + "金额非正 400 ORD_008（5008）；备注超长 400 ORD_009（5009）。")
     public ApiResponse<AiplatformOrderResponse> quote(
             @PathVariable String id, @RequestBody AiplatformOrderQuoteCommand command) {
         return ApiResponse.ok(orderAppService.quote(id, command));
+    }
+
+    // 不挂 @ErrorCodes 同上：ORD_029/030/033 等码以 description 文档化（忠实透传、零加戏）
+    @PostMapping("/{id}/scope")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:order:scope",
+            name = "AI 平台 / 订单范围录入",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "录入范围文本（三段整组替换）——透传 aiplatform",
+            description = "范围文本工作副本录入（交付清单/验收方式/工期口径，后台结构化录入、"
+                    + "<strong>每次整组替换</strong>——不收半组，每次全量提交）——用户「确认范围并"
+                    + "准备合同」确认面的数据源、<strong>合同冻结集的工作底稿</strong>（合同创建时"
+                    + "取本副本定格为范围快照）。确认后本副本仍可改：变动触发草稿合同「需更新」"
+                    + "派生标志，后台重录重新冻结（快照不漂移——工作副本永远领先快照）。现值回读＝"
+                    + "订单详情 scope 三段（未录入 null）。工作副本现值语义、provider 无 append-only"
+                    + "留痕——操作者不落痕（区别于报价/取消/归档三写操作）。命令体逐字镜像"
+                    + " {scopeDeliverables, scopeAcceptance, scopeTimeline}。回执＝OrderResponse"
+                    + "（scope 三段＝刚录入的工作副本现值，双版本引用 prdVersionNo/demoVersionNo"
+                    + " 随单冻结照携）。订单不存在（含畸形 id）404 ORD_001（数字业务码 5001）；"
+                    + "三段缺失 400 ORD_029（5029）；超长（每段至多 2000 字）400 ORD_030（5030）；"
+                    + "限未支付态：已支付/已终结 409 ORD_033（5033——已支付蕴含合同签署完成、"
+                    + "约定已定，不再受理）。独立写码 order:scope（读写分权、与其余三写码互不串"
+                    + "——合同底稿录入与定价/处置/归档分权授受）。")
+    public ApiResponse<AiplatformOrderResponse> scope(
+            @PathVariable String id, @RequestBody AiplatformOrderScopeCommand command) {
+        return ApiResponse.ok(orderAppService.enterScope(id, command));
     }
 
     @PostMapping("/{id}/cancel")
@@ -198,14 +250,19 @@ public class AiplatformOrderController {
             name = "AI 平台 / 订单取消",
             scope = AdminScopes.ADMIN
     )
-    @Operation(summary = "运营取消订单（限未支付态）——透传 aiplatform",
+    @Operation(summary = "运营取消订单（限未支付态，签署完成后关门）——透传 aiplatform",
             description = "异常交易处置：语义与用户取消完全一致——订单落已取消、项目解冻回迭代、"
-                    + "用户可继续对话与再次下单。取消原因必填（运营内部口径留档，不呈现任何用户面"
-                    + "读面、后台订单详情可见）。命令体逐字镜像 {reason}（必填，至多 1000 字）。"
-                    + "回执＝OrderResponse（已取消终态，cancelledAt 落定）。X-User-Id/X-User-Name"
-                    + " 透传头自动落痕订单行（缺头落空）。订单不存在（含畸形 id）404 ORD_001"
-                    + "（数字业务码 5001）；限未支付态：已支付/已归档/已取消 409 ORD_005（5005，"
-                    + "退款/售后另议）；原因缺失 400 ORD_013（5013）；原因超长 400 ORD_014（5014）。")
+                    + "用户可继续对话与再次下单。<strong>取消门收窄</strong>（#108 镜像 provider #338）："
+                    + "合同不存在或合同签署完成前非终态可取消；<strong>最近合同已签署完成后关门</strong>"
+                    + "——未支付也拒（409 ORD_047〔数字业务码 5047〕，需求变化走对话区变更沟通，"
+                    + "不建平台机制）；取消时活跃（非终态）合同同事务联动作废留痕。取消原因必填"
+                    + "（运营内部口径留档，不呈现任何用户面读面、后台订单详情可见）。命令体逐字镜像 "
+                    + "{reason}（必填，至多 1000 字）。回执＝OrderResponse（已取消终态，cancelledAt "
+                    + "落定）。X-User-Id/X-User-Name 透传头自动落痕订单行（缺头落空；联动作废留痕"
+                    + "溯操作者本人）。订单不存在（含畸形 id）404 ORD_001（数字业务码 5001）；"
+                    + "限未支付态：已支付/已归档/已取消 409 ORD_005（5005，退款/售后另议——已支付"
+                    + "蕴含签署完成，「已支付不可取消」语义更准、先到先得）；原因缺失 400 ORD_013"
+                    + "（5013）；原因超长 400 ORD_014（5014）。")
     public ApiResponse<AiplatformOrderResponse> cancel(
             @PathVariable String id, @RequestBody AiplatformOrderCancelCommand command) {
         return ApiResponse.ok(orderAppService.cancel(id, command));
@@ -218,15 +275,17 @@ public class AiplatformOrderController {
             name = "AI 平台 / 订单重试归档",
             scope = AdminScopes.ADMIN
     )
-    @Operation(summary = "重试归档（已支付未归档的卡单补归档）——透传 aiplatform",
-            description = "交付闭环补齐：对支付成功但归档失败的卡单手动补完结——一事务内订单落"
-                    + "已归档＋项目归档，成功后补发「已归档」通知并触发知识沉淀（成交 PRD 入"
-                    + "知识库，best-effort 不炸主流程）。幂等由 provider 既有守卫保证。<strong>无请求体</strong>。"
-                    + "回执＝OrderResponse（已归档终态，paidAt/archivedAt 双时点）。X-User-Id/"
-                    + "X-User-Name 透传头自动落痕订单行（缺头落空；支付链自动归档操作者为空）。"
-                    + "订单不存在（含畸形 id）404 ORD_001（数字业务码 5001）；重复触发/非已支付态"
-                    + " 409 ORD_012（5012）；项目已归档 409 <strong>PRJ_013</strong>（数字业务码"
-                    + " 4013，跨域码原样透传——不产生重复素材）。")
+    @Operation(summary = "重试归档（已支付未归档的卡单补归档——唯一归档触发口）——透传 aiplatform",
+            description = "交付闭环补齐（#108 语义重对位：归档＝后台人工终局——交付完成、尾款核验后"
+                    + "不再自动，<strong>本端点是唯一归档触发口</strong>）：对支付成功但归档失败的卡单"
+                    + "手动补完结——一事务内订单落已归档＋项目归档，成功后补发「已归档」通知并触发"
+                    + "知识沉淀（成交 PRD 入知识库，best-effort 不炸主流程）。幂等由 provider 既有"
+                    + "守卫保证。<strong>无请求体</strong>。回执＝OrderResponse（已归档终态，"
+                    + "paidAt/archivedAt 双时点）。X-User-Id/X-User-Name 透传头自动落痕订单行"
+                    + "（缺头落空；支付链自动归档操作者为空）。订单不存在（含畸形 id）404 ORD_001"
+                    + "（数字业务码 5001）；重复触发/非已支付态 409 ORD_012（5012）；项目已归档"
+                    + " 409 <strong>PRJ_013</strong>（数字业务码 4013，跨域码原样透传——不产生"
+                    + "重复素材）。")
     public ApiResponse<AiplatformOrderResponse> retryArchive(@PathVariable String id) {
         return ApiResponse.ok(orderAppService.retryArchive(id));
     }

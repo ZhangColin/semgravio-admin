@@ -43,6 +43,7 @@ import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContract
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPriceEntryRepriceCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformCostQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformContractQuery;
@@ -100,6 +101,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefW
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderQuoteWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderScopeWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
@@ -356,6 +358,12 @@ class AiplatformBffIntegrationTest {
         // 交付物类型字段对（#96）：写回执 OrderResponse 同步镜像
         assertThat(receipt.deliverableType()).isEqualTo(3);
         assertThat(receipt.deliverableTypeName()).isEqualTo("系统＋设计");
+        // 双版本引用＋范围文本三段（#108：provider #335/#336——OrderResponse 20 字段镜像）
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.note()).isEqualTo("含加急费用");
         assertThat(receipt.quotedAt()).isEqualTo(LocalDateTime.of(2026, 9, 11, 9, 0, 0));
@@ -412,6 +420,41 @@ class AiplatformBffIntegrationTest {
     }
 
     @Test
+    void given_scopeReceipt_when_enterScope_then_wireCommandMappedAndWorkingCopyEchoed() {
+        when(aiplatformClient.enterOrderScope(eq("3829492001234567"), any())).thenReturn(orderReceiptWire(
+                2, "已报价", null, null, null, List.of(
+                        new AiplatformOrderWireResponse.PriceEntry(
+                                "3829492011111111", 2199000L, "CNY", "含加急费用",
+                                LocalDateTime.of(2026, 9, 12, 10, 0, 0)))));
+
+        AiplatformOrderResponse receipt = orderAppService.enterScope("3829492001234567",
+                new AiplatformOrderScopeCommand(
+                        "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                        "验收方式：按 PRD v3 逐项验收",
+                        "工期口径：4 周（含 1 周联调）"));
+
+        // 出站参数：北向命令 → wire 命令体逐字段映射（三段原值——半组/超长归 provider 聚合守卫）
+        ArgumentCaptor<AiplatformOrderScopeWireRequest> commandCaptor =
+                ArgumentCaptor.forClass(AiplatformOrderScopeWireRequest.class);
+        verify(aiplatformClient).enterOrderScope(eq("3829492001234567"), commandCaptor.capture());
+        assertThat(commandCaptor.getValue()).isEqualTo(new AiplatformOrderScopeWireRequest(
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）"));
+
+        // wire → response：scope 三段＝工作副本现值回显、双版本引用照携、报价事实不动（工作副本
+        // 录入不改金额/价目行/状态）
+        assertThat(receipt.status()).isEqualTo(2);
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
+        assertThat(receipt.amount()).isEqualTo(2199000L);
+        assertThat(receipt.priceEntries()).hasSize(1);
+    }
+
+    @Test
     void given_ord007FromDownstream_when_quote_then_propagateWithoutMapping() {
         when(aiplatformClient.quoteOrder(eq("3829492001234567"), any())).thenThrow(
                 AiplatformUpstreamException.from(new OpenApiClientException(409,
@@ -430,9 +473,10 @@ class AiplatformBffIntegrationTest {
     }
 
     /**
-     * 三写操作共用回执 wire 工厂：按动作后的终态（status/时点组）参数化，固定订单标识与
-     * 报价事实（金额/备注取最新价目行、quotedAt 首次报价时点）。paidAt/ cancelledAt/archivedAt
-     * 全参数化——各终态只落自己的时点（改价/取消单未支付 paidAt=null，归档单双时点俱全）。
+     * 四写操作共用回执 wire 工厂：按动作后的终态（status/时点组）参数化，固定订单标识、
+     * 报价事实（金额/备注取最新价目行、quotedAt 首次报价时点）、双版本引用（#335：3/2）
+     * 与范围文本三段（#336 工作副本现值）。paidAt/cancelledAt/archivedAt 全参数化——
+     * 各终态只落自己的时点（改价/取消单未支付 paidAt=null，归档单双时点俱全）。
      */
     private static AiplatformOrderWireResponse orderReceiptWire(
             Integer status, String statusName,
@@ -440,8 +484,12 @@ class AiplatformBffIntegrationTest {
             List<AiplatformOrderWireResponse.PriceEntry> priceEntries) {
         return new AiplatformOrderWireResponse(
                 "3829492001234567", "3829492007654321", status, statusName,
-                3, "系统＋设计",
-                2199000L, "CNY", "含加急费用", LocalDateTime.of(2026, 9, 11, 9, 0, 0),
+                3, "系统＋设计", 3, 2,
+                2199000L, "CNY", "含加急费用",
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）",
+                LocalDateTime.of(2026, 9, 11, 9, 0, 0),
                 priceEntries, LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);
     }

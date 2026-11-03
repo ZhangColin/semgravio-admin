@@ -35,6 +35,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancel
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderQuoteWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderScopeWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
@@ -472,6 +473,35 @@ public class AiplatformClient {
     }
 
     /**
+     * 录入范围文本（透传 aiplatform，issue #108）——三段（交付清单/验收方式/工期口径）
+     * <strong>整组替换</strong>（不收半组，每次全量提交）。scope 是合同冻结集的工作副本
+     * （用户「确认范围并准备合同」确认面的数据源；确认后本副本仍可改，变动触发草稿合同
+     * 「需更新」派生标志、后台重录重新冻结）。工作副本现值语义、provider 侧无 append-only
+     * 留痕——操作者不落痕（区别于报价/取消/归档三写操作）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{id}/scope}（#336 后台机机面）：
+     * 请求体 {@code {scopeDeliverables, scopeAcceptance, scopeTimeline}} 逐字镜像，返回
+     * {@code ApiResponse<OrderResponse>}（用户面同构回执：scope 三段＝刚录入的工作副本
+     * 现值，双版本引用照携）。订单不存在 404 ORD_001（5001）；三段缺失 400 ORD_029
+     * （5029）；超长（每段至多 2000 字）400 ORD_030（5030）；限未支付态：已支付/已终结
+     * 409 ORD_033（5033——已支付蕴含合同签署完成、约定已定，不再受理）——均原样透传。</p>
+     *
+     * @param id      订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command 范围录入命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/029/030/033 等，不做映射）
+     */
+    public AiplatformOrderWireResponse enterOrderScope(String id, AiplatformOrderScopeWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(id) + "/scope";
+        log.debug("AiplatformClient.enterOrderScope: {}", url);
+        try {
+            ApiResponse<AiplatformOrderWireResponse> resp = openApiClient.post(url, command, ORDER_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
      * 运营取消订单（透传 aiplatform）——限未支付态，语义与用户取消完全一致：订单落已取消、
      * 项目解冻回迭代、用户可继续对话与再次下单。取消原因必填（运营内部口径留档，不呈现
      * 任何用户面读面）。
@@ -481,12 +511,14 @@ public class AiplatformClient {
      * cancelledAt 落定）。操作者身份经框架 {@code OpenApiClient} 自动带
      * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕订单行，缺头落空）。
      * 订单不存在 404 ORD_001（5001）；已支付/已归档/已取消 409 ORD_005（5005，退款/售后
-     * 另议）；原因缺失 400 ORD_013（5013）；原因超长（至多 1000 字）400 ORD_014（5014）
-     * ——均原样透传。</p>
+     * 另议——已支付蕴含签署完成，「已支付不可取消」语义更准先到先得）；<strong>取消门收窄
+     * （#338）</strong>：未支付但最近合同已签署完成 409 ORD_047（5047——需求变化走对话区
+     * 变更沟通，取消联动活跃合同作废留痕）；原因缺失 400 ORD_013（5013）；原因超长
+     * （至多 1000 字）400 ORD_014（5014）——均原样透传。</p>
      *
      * @param id      订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
      * @param command 取消命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
-     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/005/013/014 等，不做映射）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/005/047/013/014 等，不做映射）
      */
     public AiplatformOrderWireResponse cancelOrder(String id, AiplatformOrderCancelWireRequest command) {
         String url = baseUrl + "/api/backoffice/orders/" + encode(id) + "/cancel";

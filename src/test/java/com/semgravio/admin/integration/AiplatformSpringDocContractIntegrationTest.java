@@ -950,6 +950,102 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("swagger 契约：订单域 A5 语义重对位＋scope 端点自描述（#108，四态/ORD_047/唯一归档口/工作副本/双版本引用）")
+    void given_orderRealignmentAndScope_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单/详情：四态语义重对位（provider #335/#338——3=已支付即开工条件满足〔双门禁〕、
+        // 4=已归档即后台人工终局〔归档触发只剩 retry-archive〕）
+        for (String path : List.of("/api/admin/aiplatform/orders",
+                "/api/admin/aiplatform/orders/{id}")) {
+            JsonNode op = paths.path(path).path("get");
+            assertThat(op.isMissingNode()).as("api-docs 应含订单端点 %s", path).isFalse();
+            assertThat(op.path("description").asText(""))
+                    .as("%s 应写明新四态语义", path)
+                    .contains("3=已支付即开工条件满足")
+                    .contains("4=已归档即后台人工终局");
+        }
+
+        // quote：人工落定报价/改价（报价确认是人工决定——后台运营语义正身）
+        JsonNode quote = paths.path("/api/admin/aiplatform/orders/{id}/quote").path("post");
+        assertThat(quote.path("description").asText(""))
+                .contains("人工落定");
+
+        // scope 端点（#108 新增）：三段整组替换＋工作副本语义＋守卫数字码＋独立写码
+        JsonNode scope = paths.path("/api/admin/aiplatform/orders/{id}/scope").path("post");
+        assertThat(scope.isMissingNode()).as("api-docs 应含范围录入端点（#108）").isFalse();
+        assertThat(scope.path("summary").asText(""))
+                .contains("范围文本")
+                .contains("整组替换");
+        assertThat(scope.path("description").asText(""))
+                .contains("工作副本")
+                .contains("合同冻结集")
+                .contains("需更新")
+                .contains("操作者不落痕")
+                .contains("order:scope")
+                .contains("ORD_029").contains("5029")
+                .contains("ORD_030").contains("5030")
+                .contains("ORD_033").contains("5033");
+
+        // cancel：取消门收窄两腿（ORD_005 非未支付既有＋ORD_047 签署完成后关门——需求变化走对话区）
+        JsonNode cancel = paths.path("/api/admin/aiplatform/orders/{id}/cancel").path("post");
+        assertThat(cancel.path("description").asText(""))
+                .contains("取消门收窄")
+                .contains("ORD_047").contains("5047")
+                .contains("对话区");
+
+        // retry-archive：唯一归档触发口（归档不再自动——后台人工终局动作）
+        JsonNode retryArchive = paths.path("/api/admin/aiplatform/orders/{id}/retry-archive").path("post");
+        assertThat(retryArchive.path("description").asText(""))
+                .contains("唯一归档触发口");
+
+        // 双版本引用 schema 自描述（写回执面 OrderResponse 携；清单/详情 wire 无此字段——provider 事实）
+        for (String field : List.of("prdVersionNo", "demoVersionNo")) {
+            JsonNode prop = property("AiplatformOrderResponse", field);
+            assertThat(prop.isMissingNode())
+                    .as("AiplatformOrderResponse.%s 缺字段（契约漂移——不镜像＝Jackson 静默丢弃，#75 先例）", field)
+                    .isFalse();
+            assertThat(prop.path("description").asText(""))
+                    .as("AiplatformOrderResponse.%s 应写明随单冻结口径", field)
+                    .contains("随单冻结")
+                    .contains("遗留单 null");
+        }
+        // scope 三段 schema（回执面＋详情面同款：工作副本现值语义＋未录入 null）
+        for (String schema : List.of("AiplatformOrderResponse", "AiplatformOrderDetailResponse")) {
+            for (String field : List.of("scopeDeliverables", "scopeAcceptance", "scopeTimeline")) {
+                JsonNode prop = property(schema, field);
+                assertThat(prop.isMissingNode())
+                        .as("%s.%s 缺字段（契约漂移）", schema, field)
+                        .isFalse();
+                assertThat(prop.path("description").asText(""))
+                        .as("%s.%s 应写明工作副本现值语义", schema, field)
+                        .contains("工作副本")
+                        .contains("未录入 null");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("swagger 契约：成本域 token 对账口径句在场（#108——失败/重试/并行切片全量计入项目账）")
+    void given_costEndpoints_when_readDescriptions_then_reconciliationBasisPresent() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+        // 三个成本总量承载面（全局总览/项目清单/单项目下钻）均写明对账口径
+        for (String path : List.of("/api/admin/aiplatform/costs/overview",
+                "/api/admin/aiplatform/costs/projects",
+                "/api/admin/aiplatform/costs/projects/{projectId}")) {
+            JsonNode op = paths.path(path).path("get");
+            assertThat(op.isMissingNode()).as("api-docs 应含成本端点 %s", path).isFalse();
+            assertThat(op.path("description").asText(""))
+                    .as("%s 应写明 token 对账口径（失败/重试/并行切片全量计入项目账）", path)
+                    .contains("对账口径")
+                    .contains("失败")
+                    .contains("重试")
+                    .contains("并行切片")
+                    .contains("全量计入项目账");
+        }
+    }
+
+    @Test
     @DisplayName("swagger 契约：合同域三端点 @Operation 描述镜像 provider（#104，六态/冻结面/重建语义/ORD_020/021/024/025/026 数字码在场）")
     void given_contractEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");

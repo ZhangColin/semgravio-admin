@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderSummaryResponse;
@@ -22,12 +23,13 @@ import com.cartisan.web.response.PageResponse;
 /**
  * aiplatform 订单域读路径（清单/详情/源码包，issue #64）＋写路径三操作（报价/改价、运营取消、
  * 重试归档，issue #70）＋设计资产包取件（issue #96，#95 设计能力线 T1——交付物类型字段对
- * ＋design-package 二进制端点）的 wire 契约测试。
+ * ＋design-package 二进制端点）＋范围录入写口与双版本/scope 字段镜像（issue #108，spec #102
+ * A 批 A5——provider #335 双版本引用＋#336 scope 工作副本）的 wire 契约测试。
  *
  * <p>契约事实（对照 aiplatform 源码 {@code BackofficeOrderController} /
  * {@code BackofficeOrderSummaryResponse} / {@code BackofficeOrderDetailResponse} /
  * {@code OrderResponse} / {@code PriceEntryResponse} / {@code SubmitQuoteCommand} /
- * {@code CancelOrderCommand} / {@code OrderMessage}）：</p>
+ * {@code CancelOrderCommand} / {@code EnterScopeCommand} / {@code OrderMessage}）：</p>
  * <ul>
  *   <li>清单/详情均包 {@code ApiResponse<T>} 信封，须按信封反序列化并取 {@code .data()}；
  *       清单 data 为 {@code PageResponse{items,total,page,size}}（page 1-based）。</li>
@@ -51,16 +53,24 @@ import com.cartisan.web.response.PageResponse;
  *       PRJ_051→4051（404，跨域码 4×1000＋51）、读取失败 WSP_002→1002（500）原样透传。</li>
  *   <li>分页（spec #62 平台分页统一决议目标态）：北向 1-based 直传、回显 provider 回报值，
  *       全链零 ±1 换算（区别于 payment 的 page-1）。</li>
- *   <li>写路径三操作共用回执 {@code ApiResponse<OrderResponse>}（provider <strong>用户面</strong>
- *       同构 DTO——区别于后台详情 21 字段）：内嵌价目行为<strong>五字段</strong>（无操作者留痕，
- *       操作者两肢只在后台详情价目行上）。「已报价态重复提交＝改价」语义由 provider 承担。</li>
+ *   <li>写路径四操作（报价/取消/重试归档/范围录入，#108 A5 scope 增）共用回执
+ *       {@code ApiResponse<OrderResponse>}（provider <strong>用户面</strong>同构 DTO——区别于
+ *       后台详情 27 字段）：内嵌价目行为<strong>五字段</strong>（无操作者留痕，操作者两肢只在
+ *       后台详情价目行上）。「已报价态重复提交＝改价」语义由 provider 承担。</li>
+ *   <li>双版本引用（provider #335，V37）：OrderResponse 增 {@code prdVersionNo}/{@code demoVersionNo}
+ *       两 Integer（下单冻结的已确认 PRD/Demo 版本号，遗留单 null）——位于 deliverableTypeName
+ *       邻位；范围文本三段（provider #336）：OrderResponse 与后台详情均增
+ *       {@code scopeDeliverables/scopeAcceptance/scopeTimeline}（scope 工作副本现值，未录入
+ *       null）——位于 note 邻位。admin 三镜像同步（不跟随＝Jackson 静默丢弃字段，#75 先例）。</li>
  *   <li>报价命令体 {@code {amount, note}}：amount Long 分→JSON <strong>string</strong>
  *       （cartisan-web 全局 Long→ToStringSerializer 出口口径，provider 默认 string→Long 强转
  *       可回读）；note null 照常序列化在场——BFF 不代填。取消命令体 {@code {reason}} 必填。
- *       重试归档无请求体（null body）。</li>
+ *       范围录入命令体 {@code {scopeDeliverables, scopeAcceptance, scopeTimeline}}（三段整组
+ *       替换——不收半组，半组/超长归 provider ORD_029/030）。重试归档无请求体（null body）。</li>
  *   <li>错误透传（数字业务码＝域码 5×1000＋序号）：ORD_001→5001（404）、ORD_005→5005（409）、
  *       ORD_007→5007（409）、ORD_008→5008（400）、ORD_009→5009（400）、ORD_010→5010（400）、
- *       ORD_012→5012（409）、ORD_013→5013（400）、ORD_014→5014（400）；重试归档的跨域码
+ *       ORD_012→5012（409）、ORD_013→5013（400）、ORD_014→5014（400）、ORD_029→5029（400）、
+ *       ORD_030→5030（400）、ORD_033→5033（409）；重试归档的跨域码
  *       <strong>PRJ_013→4013</strong>（409，域码 4×1000＋13——项目已归档守卫）原样透传。</li>
  * </ul>
  *
@@ -124,7 +134,10 @@ class AiplatformOrderClientContractTest {
             }
             """;
 
-    /** aiplatform GET /api/backoffice/orders/{id} 的真实成功响应形状（已报价单：两次报价留痕，新→旧）。 */
+    /**
+     * aiplatform GET /api/backoffice/orders/{id} 的真实成功响应形状（已报价单：两次报价留痕，新→旧）。
+     * 范围文本三段（#336 scope 工作副本）在 note 邻位、priceEntries 前——后台详情现值回显。
+     */
     private static final String ORDER_DETAIL_ENVELOPE = """
             {
               "code": 0,
@@ -142,6 +155,9 @@ class AiplatformOrderClientContractTest {
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
+                "scopeDeliverables": "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "scopeAcceptance": "验收方式：按 PRD v3 逐项验收",
+                "scopeTimeline": "工期口径：4 周（含 1 周联调）",
                 "priceEntries": [
                   {
                     "id": "3829492011111111",
@@ -237,7 +253,9 @@ class AiplatformOrderClientContractTest {
      * aiplatform POST /api/backoffice/orders/{id}/quote 的真实成功响应形状（<strong>改价</strong>
      * 场景——已报价态重复提交）：用户面同构 OrderResponse，现值取最新价目行、价目历史新→旧
      * 两行（<strong>五字段</strong>，无操作者留痕——区别于后台详情价目行）、quotedAt 仍是首次
-     * 报价时点（改价不刷新）。amount Long 为 JSON string。
+     * 报价时点（改价不刷新）。amount Long 为 JSON string。双版本引用（#335：PRD/Demo 版本随单
+     * 下单冻结，遗留单 null——此处实值 3/2）在 deliverableTypeName 邻位；范围文本三段（#336
+     * 工作副本现值）在 note 邻位。
      */
     private static final String QUOTE_RECEIPT_ENVELOPE = """
             {
@@ -250,9 +268,14 @@ class AiplatformOrderClientContractTest {
                 "statusName": "已报价",
                 "deliverableType": 3,
                 "deliverableTypeName": "系统＋设计",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
+                "scopeDeliverables": "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "scopeAcceptance": "验收方式：按 PRD v3 逐项验收",
+                "scopeTimeline": "工期口径：4 周（含 1 周联调）",
                 "quotedAt": "2026-09-11T09:00:00",
                 "priceEntries": [
                   {
@@ -292,9 +315,14 @@ class AiplatformOrderClientContractTest {
                 "statusName": "已取消",
                 "deliverableType": 2,
                 "deliverableTypeName": "系统",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
+                "scopeDeliverables": "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "scopeAcceptance": "验收方式：按 PRD v3 逐项验收",
+                "scopeTimeline": "工期口径：4 周（含 1 周联调）",
                 "quotedAt": "2026-09-11T09:00:00",
                 "priceEntries": [
                   {
@@ -327,9 +355,14 @@ class AiplatformOrderClientContractTest {
                 "statusName": "已归档",
                 "deliverableType": 3,
                 "deliverableTypeName": "系统＋设计",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
+                "scopeDeliverables": "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "scopeAcceptance": "验收方式：按 PRD v3 逐项验收",
+                "scopeTimeline": "工期口径：4 周（含 1 周联调）",
                 "quotedAt": "2026-09-11T09:00:00",
                 "priceEntries": [
                   {
@@ -346,6 +379,72 @@ class AiplatformOrderClientContractTest {
                 "archivedAt": "2026-09-16T09:30:00"
               },
               "requestId": "req-7a8b9c",
+              "errors": null
+            }
+            """;
+
+    /**
+     * aiplatform POST /api/backoffice/orders/{id}/scope 的真实成功响应形状（范围录入后回执＝
+     * 用户面同构 OrderResponse：scope 三段＝刚录入的工作副本现值，双版本引用随单冻结照携）。
+     * amount Long 为 JSON string。
+     */
+    private static final String SCOPE_RECEIPT_ENVELOPE = """
+            {
+              "code": 0,
+              "message": "ok",
+              "data": {
+                "id": "3829492001234567",
+                "projectId": "3829492007654321",
+                "status": 2,
+                "statusName": "已报价",
+                "deliverableType": 3,
+                "deliverableTypeName": "系统＋设计",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
+                "amount": "2199000",
+                "currency": "CNY",
+                "note": "含加急费用",
+                "scopeDeliverables": "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "scopeAcceptance": "验收方式：按 PRD v3 逐项验收",
+                "scopeTimeline": "工期口径：4 周（含 1 周联调）",
+                "quotedAt": "2026-09-11T09:00:00",
+                "priceEntries": [
+                  {
+                    "id": "3829492011111111",
+                    "amount": "2199000",
+                    "currency": "CNY",
+                    "note": "含加急费用",
+                    "createdAt": "2026-09-12T10:00:00"
+                  }
+                ],
+                "createdAt": "2026-09-10T14:20:00",
+                "cancelledAt": null,
+                "paidAt": null,
+                "archivedAt": null
+              },
+              "requestId": "req-scope1",
+              "errors": null
+            }
+            """;
+
+    /** 范围录入守卫①：已支付/已终结拒录——HTTP 409 + 信封 code=5033（ORD_033 数字业务码）。 */
+    private static final String ORD_033_ERROR_ENVELOPE = """
+            {
+              "code": 5033,
+              "message": "订单已支付或已终结，无法录入范围",
+              "data": null,
+              "requestId": "req-scope2",
+              "errors": null
+            }
+            """;
+
+    /** 范围录入守卫②：三段缺失——HTTP 400 + 信封 code=5029（ORD_029 数字业务码）。 */
+    private static final String ORD_029_ERROR_ENVELOPE = """
+            {
+              "code": 5029,
+              "message": "范围文本三段必填（交付清单/验收方式/工期口径）",
+              "data": null,
+              "requestId": "req-scope3",
               "errors": null
             }
             """;
@@ -498,6 +597,10 @@ class AiplatformOrderClientContractTest {
         assertThat(detail.deliverableTypeName()).isEqualTo("设计");
         assertThat(detail.amount()).isEqualTo(2199000L);
         assertThat(detail.note()).isEqualTo("含加急费用");
+        // 范围文本三段（#336 scope 工作副本现值回显——scope 录入端点的读面；未录入单为 null）
+        assertThat(detail.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(detail.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(detail.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
         assertThat(detail.prdSnapshot()).startsWith("# PRD");
 
         // 价目历史：append-only 全量，新 → 旧；新行带操作者两肢、存量行操作者为空
@@ -691,9 +794,16 @@ class AiplatformOrderClientContractTest {
         // 交付物类型字段对（#96）：写路径用户面回执 OrderResponse 同步携带（provider 出口已配对）
         assertThat(receipt.deliverableType()).isEqualTo(3);
         assertThat(receipt.deliverableTypeName()).isEqualTo("系统＋设计");
+        // 双版本引用（#335 V37：PRD/Demo 版本随单下单冻结；遗留单 null——不镜像＝Jackson 静默丢弃）
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.currency()).isEqualTo("CNY");
         assertThat(receipt.note()).isEqualTo("含加急费用");
+        // 范围文本三段（#336 工作副本现值）随回执在场
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
         // quotedAt 仍是首次报价时点（改价不刷新）
         assertThat(receipt.quotedAt()).isEqualTo(LocalDateTime.of(2026, 9, 11, 9, 0, 0));
 
@@ -744,6 +854,93 @@ class AiplatformOrderClientContractTest {
         assertThat(receipt.cancelledAt()).isEqualTo(LocalDateTime.of(2026, 9, 16, 15, 0, 0));
         assertThat(receipt.paidAt()).isNull();
         assertThat(receipt.archivedAt()).isNull();
+    }
+
+    // ========== 范围录入（#336 scope 工作副本：三段整组替换 + 回执现值回显）==========
+
+    @Test
+    void given_scopeCommand_when_enterScope_then_wireUrlAndCommandBodyMirrorProvider() {
+        String[] wireUrl = new String[1];
+        String[] wireBody = new String[1];
+        var appService = AiplatformWireTestSupport.orderWriteAppServiceWithStubTransport(
+                SCOPE_RECEIPT_ENVELOPE, wireUrl, wireBody);
+
+        appService.enterScope("3829492001234567", new AiplatformOrderScopeCommand(
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）"));
+
+        // 出站路径逐字镜像 provider backoffice 路由
+        assertThat(wireUrl[0]).isEqualTo(
+                "http://stub-aiplatform/api/backoffice/orders/3829492001234567/scope");
+        // 命令体逐字镜像 provider EnterScopeCommand：三段按 scopeDeliverables/scopeAcceptance/
+        // scopeTimeline 字段序（整组替换不收半组——半组/超长归 provider 聚合守卫 ORD_029/030）
+        assertThat(wireBody[0]).isEqualTo("{\"scopeDeliverables\":\"交付清单：管理后台＋小程序"
+                + "（含 5 个核心页面）\",\"scopeAcceptance\":\"验收方式：按 PRD v3 逐项验收\","
+                + "\"scopeTimeline\":\"工期口径：4 周（含 1 周联调）\"}");
+    }
+
+    @Test
+    void given_scopeReceiptEnvelope_when_enterScope_then_workingCopyEchoedAndDualVersionsBound() {
+        var appService = AiplatformWireTestSupport.orderWriteAppServiceWithStubTransport(
+                SCOPE_RECEIPT_ENVELOPE, new String[1], new String[1]);
+
+        AiplatformOrderResponse receipt = appService.enterScope("3829492001234567",
+                new AiplatformOrderScopeCommand(
+                        "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                        "验收方式：按 PRD v3 逐项验收",
+                        "工期口径：4 周（含 1 周联调）"));
+
+        // 回执＝用户面同构 OrderResponse：scope 三段＝刚录入的工作副本现值（整组替换后全量回显）
+        assertThat(receipt.status()).isEqualTo(2);
+        assertThat(receipt.statusName()).isEqualTo("已报价");
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
+        // 双版本引用（#335）随回执在场——下单冻结事实照携（与本次录入无关、不被改写）
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
+        // 报价事实保留（工作副本录入不动金额/价目行/状态）
+        assertThat(receipt.amount()).isEqualTo(2199000L);
+        assertThat(receipt.note()).isEqualTo("含加急费用");
+        assertThat(receipt.priceEntries()).hasSize(1);
+    }
+
+    @Test
+    void given_ord033ErrorEnvelope_when_enterScope_then_passThroughWithoutMapping() {
+        var appService = AiplatformWireTestSupport.orderAppServiceWithErrorTransport(
+                409, ORD_033_ERROR_ENVELOPE, new String[1]);
+
+        // 忠实透传（spec #102）：HTTP 409 + 数字业务码 5033（ORD_033＝域码 5×1000＋33）+
+        // provider message 原样——已支付蕴含合同签署完成、约定已定，不再受理范围录入
+        assertThatThrownBy(() -> appService.enterScope("3829492001234567", new AiplatformOrderScopeCommand(
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5033);
+                    assertThat(upstream.getMessage()).isEqualTo("订单已支付或已终结，无法录入范围");
+                });
+    }
+
+    @Test
+    void given_ord029ErrorEnvelope_when_enterScope_then_passThroughWithoutMapping() {
+        var appService = AiplatformWireTestSupport.orderAppServiceWithErrorTransport(
+                400, ORD_029_ERROR_ENVELOPE, new String[1]);
+
+        // 三段缺失归 provider 聚合守卫（整组替换不收半组）——BFF 不前置拦截，错误信封原样透传
+        assertThatThrownBy(() -> appService.enterScope("3829492001234567",
+                new AiplatformOrderScopeCommand(null, "验收方式：按 PRD v3 逐项验收", null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5029);
+                    assertThat(upstream.getMessage()).isEqualTo("范围文本三段必填（交付清单/验收方式/工期口径）");
+                });
     }
 
     // ========== 重试归档（无请求体 + 已归档终态回执）==========

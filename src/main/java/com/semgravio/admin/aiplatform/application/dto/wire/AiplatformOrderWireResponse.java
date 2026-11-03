@@ -5,10 +5,11 @@ import java.util.List;
 
 /**
  * aiplatform 订单写路径回执的 wire 镜像——与 aiplatform {@code OrderResponse}（用户面
- * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装）字段同构（15 字段，含内嵌改价历史
- * ＋#298 交付物类型字段对），逐字镜像、无增删。报价/取消/重试归档三写操作共用本回执。
+ * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装）字段同构（20 字段，含内嵌改价历史
+ * ＋#298 交付物类型字段对＋#335 双版本引用＋#336 范围文本三段），逐字镜像、无增删。
+ * 报价/取消/重试归档/范围录入四写操作共用本回执。
  *
- * <p>与 {@link AiplatformOrderDetailWireResponse}（后台详情 21 字段）的差异：无
+ * <p>与 {@link AiplatformOrderDetailWireResponse}（后台详情 27 字段）的差异：无
  * projectName/ownerDisplayName/prdSnapshot/取消归档操作者留痕两肢——回执是 provider 的
  * 用户面 DTO（含 {@code statusName} 中文名）；内嵌价目行为<strong>五字段</strong>
  * {@link PriceEntry}（无操作者留痕，区别于后台详情的七字段价目行）。</p>
@@ -39,6 +40,15 @@ public record AiplatformOrderWireResponse(
         /** 交付物类型中文名（provider 出口提供） */
         String deliverableTypeName,
 
+        /**
+         * 下单冻结的已确认 PRD 版本号（provider #335 V37 双版本引用——下单前置＝已确认 PRD
+         * 版本＋Demo 确认版本，双版本随单冻结；遗留单 NULL）。Integer 直通。
+         */
+        Integer prdVersionNo,
+
+        /** 下单冻结的已确认 Demo 版本号（provider #335；遗留单 NULL） */
+        Integer demoVersionNo,
+
         /** 当前总价（分；待报价 NULL，改价取最新价目行） */
         Long amount,
 
@@ -47,6 +57,15 @@ public record AiplatformOrderWireResponse(
 
         /** 当前后台备注（最新价目行 note；待报价 NULL） */
         String note,
+
+        /** 范围文本·交付清单（provider #336 后台录入工作副本现值；未录入 NULL） */
+        String scopeDeliverables,
+
+        /** 范围文本·验收方式（provider #336；未录入 NULL） */
+        String scopeAcceptance,
+
+        /** 范围文本·工期口径（provider #336；未录入 NULL） */
+        String scopeTimeline,
 
         /** 首次报价时点（改价不刷新；待报价 NULL） */
         LocalDateTime quotedAt,

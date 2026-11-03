@@ -5,11 +5,12 @@ import java.util.List;
 
 /**
  * aiplatform 订单详情的 wire 镜像——与 aiplatform {@code BackofficeOrderDetailResponse}
- * （#155 价目留痕已冻结＋#298 交付物类型字段对）字段同构（24 字段 + 内嵌价目历史），
- * 逐字镜像、无增删。
+ * （#155 价目留痕已冻结＋#298 交付物类型字段对＋#336 范围文本三段）字段同构
+ * （27 字段 + 内嵌价目历史），逐字镜像、无增删。
  *
- * <p>报价依据全量事实：PRD 快照正文（下单冻结）、价目历史（append-only 全量，新 → 旧，带操作者）、
- * 全部状态时点。取消/归档操作者两肢为 admin 侧管理员标识（透传头落痕），存量行/无头 NULL。</p>
+ * <p>报价依据全量事实：PRD 快照正文（下单冻结）、范围文本三段（scope 工作副本现值——
+ * scope 录入端点的读面）、价目历史（append-only 全量，新 → 旧，带操作者）、全部状态时点。
+ * 取消/归档操作者两肢为 admin 侧管理员标识（透传头落痕），存量行/无头 NULL。</p>
  *
  * @since 0.1.0
  */
@@ -54,6 +55,15 @@ public record AiplatformOrderDetailWireResponse(
 
         /** 当前后台备注（最新价目行；待报价 NULL） */
         String note,
+
+        /** 范围文本·交付清单（provider #336 后台录入工作副本现值；未录入 null——scope 录入端点的现值回显） */
+        String scopeDeliverables,
+
+        /** 范围文本·验收方式（provider #336；未录入 null） */
+        String scopeAcceptance,
+
+        /** 范围文本·工期口径（provider #336；未录入 null） */
+        String scopeTimeline,
 
         /** 价目历史（新 → 旧，append-only 全量；带操作者，存量行操作者为空；待报价空表） */
         List<AiplatformPriceEntryWireResponse> priceEntries,

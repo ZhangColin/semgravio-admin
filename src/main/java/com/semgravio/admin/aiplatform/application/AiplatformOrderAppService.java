@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformDesignPackageResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderDetailResponse;
@@ -15,6 +16,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancel
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderQuoteWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderScopeWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPriceEntryWireResponse;
@@ -27,8 +29,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * aiplatform 订单域 BFF 应用服务——订单读路径聚合（清单四维检索 / 详情含价目历史 / 源码包
- * ＋设计资产包，issue #96 设计能力线 T1）＋写路径三操作（报价/改价、运营取消、重试归档，
- * issue #70）。
+ * ＋设计资产包，issue #96 设计能力线 T1）＋写路径四操作（报价/改价、运营取消、重试归档，
+ * issue #70；范围录入 scope，issue #108）＋V37 双版本引用/范围文本三段字段镜像（issue #108，
+ * provider #335/#336）。
  *
  * <p>admin 作为 BFF：调接口 + DTO 转换，不持业务逻辑、不持订单数据、不记业务审计（审计归
  * aiplatform）。下游错误已由 {@link AiplatformClient} 统一翻译为 {@link AiplatformUpstreamException}
@@ -117,6 +120,18 @@ public class AiplatformOrderAppService {
     }
 
     /**
+     * 录入范围文本（透传 aiplatform，issue #108）——三段（交付清单/验收方式/工期口径）整组
+     * 替换，scope 是合同冻结集的工作副本（用户确认面数据源；确认后仍可改、触发草稿合同
+     * 「需更新」派生标志）。守卫（三段必填/每段至多 2000 字/限未支付态）全归 provider 裁决。
+     * 回执＝OrderResponse（scope 三段＝刚录入的工作副本现值）。
+     */
+    public AiplatformOrderResponse enterScope(String id, AiplatformOrderScopeCommand command) {
+        return toReceipt(aiplatformClient.enterOrderScope(id,
+                new AiplatformOrderScopeWireRequest(
+                        command.scopeDeliverables(), command.scopeAcceptance(), command.scopeTimeline())));
+    }
+
+    /**
      * 运营取消订单（透传 aiplatform，issue #70）——限未支付态（语义与用户取消一致：项目解冻
      * 回迭代），原因必填（运营内部口径留档）。回执＝已取消终态（cancelledAt 落定）。
      */
@@ -151,6 +166,7 @@ public class AiplatformOrderAppService {
                 wire.status(), wire.statusName(),
                 wire.deliverableType(), wire.deliverableTypeName(),
                 wire.amount(), wire.currency(), wire.note(),
+                wire.scopeDeliverables(), wire.scopeAcceptance(), wire.scopeTimeline(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()
                         .map(AiplatformOrderAppService::toPriceEntry)
                         .toList(),
@@ -166,12 +182,15 @@ public class AiplatformOrderAppService {
                 wire.operatorId(), wire.operatorName(), wire.createdAt());
     }
 
-    /** 三写操作共用回执映射：wire（provider 用户面同构 OrderResponse）→ 北向逐字段（五字段价目行）。 */
+    /** 四写操作共用回执映射：wire（provider 用户面同构 OrderResponse）→ 北向逐字段（五字段价目行＋双版本引用＋scope 三段）。 */
     private static AiplatformOrderResponse toReceipt(AiplatformOrderWireResponse wire) {
         return new AiplatformOrderResponse(
                 wire.id(), wire.projectId(), wire.status(), wire.statusName(),
                 wire.deliverableType(), wire.deliverableTypeName(),
-                wire.amount(), wire.currency(), wire.note(), wire.quotedAt(),
+                wire.prdVersionNo(), wire.demoVersionNo(),
+                wire.amount(), wire.currency(), wire.note(),
+                wire.scopeDeliverables(), wire.scopeAcceptance(), wire.scopeTimeline(),
+                wire.quotedAt(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()
                         .map(AiplatformOrderAppService::toReceiptEntry)
                         .toList(),
