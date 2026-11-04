@@ -4,7 +4,7 @@
 # 直接复制 Maven 产物构建镜像——构建环境内无需 Maven、Docker CLI 或基础设施组件。
 # 产物名由 pom.xml <finalName> 唯一定义（发布基线 #115），此处仅消费同一约定。
 #
-# 发布前冒烟：./scripts/smoke-test.sh（隔离 PG/Redis 验证健康检查，勿以镜像构建成功冒充应用可运行）
+# 发布黑盒排练：deploy/rehearsal.sh（隔离 PG/Redis 验证健康边界，勿以镜像构建成功冒充应用可运行）
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

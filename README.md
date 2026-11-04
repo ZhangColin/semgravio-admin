@@ -27,26 +27,17 @@ mvn spring-boot:run
 
 ## 部署
 
-```bash
-# 构建并制作发布包（产出可执行 fat JAR，记录 Git revision）
-deploy/build-bundle.sh
+唯一部署正本：[deploy/部署文档.md](deploy/部署文档.md)（首装、日常发布、运维、备份恢复、secret 同步、验收）。
 
-# 一键发布（连接参数见 docs/deploy/release.md）
+```bash
+# 一键换版：打包 → 上传 → 服务器前置检查/备份/重建/健康验收（连接参数见部署文档）
 deploy/release.sh
 
 # 服务端运维：status/logs/restart/dump/smoke/sh
 deploy/server.sh status
 
-# 发布前冒烟（隔离 PG/Redis 验证镜像可启动、健康检查 UP）
-./scripts/smoke-test.sh
-
-# Compose 渲染与变量契约检查（不改动运行态）
-./scripts/check-compose.sh
-
-# 首装时在应用根目录直接启动
-docker compose -f deploy/server.compose.yml --env-file .env.production up -d --build
+# 本地黑盒排练：静态契约＋打包＋发布行为＋隔离首装全链路（改部署面后回归）
+deploy/rehearsal.sh
 ```
 
-首装（共享 infra 建库建号、环境配置、健康验证）见 [docs/deploy/first-install.md](docs/deploy/first-install.md)。
-日常升级发布与服务器运维（打包/SSH 一键换版/备份/冒烟）见 [docs/deploy/release.md](docs/deploy/release.md)。
-admin-web 反代目标：`http://semgravio-admin:8081`，健康检查 `/actuator/health`（仅 webnet 内解析）。
+admin-web 反代目标：`http://semgravio-admin:8081`，健康检查 `/actuator/health`（仅共享 webnet 内解析，宿主不发布端口）。

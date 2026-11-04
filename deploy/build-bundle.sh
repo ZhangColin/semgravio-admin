@@ -2,10 +2,8 @@
 # 组装自包含发布包：dist/semgravio-admin-deploy-<时间戳>.tar.gz（Windows Git Bash / macOS 通用）
 # 仓库根执行：deploy/build-bundle.sh；末行打印包路径（deploy/release.sh 依赖该约定）。
 #
-# 产物结构（scp 到服务器任意目录解包，docs/deploy/release.md 的命令均以此为根）：
-#   <包根>/deploy/   aiplatform 同款部署入口、镜像/Compose 定义与 env 模板
-#   <包根>/scripts/  既有检查脚本（#118 将统一收编为 deploy/rehearsal.sh）
-#   <包根>/docs/     现有部署说明（#118 将统一收口为 deploy/部署文档.md）
+# 产物结构（scp 到服务器任意目录解包，deploy/部署文档.md 的命令均以此为根）：
+#   <包根>/deploy/   部署入口、镜像/Compose 定义、env 模板、排练脚本与部署文档（唯一正本）
 #   <包根>/target/   可执行 fat JAR（开发机 mvn 构建——cartisan-boot SNAPSHOT 只在开发机 ~/.m2，
 #                    服务器无需 Java/Maven）
 #   <包根>/REVISION  打包时的 git revision（线上容器可追溯提交）

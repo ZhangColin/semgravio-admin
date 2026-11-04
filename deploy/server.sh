@@ -12,6 +12,7 @@
 #   deploy/server.sh sh        应用级 shell：docker exec -it 进 semgravio-admin 容器
 #   deploy/server.sh ssh       登服务器交互 shell（应急排查用）
 # 换版上线（打包＋发布＋重建）不是这里，用 deploy/release.sh。
+# 完整 runbook（首装/发布/运维/备份恢复/secret 同步/验收）见 deploy/部署文档.md。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +33,7 @@ case "${1:-help}" in
     "${SSH[@]}" 'docker restart semgravio-admin >/dev/null && echo 已重启 semgravio-admin（未重建镜像、未动共享 infra）'
     ;;
   dump)
-    # 库不存在（首装未完成）即提示，不伪造空备份；备份≠回滚，恢复是人工决策（见 docs/deploy/release.md）
+    # 库不存在（首装未完成）即提示，不伪造空备份；备份≠回滚，恢复是人工决策（见 deploy/部署文档.md）
     "${SSH[@]}" 'if docker exec semgravio-pg psql -U semgravio_admin -d semgravio_admin -tAc "SELECT 1" >/dev/null 2>&1; then
       docker exec semgravio-pg pg_dump -U semgravio_admin semgravio_admin | gzip > ~/backup-admin-$(date +%F-%H%M%S).sql.gz \
         && ls -t ~/backup-admin-*.sql.gz | head -1
