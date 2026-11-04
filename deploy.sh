@@ -21,9 +21,18 @@ echo ""
 # 检查环境配置
 if [ ! -f .env.production ]; then
   echo -e "${RED}错误: 未找到 .env.production${NC}"
+  echo -e "${YELLOW}  首装请先按 docs/deploy/first-install.md 准备（infra helper 建库建号后抄录分片）${NC}"
   exit 1
 fi
 echo -e "${BLUE}✓ 读取 .env.production${NC}"
+
+# 渲染预检：必填变量缺失（:? 语法）在启动前即响亮失败，不半路留下半启动态
+echo -e "${BLUE}✓ Compose 渲染预检...${NC}"
+$COMPOSE config >/dev/null || {
+  echo -e "${RED}错误: Compose 渲染失败——.env.production 缺少必填变量（见上方报错），${NC}"
+  echo -e "${RED}       既有配置不会被自动补全或切换，请对照 .env.production.example 人工核对${NC}"
+  exit 1
+}
 
 # 检查并确保 JAR 文件（稳定产物名由 pom.xml <finalName> 唯一定义，见 #115）
 JAR_FILE="target/semgravio-admin.jar"

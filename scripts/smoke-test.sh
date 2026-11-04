@@ -85,7 +85,8 @@ docker network create "$NETWORK" >/dev/null
 docker run -d --name "$PG_CONTAINER" --network "$NETWORK" \
   -e POSTGRES_USER=semgravio -e POSTGRES_PASSWORD=smoketest -e POSTGRES_DB=semgravio \
   postgres:16-alpine >/dev/null
-docker run -d --name "$REDIS_CONTAINER" --network "$NETWORK" redis:7-alpine >/dev/null
+docker run -d --name "$REDIS_CONTAINER" --network "$NETWORK" redis:7-alpine \
+  --requirepass smoketest >/dev/null
 
 for i in $(seq 1 30); do
   if docker exec "$PG_CONTAINER" pg_isready -U semgravio -d semgravio >/dev/null 2>&1; then
@@ -103,6 +104,7 @@ docker run -d --name "$APP_CONTAINER" --network "$NETWORK" -p "${HOST_PORT}:8081
   -e SPRING_DATASOURCE_PASSWORD=smoketest \
   -e REDIS_HOST="$REDIS_CONTAINER" \
   -e REDIS_PORT=6379 \
+  -e REDIS_PASSWORD=smoketest \
   -e ADMIN_API_SECRET=smoketest-secret \
   "$IMAGE_TAG" >/dev/null
 
