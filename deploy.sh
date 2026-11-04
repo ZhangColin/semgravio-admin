@@ -25,10 +25,16 @@ if [ ! -f .env.production ]; then
 fi
 echo -e "${BLUE}✓ 读取 .env.production${NC}"
 
-# 检查 JAR 文件
-JAR_FILE="target/semgravio-admin-server-1.0.0-SNAPSHOT.jar"
+# 检查并确保 JAR 文件（稳定产物名由 pom.xml <finalName> 唯一定义，见 #115）
+JAR_FILE="target/semgravio-admin.jar"
 if [ ! -f "$JAR_FILE" ]; then
-  echo -e "${RED}错误: 未找到 JAR 文件: ${JAR_FILE}${NC}"
+  echo -e "${YELLOW}未找到 JAR，执行 mvn package -DskipTests 构建...${NC}"
+  mvn -q -DskipTests package || { echo -e "${RED}错误: Maven package 失败${NC}"; exit 1; }
+fi
+# 真实校验：瘦 JAR 无法 java -jar 启动，禁止带入镜像（模式匹配避免 SIGPIPE+pipefail 误判）
+JAR_MANIFEST="$(unzip -p "$JAR_FILE" META-INF/MANIFEST.MF 2>/dev/null || true)"
+if [[ "$JAR_MANIFEST" != *"Start-Class: com.semgravio.AdminApplication"* ]]; then
+  echo -e "${RED}错误: ${JAR_FILE} 是瘦 JAR（无 Spring Boot Start-Class 清单），请执行 mvn clean package -DskipTests 重新构建${NC}"
   exit 1
 fi
 JAR_SIZE=$(du -h "$JAR_FILE" | cut -f1)
