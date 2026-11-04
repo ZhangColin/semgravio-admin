@@ -911,6 +911,27 @@ RUN cd cartisan-boot && ./gradlew publishToMavenLocal
 
 ---
 
+### 规则 CI-003：`grep -q` 提前命中让上游命令吃 SIGPIPE——pipefail 下误判失败
+
+**问题**：`set -o pipefail` 下 `生产者 | grep -q 模式` 一旦 grep 提前命中就退出，生产者
+（unzip -l / grep -A2 等）收到 SIGPIPE 以非零码死掉，整条管道被 pipefail 判为失败——
+即使模式明明匹配上了。#118 排练在 fat JAR 断言处实踩（`unzip -l jar | grep -q 'BOOT-INF/lib/'`
+报「不是 fat JAR」），同日又在 Compose 渲染断言处差点复发；输入小（如 herestring）时
+不触发，纯属运气而非安全。
+
+**正确做法**：先落盘再模式匹配，别让生产者和 grep 同住一条管道：
+
+```bash
+JAR_LISTING="$(unzip -l "$JAR" 2>/dev/null || true)"
+grep -q 'BOOT-INF/lib/' <<<"$JAR_LISTING" || die "不是 fat JAR"
+```
+
+**记忆口诀**：pipefail 脚本里，`| grep -q` ＝ 管道自杀；先落盘，再 grep。
+
+**相关**：#115 scripts/smoke-test.sh 首次记录（该脚本已随 #118 收编进 deploy/rehearsal.sh）
+
+---
+
 ## 前端测试
 
 ### 规则 FTEST-001：前端单元测试使用 vitest + happy-dom
@@ -1153,3 +1174,18 @@ Optional<User> findByUsername(@Param("username") String username);
 - CI 环境：配置 Docker runner
 
 **相关 Feature**：F02-01
+
+### PIT-006 (2026-11-04)：测试容器停了不是失败，是永远挂死
+
+**问题**：集成测试连 `localhost:25432/26379`（`semgravio-test-pg` / `semgravio-test-redis`
+容器）。容器 Exited 后连接被拒，而 Druid 未设 `maxWait`（默认无限等），创建连接
+线程无限重试，`mvn verify` 不报错、不动弹，surefire fork 停在
+`DruidDataSource.pollLast` WAITING——现场是 48 个单测报告写完后长时间零产出。
+
+**解决方案**：
+- 症状识别：单测报告数长时间不变＋一个 surefire fork 常驻 → `jstack <pid>`
+  见 `DruidDataSource.pollLast` 即此坑；`docker ps -a | grep semgravio-test` 确认
+- 起容器：`docker start semgravio-test-pg semgravio-test-redis`，重跑 `mvn verify`
+- 治本（待办）：测试配置给 Druid 设 `max-wait`，让缺容器响亮失败而非挂死
+
+**相关 Feature**：#117（打包/发布期全量检查时踩中）

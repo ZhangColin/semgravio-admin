@@ -13,7 +13,31 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfig
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolSlotWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolToggleWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentToolWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelConfigWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodesWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
@@ -23,6 +47,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancel
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderQuoteWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderScopeWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
@@ -40,6 +65,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdate
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -76,8 +105,13 @@ import org.springframework.stereotype.Component;
  *
  * <p>为 infrastructure 包内裸 {@code @Component}（BFF 出站客户端，不走 {@code @Port/@Adapter}，
  * 详见 ADR-0007，与 {@code PaymentClient} / {@code AccountClient} / {@code AppRegistryClient} 同款）。
- * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口与技能管理域（#78 第七域）共用本
- * 客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * 六域（订单/项目/沙箱/成本/单价表/知识素材）外加账号读口、技能管理域（#78 第七域）、
+ * 合同域（#104 第八域——spec #102 A 批）、付款核验域（#106 第九域——spec #102 A 批 A3，
+ * aiplatform 付款计划承接；与既有支付服务 BFF 的 {@code PaymentClient} 不同域勿混读）与
+ * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）、模型供应商域
+ * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
+ * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
+ * CRUD＋留痕）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -107,6 +141,37 @@ public class AiplatformClient {
     // 订单写路径（#29 交易环②报价改价 + #157 运营取消 + #158 重试归档）三操作共用回执：
     // ApiResponse<OrderResponse>（provider 用户面同构 DTO——五字段价目行，区别于后台详情七字段行）
     private static final TypeReference<ApiResponse<AiplatformOrderWireResponse>> ORDER_RECEIPT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 合同域（#104，spec #102 A 批 A1——provider aiplatform #336）：清单/详情/创建重建三端点
+    // 同为 ApiResponse<T> 信封；创建回执＝ContractResponse（与用户面 confirmScope 共用同构 DTO）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformContractSummaryWireResponse>>> CONTRACT_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformContractDetailWireResponse>> CONTRACT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformContractWireResponse>> CONTRACT_RECEIPT_TYPEREF =
+            new TypeReference<>() {};
+
+    // 付款核验域（#106，spec #102 A 批 A3——provider aiplatform #337）：详情为
+    // ApiResponse<BackofficePaymentPlanDetailResponse>（plan＋trails＋history 三段）；
+    // 节点录入/到账核验/打回三写口回执共形＝ApiResponse<PaymentPlanResponse>（用户面付款面板
+    // 同构 DTO，与详情 plan 段共形）；凭证内容为二进制流无信封（download）
+    private static final TypeReference<ApiResponse<AiplatformPaymentPlanDetailWireResponse>> PAYMENT_PLAN_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformPaymentPlanWireResponse>> PAYMENT_PLAN_TYPEREF =
+            new TypeReference<>() {};
+
+    // 生产承接域（#107，spec #102 A 批 A4——provider aiplatform #338）：详情/信息更新/推进
+    // 回执共形＝ApiResponse<BackofficeProductionHandoffResponse>（承接现值＋留痕时间线）；
+    // 「需用户补充」置位回执＝ApiResponse<Void>（data null——无回读面，信封即回执；
+    // 同 AccountClient VOID_TYPEREF 形制，区别是 provider 出真实信封而非 204 空 body）
+    private static final TypeReference<ApiResponse<AiplatformProductionHandoffWireResponse>> PRODUCTION_HANDOFF_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> PRODUCTION_VOID_TYPEREF =
             new TypeReference<>() {};
 
     // 项目域（#159/#162）同为 ApiResponse<T> 信封；对话史/版本列表的 data 是裸 List（非分页载体）
@@ -219,10 +284,14 @@ public class AiplatformClient {
     private static final TypeReference<ApiResponse<AiplatformSkillDraftDetailWireResponse>> SKILL_DRAFT_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
-    // 智能体配置域（#251 技能线 T5）：GET 读面与 PUT 回执同形——单对象（生效值＋覆盖标记＋
-    // 默认预览＋工具开关＋最近写者）；GET /traces data 为裸 List（append-only 时间倒序——
-    // 与技能更新留痕 List 直出同形，不造分页）
+    // 智能体配置域（#251 技能线 T5；#366 边缘四点收编 issue #112 B3）：GET 读面与 PUT 回执
+    // 同形——单对象（生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋最近写者；边缘面
+    // 值面仅档位键 8 件）；GET /traces data 为裸 List（append-only 时间倒序——与技能更新留痕
+    // List 直出同形，不造分页；边缘留痕行与三座同形同 DTO 复用）
     private static final TypeReference<ApiResponse<AiplatformAgentConfigWireResponse>> AGENT_CONFIG_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformEdgeModelConfigWireResponse>> EDGE_MODEL_CONFIG_TYPEREF =
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<List<AiplatformAgentConfigTraceWireResponse>>> AGENT_CONFIG_TRACE_LIST_TYPEREF =
@@ -234,6 +303,42 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformAgentToolWireResponse>> AGENT_TOOL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 模型供应商域（#367/#368 通道维护＋清单拉取，issue #110 B1——spec #101 B 批）：清单/单行/
+    // 创建/更新回执共形＝ApiResponse<BackofficeModelProviderResponse>（apiKeyMasked 掩码形忠实
+    // 透传）；留痕 data 为裸 List（append-only 时间倒序——同智能体配置留痕 List 直出同形）；
+    // 远端清单拉取回执＝单对象（对照结构 remoteModels/staleTiers 嵌套行）；删除回执＝
+    // ApiResponse<Void>（data null——同生产承接置位口形制）
+    private static final TypeReference<ApiResponse<List<AiplatformModelProviderWireResponse>>> MODEL_PROVIDER_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformModelProviderWireResponse>> MODEL_PROVIDER_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformModelProviderTraceWireResponse>>> MODEL_PROVIDER_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformRemoteModelCatalogWireResponse>> REMOTE_MODEL_CATALOG_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> MODEL_PROVIDER_VOID_TYPEREF =
+            new TypeReference<>() {};
+
+    // 模型档位域（#367 档位维护，issue #111 B2——spec #101 B 批）：清单/单行/创建/更新回执共形＝
+    // ApiResponse<BackofficeModelTierResponse>（语义键行五要素：tierKey/providerKey/modelName/
+    // displayName/enabled）；留痕 data 为裸 List（append-only 时间倒序——同通道留痕 List 直出
+    // 同形）；删除回执＝ApiResponse<Void>（data null——同通道删除口形制）
+    private static final TypeReference<ApiResponse<List<AiplatformModelTierWireResponse>>> MODEL_TIER_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformModelTierWireResponse>> MODEL_TIER_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformModelTierTraceWireResponse>>> MODEL_TIER_TRACE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<Void>> MODEL_TIER_VOID_TYPEREF =
             new TypeReference<>() {};
 
     // 出站时间参数定长格式（秒恒在场）：LocalDateTime.toString() 会省略零秒（"T00:00"），
@@ -422,6 +527,35 @@ public class AiplatformClient {
     }
 
     /**
+     * 录入范围文本（透传 aiplatform，issue #108）——三段（交付清单/验收方式/工期口径）
+     * <strong>整组替换</strong>（不收半组，每次全量提交）。scope 是合同冻结集的工作副本
+     * （用户「确认范围并准备合同」确认面的数据源；确认后本副本仍可改，变动触发草稿合同
+     * 「需更新」派生标志、后台重录重新冻结）。工作副本现值语义、provider 侧无 append-only
+     * 留痕——操作者不落痕（区别于报价/取消/归档三写操作）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{id}/scope}（#336 后台机机面）：
+     * 请求体 {@code {scopeDeliverables, scopeAcceptance, scopeTimeline}} 逐字镜像，返回
+     * {@code ApiResponse<OrderResponse>}（用户面同构回执：scope 三段＝刚录入的工作副本
+     * 现值，双版本引用照携）。订单不存在 404 ORD_001（5001）；三段缺失 400 ORD_029
+     * （5029）；超长（每段至多 2000 字）400 ORD_030（5030）；限未支付态：已支付/已终结
+     * 409 ORD_033（5033——已支付蕴含合同签署完成、约定已定，不再受理）——均原样透传。</p>
+     *
+     * @param id      订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command 范围录入命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/029/030/033 等，不做映射）
+     */
+    public AiplatformOrderWireResponse enterOrderScope(String id, AiplatformOrderScopeWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(id) + "/scope";
+        log.debug("AiplatformClient.enterOrderScope: {}", url);
+        try {
+            ApiResponse<AiplatformOrderWireResponse> resp = openApiClient.post(url, command, ORDER_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
      * 运营取消订单（透传 aiplatform）——限未支付态，语义与用户取消完全一致：订单落已取消、
      * 项目解冻回迭代、用户可继续对话与再次下单。取消原因必填（运营内部口径留档，不呈现
      * 任何用户面读面）。
@@ -431,12 +565,14 @@ public class AiplatformClient {
      * cancelledAt 落定）。操作者身份经框架 {@code OpenApiClient} 自动带
      * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕订单行，缺头落空）。
      * 订单不存在 404 ORD_001（5001）；已支付/已归档/已取消 409 ORD_005（5005，退款/售后
-     * 另议）；原因缺失 400 ORD_013（5013）；原因超长（至多 1000 字）400 ORD_014（5014）
-     * ——均原样透传。</p>
+     * 另议——已支付蕴含签署完成，「已支付不可取消」语义更准先到先得）；<strong>取消门收窄
+     * （#338）</strong>：未支付但最近合同已签署完成 409 ORD_047（5047——需求变化走对话区
+     * 变更沟通，取消联动活跃合同作废留痕）；原因缺失 400 ORD_013（5013）；原因超长
+     * （至多 1000 字）400 ORD_014（5014）——均原样透传。</p>
      *
      * @param id      订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
      * @param command 取消命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
-     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/005/013/014 等，不做映射）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/005/047/013/014 等，不做映射）
      */
     public AiplatformOrderWireResponse cancelOrder(String id, AiplatformOrderCancelWireRequest command) {
         String url = baseUrl + "/api/backoffice/orders/" + encode(id) + "/cancel";
@@ -473,6 +609,533 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformOrderWireResponse> resp = openApiClient.post(url, null, ORDER_RECEIPT_TYPEREF);
             return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 分页查询合同清单（透传 aiplatform，四维检索——合同域口径）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/contracts}（#336 已冻结）：返回
+     * {@code ApiResponse<PageResponse<BackofficeContractSummaryResponse>>}。四维可组合、均可缺省：
+     * ① {@code status} 状态多选（六态 Integer code，拼逗号分隔单值——签名协议按参数名去重，
+     * 同订单清单先例）；② {@code createdFrom/createdTo} 创建时间区间（ISO-8601 含两端）；
+     * ③ {@code orderId} 所属订单精确（TSID 十进制，非数值→空清单 200）；④ {@code contractNo}
+     * 合同号精确（SG- 串）。行带编号/状态/版本/冻结金额；排序服务端定死（TSID 倒序＝新合同
+     * 在前）不开放。page 1-based 直传零换算，provider clamp（page≥1、size∈[1,100]）行为透传。
+     * 过滤参数绑定失败 400 原样透传（如 ORD_020 族外显为框架绑定错误）。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformContractQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public PageResponse<AiplatformContractSummaryWireResponse> listContracts(
+            AiplatformContractListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/contracts?page=").append(page)
+                .append("&size=").append(size);
+        if (filter.status() != null && !filter.status().isEmpty()) {
+            // 逗号分隔单值（provider 签名按参数名去重，status=1&status=2 只有末值入签——禁用）
+            appendParam(url, "status",
+                    filter.status().stream().map(String::valueOf).collect(Collectors.joining(",")));
+        }
+        appendParam(url, "createdFrom", filter.createdFrom());
+        appendParam(url, "createdTo", filter.createdTo());
+        appendParam(url, "orderId", filter.orderId());
+        appendParam(url, "contractNo", filter.contractNo());
+        log.debug("AiplatformClient.listContracts: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformContractSummaryWireResponse>> resp =
+                    openApiClient.get(url.toString(), CONTRACT_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询合同详情（透传 aiplatform）——后台承接全量面：全字段（含「需更新」派生标志与
+     * 范围快照冻结面）＋PRD 确认版全文冗余拷贝（报价/录内容的依据面）＋动作留痕时间线
+     * （新→旧，append-only 全量——动作/两侧状态/依据/操作者两肢/时间）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/contracts/{id}}（#336 已冻结）：返回
+     * {@code ApiResponse<BackofficeContractDetailResponse>}（三段）；合同不存在（含畸形 id）
+     * 时 HTTP 404 + 数字业务码 5020（ORD_020）原样透传。</p>
+     *
+     * @param id 合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 ORD_020 等，不做映射）
+     */
+    public AiplatformContractDetailWireResponse getContract(String id) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id);
+        log.debug("AiplatformClient.getContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractDetailWireResponse> resp = openApiClient.get(url, CONTRACT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 为订单创建/重建合同（透传 aiplatform）——撤回/作废后的重建口（新号新合同、旧合同
+     * 终态保留），与用户「确认范围并准备合同」共用同一创建正本：冻结集取现值（最新价目行
+     * ＋范围文本工作副本＋PRD/Demo 双版本引用冗余），起步准备中。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/orders/{orderId}}（#336 已冻结）：
+     * <strong>无请求体</strong>（provider 端只读路径参数——框架 {@code OpenApiClient.post} 对
+     * null body 发空 body，同重试归档先例），返回 {@code ApiResponse<ContractResponse>}（准备中
+     * 起步回执）。前置门全在 provider：订单不存在 404 ORD_001（5001）；尚无报价 409
+     * ORD_025（5025）；范围文本未录入 409 ORD_026（5026）；已有活跃合同（预检或并发撞
+     * 部分唯一索引同译）409 ORD_024（5024）；最近合同已签署完成/订单非已报价态 409
+     * ORD_021（5021）——均原样透传，BFF 不复算活跃判定。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/021/024/025/026 等，不做映射）
+     */
+    public AiplatformContractWireResponse createContractForOrder(String orderId) {
+        String url = baseUrl + "/api/backoffice/contracts/orders/" + encode(orderId);
+        log.debug("AiplatformClient.createContractForOrder: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp = openApiClient.post(url, null, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 推进合同（透传 aiplatform）——线性单步：准备中 → 待核对与签署 → 签署进行中 → 签署完成，
+     * 末边（3→4）须双方签署位均已落签。每次推进 append-only 留痕；推进到「签署完成」即触发
+     * provider 侧开工判定（#338 双门禁之合同腿——BFF 不感知不复算）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/advance}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（动作后回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕（provider 合同动作操作者必填、缺头 ORD_035 拒）。
+     * 无推进边（终态 4/5/6）409 ORD_021（5021）；双方未均签 409 <strong>ORD_027</strong>（5027）；
+     * 依据缺失 400 ORD_022（5022）；依据超长（至多 1000 字）400 ORD_023（5023）——均原样透传，
+     * 状态机守卫全在 provider。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（由应用层从北向命令映射而来，依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023/027/035 等，不做映射）
+     */
+    public AiplatformContractWireResponse advanceContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/advance";
+        log.debug("AiplatformClient.advanceContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同旁落「签署失败或过期」终态（透传 aiplatform）——自待核对与签署/签署进行中可达
+     * （用户放弃核对或超期未签的如实终局）；其余态 409 ORD_021。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/fail}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。合同不存在 404 ORD_020（5020）；状态不允许 409
+     * ORD_021（5021）；依据缺失/超长 400 ORD_022/023（5022/5023）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse failContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/fail";
+        log.debug("AiplatformClient.failContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 撤回合同（透传 aiplatform）——自任何非终态可达的旁落终态（「已撤回或作废」）：此后换
+     * 新号重建（{@link #createContractForOrder}，旧合同终态保留）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/withdraw}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。终态再动 409 ORD_021（5021）；依据缺失/超长
+     * ORD_022/023——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse withdrawContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/withdraw";
+        log.debug("AiplatformClient.withdrawContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 作废合同（透传 aiplatform）——守卫与去向同撤回（同一终态「已撤回或作废」）、动作语义
+     * 分立：区别只在留痕行 action（2=撤回 3=作废），终态处置可审计。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/void}（#336 已冻结）：
+     * 请求体 {@code {basis}} 逐字镜像，返回 {@code ApiResponse<ContractResponse>}（终态回执）。
+     * X-User-Id/X-User-Name 透传头自动落痕。错误族同撤回（ORD_020/021/022/023）原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 动作命令体（依据合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023 等，不做映射）
+     */
+    public AiplatformContractWireResponse voidContract(
+            String id, AiplatformContractActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/void";
+        log.debug("AiplatformClient.voidContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同签署标记（透传 aiplatform）——落一方签署位＋时点：电子签渠道真接前的后台承接口径。
+     * 仅签署进行中态可落签；已落签的签署位幂等拒；<strong>不自动迁移状态</strong>（「签署
+     * 完成」由 {@link #advanceContract} 显式推进，双方均签守卫在 provider）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/sign}（#336 已冻结）：
+     * 请求体 {@code {party, basis}} 逐字镜像（party Integer code——provider BaseEnum 按 code
+     * 反序列化，非法值 provider 侧 400 框架信封），返回 {@code ApiResponse<ContractResponse>}
+     * （签署位落定后的合同现值）。X-User-Id/X-User-Name 透传头自动落痕。非签署进行中态 409
+     * ORD_021（5021）；该方已签 409 <strong>ORD_028</strong>（5028）；依据缺失/超长 400
+     * ORD_022/023（5022/5023）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 签署命令体（party/basis 合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/021/022/023/028 等，不做映射）
+     */
+    public AiplatformContractWireResponse signContract(
+            String id, AiplatformContractSignWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/sign";
+        log.debug("AiplatformClient.signContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 合同草稿重录（透传 aiplatform）——「需更新」处置正路：同号重录——预览字段集整组录入＋
+     * 冻结集取订单现值重新定格（改价/改范围后）＋合同版本 +1＋「需更新」清零。仅草稿态
+     * （准备中/待核对与签署）可达；范围重冻→新付款计划同事务（#337，BFF 不感知）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/contracts/{id}/record}（#336 已冻结）：
+     * 请求体 {@code {partyA, partyB, projectScope, paymentPlan, basis}} 逐字镜像，返回
+     * {@code ApiResponse<ContractResponse>}（重录后合同现值——version +1、needsUpdate false）。
+     * X-User-Id/X-User-Name 透传头自动留痕。非草稿态 409 <strong>ORD_031</strong>（5031）；
+     * 内容超长（主体至多 200 字、其余至多 2000 字）400 <strong>ORD_032</strong>（5032）；
+     * 依据缺失/超长 ORD_022/023；重冻前置门（尚无报价 ORD_025/范围未录 ORD_026）——均原样透传。</p>
+     *
+     * @param id      合同标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_020）
+     * @param command 重录命令体（四预览字段可空整组录入，合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_020/022/023/025/026/031/032 等，不做映射）
+     */
+    public AiplatformContractWireResponse recordContract(
+            String id, AiplatformContractRecordWireRequest command) {
+        String url = baseUrl + "/api/backoffice/contracts/" + encode(id) + "/record";
+        log.debug("AiplatformClient.recordContract: {}", url);
+        try {
+            ApiResponse<AiplatformContractWireResponse> resp =
+                    openApiClient.post(url, command, CONTRACT_RECEIPT_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 付款核验域（issue #106，spec #102 A 批 A3——provider aiplatform #337）----------
+    // 注意命名：本组是 aiplatform 付款核验域（合同冻结后的付款计划承接），与既有支付服务 BFF
+    // 上下文（com.semgravio.admin.payment，调 semgravio-payment）无关联——两处 payment 词同形
+    // 不同域，勿混读（spec #102 Further Notes）。
+
+    /**
+     * 后台付款计划详情（透传 aiplatform）——核验承接全量面：订单名下活跃计划（最新行）全量
+     * （节点五态/金额/附言码/开工门标志/渠道位/累计已核到账＋凭证清单）＋核验留痕时间线
+     * （新 → 旧，跨节点全量——到账核验/打回各一行 append-only）＋历史计划行摘要（撤回重建/
+     * 范围重冻后旧计划随旧合同留痕）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/orders/{orderId}/payment-plan}（#337 已冻结）：
+     * 返回 {@code ApiResponse<BackofficePaymentPlanDetailResponse>}。订单不存在 404 ORD_001
+     * （5001）；该订单名下无付款计划（尚无合同即无计划）404 <strong>ORD_036</strong>（5036，
+     * 前端缺席＝不渲染面板）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/ORD_036 等，不做映射）
+     */
+    public AiplatformPaymentPlanDetailWireResponse getPaymentPlan(String orderId) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId) + "/payment-plan";
+        log.debug("AiplatformClient.getPaymentPlan: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanDetailWireResponse> resp =
+                    openApiClient.get(url, PAYMENT_PLAN_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 付款节点录入（透传 aiplatform）——「付款节点录入/开工门设定」后台承接口：整组替换
+     * （不收半组）——序号按列表序服务端派生（录入序即展示序）、附言码自合同号定格
+     * （{@code <合同号>-K<序>}）、渠道起步线下转账。<strong>支付活动未开始</strong>（全部
+     * 待支付且无凭证无留痕）是重录唯一窗口——已开始变动走合同侧撤回重建；守卫归 provider
+     * 裁决（聚合腿＋凭证腿两腿同译 ORD_044），BFF 零复算。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-plan/nodes}（#337
+     * 已冻结）：请求体 {@code {nodes:[{name, amount, kickoffGate}]}} 逐字镜像（amount Long 分
+     * → JSON string 出口口径，provider 默认可回读），返回 {@code ApiResponse<PaymentPlanResponse>}
+     * （录入后计划现值）。订单不存在 404 ORD_001（5001）；无付款计划 404 ORD_036（5036）；
+     * 录入无效（至少一条、名称必填、金额为正）400 <strong>ORD_039</strong>（5039）；已开始
+     * 支付 409 <strong>ORD_044</strong>（5044）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command 节点规格整组（合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_001/036/039/044 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse enterPaymentNodes(
+            String orderId, AiplatformPaymentNodesWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId) + "/payment-plan/nodes";
+        log.debug("AiplatformClient.enterPaymentNodes: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 到账核验录入（透传 aiplatform）——凭证核验路径第二跳（后台人工录入）：实到金额/实到
+     * 时间/关联凭证/渠道流水号随行 append-only 留痕。<strong>全额判定归 provider</strong>＝
+     * 累计核到账 ≥ 节点金额：足额转「已到账」（receivedAt＝实到时间）；不足留痕＋回「待支付」
+     * （累计不清零，前台 remainingAmount 推导差额）。核验落库后即触发 provider 开工判定
+     * （付款腿触发点——BFF 不感知）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-nodes/{nodeId}/verify}
+     * （#337 已冻结）：请求体 {@code {actualAmount, arrivedAt, voucherId, channelRefNo, basis}}
+     * 逐字镜像，返回 {@code ApiResponse<PaymentPlanResponse>}（动作后计划现值）。X-User-Id/
+     * X-User-Name 透传头自动落痕留痕行（核验动作以操作者为审计正身，缺头 400
+     * <strong>ORD_043</strong> 拒）。无付款计划 404 ORD_036（5036）；节点不存在或不属活跃计划
+     * 404 <strong>ORD_037</strong>（5037）；非线下转账待核验态 409 <strong>ORD_038</strong>
+     * （5038）；录入无效（实到金额须为正、实到时间必填）400 <strong>ORD_041</strong>（5041）；
+     * 关联凭证不存在或不属该节点 404 <strong>ORD_045</strong>（5045）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param nodeId  付款节点标识（TSID 十进制字符串）
+     * @param command 核验录入命令体（合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_036/037/038/041/043/045 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse verifyPayment(
+            String orderId, String nodeId, AiplatformPaymentVerifyWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId)
+                + "/payment-nodes/" + encode(nodeId) + "/verify";
+        log.debug("AiplatformClient.verifyPayment: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 打回（透传 aiplatform）——核验族动作（凭证主张被否：回单不清、对不上账）：回「待支付」
+     * ＋依据必填留痕（ORD_042——打回依据是审计正身）。打回<strong>不动累计已核到账</strong>
+     * （核到账只经核验录入累积）；打回后用户可再传凭证（回待支付＝用户可再动作态）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/orders/{orderId}/payment-nodes/{nodeId}/reject}
+     * （#337 已冻结）：请求体 {@code {voucherId, basis}} 逐字镜像，返回
+     * {@code ApiResponse<PaymentPlanResponse>}（回待支付后的计划现值）。X-User-Id/X-User-Name
+     * 透传头自动落痕留痕行（缺头 ORD_043 拒）。无付款计划 404 ORD_036（5036）；节点不存在
+     * 404 ORD_037（5037）；非待核验态 409 ORD_038（5038）；依据缺失/超长 400
+     * <strong>ORD_042</strong>（5042）；关联凭证不属该节点 404 ORD_045（5045）——均原样透传。</p>
+     *
+     * @param orderId 订单标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param nodeId  付款节点标识（TSID 十进制字符串）
+     * @param command 打回命令体（依据必填归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（ORD_036/037/038/042/043/045 等，不做映射）
+     */
+    public AiplatformPaymentPlanWireResponse rejectPayment(
+            String orderId, String nodeId, AiplatformPaymentRejectWireRequest command) {
+        String url = baseUrl + "/api/backoffice/orders/" + encode(orderId)
+                + "/payment-nodes/" + encode(nodeId) + "/reject";
+        log.debug("AiplatformClient.rejectPayment: {}", url);
+        try {
+            ApiResponse<AiplatformPaymentPlanWireResponse> resp =
+                    openApiClient.post(url, command, PAYMENT_PLAN_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 下载付款凭证内容（透传 aiplatform）——后台核验看证的唯一触字节口：凭证文件字节直出
+     * （元数据行上的 fileName/contentType 随行进响应头），<strong>无 ApiResponse 信封</strong>
+     * （真实媒体类型＋Content-Disposition attachment 文件名，先例＝源码包/设计资产包端点）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/payment-vouchers/{voucherId}/content}（#337
+     * 已冻结）：经 cartisan-openapi {@link OpenApiClient#download} 取回原始字节 + 响应头——
+     * ofByteArray 保全二进制（ofString 会经 UTF-8 解码不可逆损坏，PDF/图片字节即回归锚点）。
+     * 内存中转、不落盘。凭证不存在（含畸形 id／伴行字节缺行）404 <strong>ORD_045</strong>
+     * （5045，同译不顶替）——错误信封在 body 里，{@code download} 内部抛
+     * {@link OpenApiClientException}，此处同款翻译透传。</p>
+     *
+     * @param voucherId 凭证标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 ORD_045）
+     * @return 二进制响应载体（HTTP 状态 + 响应头 raw 值 + 原始字节）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 ORD_045 等，不做映射）
+     */
+    public BinaryResponse downloadVoucherContent(String voucherId) {
+        String url = baseUrl + "/api/backoffice/payment-vouchers/" + encode(voucherId) + "/content";
+        log.debug("AiplatformClient.downloadVoucherContent: {}", url);
+        try {
+            return openApiClient.download(url);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 生产承接域（issue #107，spec #102 A 批 A4——provider aiplatform #338）----------
+
+    /**
+     * 后台生产承接详情（透传 aiplatform）——承接全量面：承接字段（交付联系人/下一步说明/
+     * 进展更新/预计开始时间——可空段如实 null）＋两态（1=待安排生产 2=生产中）＋动作留痕
+     * 时间线（新 → 旧，append-only 全量——动作/两侧状态/依据/操作者/时间；创建行＝开工
+     * 判定系统操作者 operatorId=system）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/projects/{projectId}/production-handoff}
+     * （#338 已冻结）：返回 {@code ApiResponse<BackofficeProductionHandoffResponse>}。承接
+     * <strong>挂项目唯一</strong>（只建一次——全生命周期一行，创建由开工判定系统触发、
+     * 无人工创建口）；无承接记录（开工判定未触发）404 <strong>PRJ_055</strong>（4055，
+     * 前端缺席＝不渲染面板）；项目不存在（含畸形 id）404 PRJ_001（4001）——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 PRJ_001）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/PRJ_055 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse getProductionHandoff(String projectId) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId) + "/production-handoff";
+        log.debug("AiplatformClient.getProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.get(url, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 生产承接信息更新（透传 aiplatform）——「生产承接更新」之字段面：交付联系人/下一步
+     * 说明/进展更新/预计开始时间<strong>整组替换</strong>——未录入段传 null 即清空（预计
+     * 开始时间清空＝回待安排呈现，「仅真实值显示」）。状态不动（留痕行 from=to 在场快照）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/update}
+     * （#338 已冻结）：请求体 {@code {contact, nextStep, progressNote, estimatedStartAt, basis}}
+     * 逐字镜像，返回 {@code ApiResponse<BackofficeProductionHandoffResponse>}（更新后承接
+     * 现值）。X-User-Id/X-User-Name 透传头自动落痕留痕行（承接动作以操作者为审计正身，
+     * 缺头 400 <strong>PRJ_059</strong> 拒）。依据必填 400 <strong>PRJ_057</strong>；字段
+     * 超长 400 <strong>PRJ_058</strong>（联系人 200/下一步 1000/进展 2000/依据 1000 字上限
+     * 归 provider）；无承接记录 404 <strong>PRJ_055</strong>；项目不存在 404 PRJ_001
+     * ——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command   信息更新命令体（五字段整组——合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/055/057/058/059 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse updateProductionHandoff(
+            String projectId, AiplatformProductionUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/update";
+        log.debug("AiplatformClient.updateProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.post(url, command, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 生产承接推进（透传 aiplatform）——<strong>两态唯一迁移边</strong>（1=待安排生产 →
+     * 2=生产中）：生产中是稳态，再推进 409 <strong>PRJ_056</strong>；依据必填 400
+     * <strong>PRJ_057</strong>；操作者必携 400 <strong>PRJ_059</strong>——守卫归 provider
+     * 裁决，BFF 零复算。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/advance}
+     * （#338 已冻结）：请求体 {@code {basis}} 逐字镜像，返回
+     * {@code ApiResponse<BackofficeProductionHandoffResponse>}（推进后承接现值——两态第二
+     * 实值 2=生产中）。X-User-Id/X-User-Name 透传头自动落痕留痕行（缺头 PRJ_059 拒）。
+     * 无承接记录 404 <strong>PRJ_055</strong>；项目不存在 404 PRJ_001——均原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析）
+     * @param command   推进命令体（依据必填归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001/055/056/057/059 等，不做映射）
+     */
+    public AiplatformProductionHandoffWireResponse advanceProductionHandoff(
+            String projectId, AiplatformProductionActionWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/advance";
+        log.debug("AiplatformClient.advanceProductionHandoff: {}", url);
+        try {
+            ApiResponse<AiplatformProductionHandoffWireResponse> resp =
+                    openApiClient.post(url, command, PRODUCTION_HANDOFF_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 「需用户补充」置位/清零（透传 aiplatform）——前台交付状态六态盖帽标志：生产承接
+     * 期间需用户补资料/确认事项时置位（required=true——前台盖帽「需用户补充」，处理
+     * 入口在对话区沟通）；处理完清零（required=false）。<strong>盖帽语义归后台人工判定，
+     * provider 只落项目级标志</strong>（本动作不落操作者留痕行——provider 命令面无操作者位）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{projectId}/production-handoff/
+     * needs-user-supplement}（#338 已冻结）：请求体 {@code {required}} 逐字镜像，返回
+     * {@code ApiResponse<Void>}（data null——无回读面，信封即回执）。项目不存在（含畸形
+     * id）404 <strong>PRJ_001</strong>（4001）——原样透传。</p>
+     *
+     * @param projectId 项目标识（TSID 十进制字符串，provider 侧 lenient 解析：非数值同 404 PRJ_001）
+     * @param command   置位命令体（只携布尔）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（PRJ_001 等，不做映射）
+     */
+    public void setProductionNeedsUserSupplement(
+            String projectId, AiplatformProductionSupplementWireRequest command) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(projectId)
+                + "/production-handoff/needs-user-supplement";
+        log.debug("AiplatformClient.setProductionNeedsUserSupplement: {}", url);
+        try {
+            openApiClient.post(url, command, PRODUCTION_VOID_TYPEREF);
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
         }
@@ -1650,17 +2313,21 @@ public class AiplatformClient {
     }
 
     /**
-     * 智能体配置读面（透传 aiplatform，技能线 T5 读口）——该智能体生效配置：systemPrompt／
-     * 模型档位生效值（库覆盖值或枚举默认——装配实取值）＋覆盖标记（现在跑的是覆盖还是默认）
-     * ＋枚举默认预览（清空覆盖即落此值）＋增强工具开关存储态＋最近写者。无覆盖行＝全回落
-     * （覆盖标记 false、写者 null）。
+     * 智能体配置读面（透传 aiplatform，技能线 T5 读口；B3 issue #112 档位键语义重对位）——
+     * 该智能体生效配置：systemPrompt／模型档位生效值（库覆盖值或枚举默认——装配实取值；
+     * modelId 语义＝档位键 ADR-0031 语义键）＋覆盖标记（现在跑的是覆盖还是默认）＋枚举
+     * 默认预览（清空覆盖即落此值）＋增强工具开关存储态＋路由强档三件（routingStrongModelId
+     * 生效值/routingStrongModelIdOverridden/defaultRoutingStrongModelId——#354 升档落点，
+     * 主档/强档同范式）＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者 null）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}}（#251）：返回
      * {@code ApiResponse<BackofficeAgentConfigResponse>}。{@code agentKey} 为字符串路径参数
-     * （main/executor 两把稳定键）原样出站——admin 透传不预校验，未知键由 provider 判 404
-     * PRJ_033（数字业务码 4033，classify/naming 等一次性判定不属配置面）原样透传。</p>
+     * （main/executor/designer 三把稳定键）原样出站——admin 透传不预校验，未知键由 provider
+     * 判 404 PRJ_033（数字业务码 4033——边缘调用点走 /edge/{edgeKey}）原样透传。provider
+     * 读面另带路由开关/两阈值六件（#354），B3 票面只点名 routingStrongModelId 一族——六件
+     * 不镜像（Jackson 容错忽略、读面不呈现）。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
      */
     public AiplatformAgentConfigWireResponse getAgentConfig(String agentKey) {
@@ -1675,26 +2342,32 @@ public class AiplatformClient {
     }
 
     /**
-     * 智能体配置全量写（透传 aiplatform，技能线 T5 写口）——PUT 全量语义：请求体即该智能体
-     * 覆盖态终态（systemPrompt/modelId 全文替换，null/缺省/纯空白＝清空覆盖回落枚举默认；
-     * 工具开关缺省 true＝开）。装配生效＝动态查库（变更后下一轮命令构建自然取新值——智能体
-     * 工厂缓存键含 sysPrompt、模型串与工具面规格，新值即新实例，进行中 run 不定格）。
+     * 智能体配置全量写（透传 aiplatform，技能线 T5 写口；B3 issue #112 档位键即时校验＋
+     * 路由强档件）——PUT 全量语义：请求体即该智能体覆盖态终态（systemPrompt/modelId/
+     * routingStrongModelId 全文替换，null/缺省/纯空白＝清空覆盖回落枚举/代码默认；工具开关
+     * 缺省 true＝开）。装配生效＝动态查库（变更后下一轮命令构建自然取新值——智能体工厂
+     * 缓存键含 sysPrompt、模型串与工具面规格，新值即新实例，进行中 run 不定格）。
      *
      * <p>对接 aiplatform {@code PUT /api/backoffice/agent-configs/{agentKey}}（#251）：请求体
-     * {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled}} 逐字镜像（开关两件
-     * Boolean 装箱——null 出站在场＝provider 缺省 true），HTTP <strong>PUT</strong> 动词
-     * ——经框架 {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径，
-     * 槽位指派先例），返回 {@code ApiResponse<BackofficeAgentConfigResponse>}（回执与 GET
-     * 同形）。变更留痕 append-only（值面有动必落痕——前后全量值快照＋操作者，traces 可查）；
-     * 同值重写＝幂等回执不落痕；回滚＝留痕旧值快照写回（一次新变更、留新痕）。档位名不做
-     * 白名单校验（错值致新会话失败经留痕写回可回滚）。操作者身份经框架 {@code OpenApiClient}
-     * 自动带 {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕——配置变更
-     * 必留痕，<strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）；寻址同 GET（未知键 404
+     * {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled, routingStrongModelId}}
+     * 逐字镜像 B3 面（开关两件 Boolean 装箱——null 出站在场＝provider 缺省 true），HTTP
+     * <strong>PUT</strong> 动词——经框架 {@link OpenApiClient#put}（与 {@code post} 同走
+     * sendWithBody 序列化＋签名路径，槽位指派先例），返回
+     * {@code ApiResponse<BackofficeAgentConfigResponse>}（回执与 GET 同形）。变更留痕
+     * append-only（值面有动必落痕——前后全量值快照＋操作者，traces 可查）；同值重写＝幂等
+     * 回执不落痕；回滚＝留痕旧值快照写回（一次新变更、留新痕）。档位键即时校验（aiplatform
+     * #367）：modelId 与 routingStrongModelId 非空时必须在模型档位面有行且启用——<strong>
+     * 缺行 400 PRJ_074</strong>＝4074、<strong>停用 400 PRJ_075</strong>＝4075（错值写不
+     * 进去，不再靠留痕回滚兜底；null＝清空回落缺省不校验）。provider 命令另带路由开关/两
+     * 阈值三件（#354），B3 票面不镜像——三肢不出站＝provider null＝缺省态（BFF 是唯一写面、
+     * 三件从无可设处，结构上恒缺省态）。操作者身份经框架 {@code OpenApiClient} 自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕——配置变更必留痕，
+     * <strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）；寻址同 GET（未知键 404
      * PRJ_033＝4033）——均原样透传。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
-     * @param command  配置命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
-     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033、400 PRJ_034 等，不做映射）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
+     * @param command  配置命令体（由应用层从北向命令映射而来，档位键校验归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033、400 PRJ_034/074/075 等，不做映射）
      */
     public AiplatformAgentConfigWireResponse updateAgentConfig(
             String agentKey, AiplatformAgentConfigUpdateWireRequest command) {
@@ -1710,21 +2383,113 @@ public class AiplatformClient {
     }
 
     /**
-     * 配置变更留痕读面（透传 aiplatform，技能线 T5 读口）——该智能体全部配置变更留痕
-     * （变更前后全量值快照 old&#42;/new&#42; 四件对——旧值快照即回滚写回依据），按时间倒序
-     * （最近先）。append-only：留痕不随任何动作删除（历史事实不随配置行消失）。
+     * 配置变更留痕读面（透传 aiplatform，技能线 T5 读口；B3 issue #112 增路由强档两件）——
+     * 该智能体全部配置变更留痕（变更前后全量值快照 old&#42;/new&#42; 对——prompt/档位/强档
+     * 三件可空，旧值快照即回滚写回依据〔含强档——读面可改就必须可回滚〕），按时间倒序
+     * （最近先）。append-only：留痕不随任何动作删除（历史事实不随配置行消失）。provider
+     * 留痕另带路由开关/两阈值六件（#354），同读面口径不镜像。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/{agentKey}/traces}（#251）：
      * 返回 {@code ApiResponse<List<BackofficeAgentConfigTraceResponse>>}——data 为裸 List
      * （append-only 时间倒序，有界——与技能更新留痕 List 直出同形，不造分页）。寻址同 GET
      * （未知键 404 PRJ_033＝4033）原样透传。</p>
      *
-     * @param agentKey 智能体稳定键（main/executor，admin 不预检）
+     * @param agentKey 智能体稳定键（main/executor/designer，admin 不预检）
      * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_033 等，不做映射）
      */
     public List<AiplatformAgentConfigTraceWireResponse> listAgentConfigTraces(String agentKey) {
         String url = baseUrl + "/api/backoffice/agent-configs/" + encode(agentKey) + "/traces";
         log.debug("AiplatformClient.listAgentConfigTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
+                    openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位读面（透传 aiplatform，#366 边缘四点收编——issue #112 B3）——边缘调用点
+     * （一次性轻调用）的模型档位生效值：库覆盖值或代码缺省档位键（各点缺省 flash——轻调用
+     * 不烧重档）＋覆盖标记＋缺省预览＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者
+     * null）。值面仅档位键——无 prompt/工具开关/路由件（字段名对齐三座面）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/edge/{edgeKey}}（#366）：
+     * 返回 {@code ApiResponse<BackofficeEdgeModelConfigResponse>}。{@code edgeKey} 为字符串
+     * 路径参数（四把稳定键：naming=项目取名 / compaction=上下文压缩 / classification=入口
+     * 分类 / precheck=技能预检）原样出站——admin 透传不预校验，未知键由 provider 判 404
+     * PRJ_064（数字业务码 4064）原样透传。改档下一轮命令构建即生效（装配动态查库，进行中
+     * run 不定格）。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064 等，不做映射）
+     */
+    public AiplatformEdgeModelConfigWireResponse getEdgeModelConfig(String edgeKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey);
+        log.debug("AiplatformClient.getEdgeModelConfig: {}", url);
+        try {
+            ApiResponse<AiplatformEdgeModelConfigWireResponse> resp =
+                    openApiClient.get(url, EDGE_MODEL_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位写（透传 aiplatform，#366——issue #112 B3 写口）——PUT 全量语义、值面
+     * 仅模型档位键：请求体 {@code {modelId}} 即该边缘点覆盖态终态（null/缺省/纯空白＝清空
+     * 覆盖回落代码缺省 flash）；换档不发版（装配库值优先，下一轮命令构建即生效）。留痕与
+     * 三座全量写同机制：值面有动必落痕（前后快照＋操作者），同值幂等重写不落痕，回滚＝
+     * 旧值快照写回（一次新变更、留新痕）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/agent-configs/edge/{edgeKey}}（#366）：
+     * 请求体 {@code {modelId}} 单字段逐字镜像 {@code EdgeModelUpdateCommand}（窄形拒绝误带
+     * ——边缘点无 prompt/开关/路由语义），HTTP <strong>PUT</strong> 动词——经框架
+     * {@link OpenApiClient#put}（与三座全量写同走 sendWithBody 序列化＋签名路径），返回
+     * {@code ApiResponse<BackofficeEdgeModelConfigResponse>}（回执与 GET 同形）。档位键即时
+     * 校验与三座同口径（#367：非空须在模型档位面有行且启用——缺行 400 <strong>PRJ_074</strong>
+     * ＝4074、停用 400 <strong>PRJ_075</strong>＝4075，错值写不进去；null＝清空回落缺省
+     * 不校验）。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（provider 落痕——配置变更必留痕，缺头 400 PRJ_034＝4034）；寻址同 GET（未知键
+     * 404 PRJ_064＝4064）——均原样透传。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @param command 边缘档位命令体（由应用层从北向命令映射而来，档位键校验归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064、400 PRJ_034/074/075 等，不做映射）
+     */
+    public AiplatformEdgeModelConfigWireResponse updateEdgeModel(
+            String edgeKey, AiplatformEdgeModelUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey);
+        log.debug("AiplatformClient.updateEdgeModel: {}", url);
+        try {
+            ApiResponse<AiplatformEdgeModelConfigWireResponse> resp =
+                    openApiClient.put(url, command, EDGE_MODEL_CONFIG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 边缘调用点档位留痕读面（透传 aiplatform，#366——issue #112 B3 读口）——该边缘点全部
+     * 配置变更留痕，按时间倒序（最近先）。快照列与三座同形（provider 同 DTO 复用）——边缘
+     * 行档位列之外的快照件恒缺省态：prompt null、开关 true、路由件缺省态（provider 边缘写
+     * 把非档位覆盖列结构性归缺省）。回滚＝把某痕旧值快照的 modelId PUT 回写（即一次新变更、
+     * 留新痕，不做版本树）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/agent-configs/edge/{edgeKey}/traces}
+     * （#366）：返回 {@code ApiResponse<List<BackofficeAgentConfigTraceResponse>>}——data 为
+     * 裸 List（append-only 时间倒序、有界，不造分页；与三座留痕读面同形）。寻址同 GET
+     * （未知键 404 PRJ_064＝4064）原样透传。</p>
+     *
+     * @param edgeKey 边缘点稳定键（naming/compaction/classification/precheck，admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_064 等，不做映射）
+     */
+    public List<AiplatformAgentConfigTraceWireResponse> listEdgeModelTraces(String edgeKey) {
+        String url = baseUrl + "/api/backoffice/agent-configs/edge/" + encode(edgeKey) + "/traces";
+        log.debug("AiplatformClient.listEdgeModelTraces: {}", url);
         try {
             ApiResponse<List<AiplatformAgentConfigTraceWireResponse>> resp =
                     openApiClient.get(url, AGENT_CONFIG_TRACE_LIST_TYPEREF);
@@ -1788,6 +2553,371 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformAgentToolWireResponse> resp =
                     openApiClient.put(url, command, AGENT_TOOL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道清单读面（透传 aiplatform，模型供应商域读口）——全部通道行按键序；apiKey 只出
+     * 掩码形（尾 4 位，null＝未配置）——接口回显面零明文 key，admin 忠实透传掩码值不二次
+     * 处理（spec #101）。种子两通道：volcengine 主用（火山方舟）＋deepseek 官方备胎。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers}（#367）：返回
+     * {@code ApiResponse<List<BackofficeModelProviderResponse>>}——data 为裸 List（通道
+     * 行有界，List 直出同形不造分页）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelProviderWireResponse> listModelProviders() {
+        String url = baseUrl + "/api/backoffice/model-providers";
+        log.debug("AiplatformClient.listModelProviders: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelProviderWireResponse>> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道单行读面（透传 aiplatform，模型供应商域读口）——该通道行（掩码形同清单）。
+     * {@code providerKey} 为字符串路径参数（键名即协议路由前缀——volcengine/deepseek 等）
+     * 原样出站，admin 透传不预校验。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 返回 {@code ApiResponse<BackofficeModelProviderResponse>}。未知键 404 PRJ_065
+     * （数字业务码 4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse getModelProvider(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.getModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道创建（透传 aiplatform，模型供应商域写口）——新建接入通道：键名（＝协议路由
+     * 前缀，OpenAI 兼容统一接、SDK 内置前缀走原生 provider）随体、已存在 409 PRJ_067
+     * （数字业务码 4067）；baseUrl 必填（400 PRJ_069＝4069）；apiKey 收全量值（写面唯一
+     * 明文入口——null/空白＝暂不配置，装配按 PRJ_063 明确报错）；enabled 缺省 true。
+     * 回执 apiKey 已掩码（尾 4 位忠实透传）。创建即落痕（old 全 null）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-providers}（#367）：请求体
+     * {@code {providerKey, baseUrl, apiKey, enabled}} 逐字镜像 {@code ModelProviderCreateCommand}
+     * （enabled Boolean 装箱——null 出站在场＝provider 缺省 true），返回
+     * {@code ApiResponse<BackofficeModelProviderResponse>}（回执与 GET 同形）。操作者身份经
+     * 框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name} 头（创建即留痕，
+     * <strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）——均原样透传。</p>
+     *
+     * @param command 创建命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（409 PRJ_067、400 PRJ_069/034 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse createModelProvider(
+            AiplatformModelProviderCreateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-providers";
+        log.debug("AiplatformClient.createModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.post(url, command, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道更新（透传 aiplatform，模型供应商域写口）——PUT 全量语义：baseUrl 终态替换；
+     * apiKey 与 enabled <strong>缺省＝保持现值</strong>（apiKey 读面只出掩码、缺省清空＝
+     * 读一次即丢 key；enabled 缺省翻转会把停用通道在换 key 时意外复启——两肢皆显式写
+     * 才动）。<strong>缺省肢语义在 wire 请求体上保真</strong>（spec #101）：可空肢 null
+     * 在场＝保持现值，不臆造默认值。换 key 携全量新值（写面唯一明文入口）；清除 key 无
+     * 写面（下线通道走 enabled=false）。换 key/换 baseUrl 下一轮命令构建即生效（模型
+     * 实例缓存键含通道指纹——同模型串换 key 换地址＝新实例，进行中 run 不定格）。值面
+     * 无动＝幂等回执不落痕；回滚＝留痕旧值快照写回（换 key 回滚＝操作者重输旧 key 全量
+     * 值——留痕只出掩码，不作密钥找回面）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 请求体 {@code {baseUrl, apiKey, enabled}} 逐字镜像 {@code ModelProviderUpdateCommand}
+     * （apiKey/enabled 可空肢——null 出站在场＝保持现值；携现值掩码形同判保持＝掩码回显
+     * 的 round-trip 安全），HTTP <strong>PUT</strong> 动词——经框架 {@link OpenApiClient#put}
+     * （与 {@code post} 同走 sendWithBody 序列化＋签名路径，智能体配置先例），返回
+     * {@code ApiResponse<BackofficeModelProviderResponse>}（回执与 GET 同形）。操作者身份
+     * 经框架自动带 {@code X-User-Id/X-User-Name} 头（更新必留痕，<strong>缺头 400
+     * PRJ_034</strong>＝4034）；未知键 404 PRJ_065（4065）——均原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @param command     更新命令体（由应用层从北向命令映射而来——缺省肢保真直通，合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065、400 PRJ_069/034 等，不做映射）
+     */
+    public AiplatformModelProviderWireResponse updateModelProvider(
+            String providerKey, AiplatformModelProviderUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.updateModelProvider: {}", url);
+        try {
+            ApiResponse<AiplatformModelProviderWireResponse> resp =
+                    openApiClient.put(url, command, MODEL_PROVIDER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道删除（透传 aiplatform，模型供应商域写口）——删除通道行；仍被档位行引用即 409
+     * PRJ_072（数字业务码 4072——先删改挂其下的档位行，悬空引用不留静默坑）。删成落痕
+     * （new 全 null，留痕跨行存活）。操作者经框架透传头落痕（缺头 400 PRJ_034＝4034）。
+     *
+     * <p>对接 aiplatform {@code DELETE /api/backoffice/model-providers/{providerKey}}（#367）：
+     * 无请求体，返回 {@code ApiResponse<Void>}（data null——信封即回执，同生产承接置位口
+     * 形制）。HTTP <strong>DELETE</strong> 动词——经框架 {@link OpenApiClient#delete}
+     * （知识素材卸载/删除先例）。未知键 404 PRJ_065（4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065、409 PRJ_072、400 PRJ_034 等，不做映射）
+     */
+    public void deleteModelProvider(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey);
+        log.debug("AiplatformClient.deleteModelProvider: {}", url);
+        try {
+            openApiClient.delete(url, MODEL_PROVIDER_VOID_TYPEREF);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 远端模型清单手动拉取（透传 aiplatform，模型供应商域只读探测）——按通道行真拉远端
+     * 模型清单（OpenAI 兼容 GET {baseUrl}/models，方舟端点实测同形状）并与库内档位对照：
+     * 条目 trackedTierKeys 空＝远端有库里无（建议入库）；staleTiers＝库内指向远端已无
+     * （提示过时）。每次全量真拉无缓存（手动同步——自动定时同步明确不做，ADR-0031）。
+     * 条目 status 如实转述上游（方舟：无 status＝活跃、Shutdown/Retiring＝下架/退场中）。
+     * 纯读动作零留痕——「勾选入库」不经此响应回写，复用档位创建写口（POST
+     * /model-tiers——权限在彼处自然拦截）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-providers/{providerKey}/remote-models}
+     * （#368）：无请求体（null body 发空 body，同重试归档先例），返回
+     * {@code ApiResponse<BackofficeRemoteModelCatalogResponse>}——对照结构（remoteModels
+     * 嵌套行含 trackedTierKeys、staleTiers 嵌套行）逐字镜像。上游不可用明确报错不静默
+     * （502 PRJ_077＝数字业务码 4077 带理由）；通道 key 空 400 PRJ_076（4076——无凭证
+     * 不打上游）；停用通道可拉（巡检语义）；未知键 404 PRJ_065（4065）——均原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（502 PRJ_077、400 PRJ_076、404 PRJ_065 等，不做映射）
+     */
+    public AiplatformRemoteModelCatalogWireResponse pullRemoteModels(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey) + "/remote-models";
+        log.debug("AiplatformClient.pullRemoteModels: {}", url);
+        try {
+            ApiResponse<AiplatformRemoteModelCatalogWireResponse> resp =
+                    openApiClient.post(url, null, REMOTE_MODEL_CATALOG_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 通道变更留痕读面（透传 aiplatform，模型供应商域读口）——该通道全部变更留痕按时间
+     * 倒序（最近先）。每痕＝一次实际变更（幂等重写不落痕）：前后全量值快照（apiKey 快照
+     * 读面一律掩码——尾 4 位足以比对哪次换了哪把 key，不作密钥找回面；admin 忠实透传）
+     * ＋操作者＋时刻。创建痕 old 全 null、删除痕 new 全 null；append-only 跨行存活——
+     * 行删除后留痕仍可读（空清单＝从未有行，行读面负责 404 判别）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-providers/{providerKey}/traces}
+     * （#367）：返回 {@code ApiResponse<List<BackofficeModelProviderTraceResponse>>}——
+     * data 为裸 List（append-only 时间倒序，有界——同智能体配置留痕 List 直出同形，
+     * 不造分页）。寻址同 GET（未知键 404 PRJ_065＝4065）原样透传。</p>
+     *
+     * @param providerKey 通道键名（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_065 等，不做映射）
+     */
+    public List<AiplatformModelProviderTraceWireResponse> listModelProviderTraces(String providerKey) {
+        String url = baseUrl + "/api/backoffice/model-providers/" + encode(providerKey) + "/traces";
+        log.debug("AiplatformClient.listModelProviderTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelProviderTraceWireResponse>> resp =
+                    openApiClient.get(url, MODEL_PROVIDER_TRACE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    // ---------- 模型档位域（issue #111 B2，spec #101 B 批——provider aiplatform #367）----------
+
+    /**
+     * 档位清单读面（透传 aiplatform，模型档位域读口）——全部档位行按语义键序：语义键/
+     * 实际模型名/所属通道/显示名/启用态＋最近写者。清单 {@code enabled=true} 键集＝绑定
+     * 下拉数据源与改档写口即时校验放行值域（agent-configs 面的 modelId 语义即档位键）。
+     * 种子三档：flash/pro（火山 GA 对齐版）/doubao-flagship（备选档）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers}（#367）：返回
+     * {@code ApiResponse<List<BackofficeModelTierResponse>>}——data 为裸 List（档位行
+     * 有界，List 直出同形不造分页）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelTierWireResponse> listTiers() {
+        String url = baseUrl + "/api/backoffice/model-tiers";
+        log.debug("AiplatformClient.listTiers: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelTierWireResponse>> resp =
+                    openApiClient.get(url, MODEL_TIER_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位单行读面（透传 aiplatform，模型档位域读口）——该档位行。{@code tierKey} 为
+     * 字符串路径参数（寻址键即绑定引用腿——flash/pro/doubao-flagship 这类运营短名）
+     * 原样出站，admin 透传不解析不预校验。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers/{tierKey}}（#367）：返回
+     * {@code ApiResponse<BackofficeModelTierResponse>}。未知键 404 PRJ_066（数字业务码
+     * 4066）原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse getTier(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.getTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp = openApiClient.get(url, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位创建（透传 aiplatform，模型档位域写口）——新建档位：语义键随体（已存在 409
+     * PRJ_068＝数字业务码 4068，语义键唯一——改既有档走 PUT）；所属通道必须已有行
+     * （400 PRJ_071＝4071——先建通道行再挂档位）；实际模型名必填（400 PRJ_070＝4070）；
+     * 显示名可空（＝回落语义键）；enabled 缺省 true。创建即落痕（old 全 null）；建行即可
+     * 被绑定（绑定即时校验放行）。<strong>「勾选入库」复用本写口</strong>（远端清单建议
+     * 入库条：modelName 填所选条目 modelId、语义键人工命名——B1 remote-models 只读探测
+     * 的落库正路）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/model-tiers}（#367）：请求体
+     * {@code {tierKey, providerKey, modelName, displayName, enabled}} 逐字镜像
+     * {@code ModelTierCreateCommand}（enabled Boolean 装箱——null 出站在场＝provider
+     * 缺省 true），返回 {@code ApiResponse<BackofficeModelTierResponse>}（回执与 GET
+     * 同形）。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（创建即留痕，<strong>缺头 400 PRJ_034</strong>＝数字业务码 4034）——均原样
+     * 透传。</p>
+     *
+     * @param command 创建命令体（由应用层从北向命令映射而来，字段合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（409 PRJ_068、400 PRJ_070/071/034 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse createTier(AiplatformModelTierCreateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-tiers";
+        log.debug("AiplatformClient.createTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp =
+                    openApiClient.post(url, command, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位更新（透传 aiplatform，模型档位域写口）——PUT 全量语义：providerKey/modelName/
+     * displayName 终态替换（displayName null/空白＝清显示名回落语义键）；enabled
+     * <strong>缺省＝保持现值</strong>（终态字段不因缺省翻转——停用档换模型名/换通道不被
+     * 意外复启，显式 true/false 才翻转）。<strong>缺省肢语义在 wire 请求体上保真</strong>
+     * （spec #101）：可空肢 null 在场＝保持现值，不臆造默认值。换通道/升模型版本/停启用
+     * 皆此一处改指向——全部引用自动跟上（改指向下一轮命令构建即生效，装配动态查库）。
+     * 停用＝既有绑定装配报错 PRJ_061、新绑定被即时校验拒绝 PRJ_075（临时下线用停用不删行）。
+     * 值面无动＝幂等回执不落痕；回滚＝留痕旧值快照写回（行在＝PUT、行已删＝按旧值重建行，
+     * 皆一次新变更留新痕）。
+     *
+     * <p>对接 aiplatform {@code PUT /api/backoffice/model-tiers/{tierKey}}（#367）：请求体
+     * {@code {providerKey, modelName, displayName, enabled}} 逐字镜像
+     * {@code ModelTierUpdateCommand}，HTTP <strong>PUT</strong> 动词——经框架
+     * {@link OpenApiClient#put}（与 {@code post} 同走 sendWithBody 序列化＋签名路径，通道
+     * 更新先例），返回 {@code ApiResponse<BackofficeModelTierResponse>}（回执与 GET 同形）。
+     * 操作者身份经框架自动带 {@code X-User-Id/X-User-Name} 头（更新必留痕，<strong>缺头
+     * 400 PRJ_034</strong>＝4034）；未知键 404 PRJ_066（4066）；所属通道不存在 400
+     * PRJ_071（4071）；字段不完整 400 PRJ_070（4070）——均原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @param command 更新命令体（由应用层从北向命令映射而来——缺省肢保真直通，合法性归 provider 写用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066、400 PRJ_070/071/034 等，不做映射）
+     */
+    public AiplatformModelTierWireResponse updateTier(
+            String tierKey, AiplatformModelTierUpdateWireRequest command) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.updateTier: {}", url);
+        try {
+            ApiResponse<AiplatformModelTierWireResponse> resp =
+                    openApiClient.put(url, command, MODEL_TIER_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位删除（透传 aiplatform，模型档位域写口）——删除档位行；仍被智能体运营配置绑定
+     * （{@code model_id}/{@code routing_strong_model_id} 任一＝该语义键）即 409 PRJ_073
+     * （数字业务码 4073——先改绑或清空绑定再删，悬空引用不留静默坑；临时下线用停用不
+     * 删行）。删成落痕（new 全 null，留痕跨行存活）。操作者经框架透传头落痕（缺头 400
+     * PRJ_034＝4034）。
+     *
+     * <p>对接 aiplatform {@code DELETE /api/backoffice/model-tiers/{tierKey}}（#367）：
+     * 无请求体，返回 {@code ApiResponse<Void>}（data null——信封即回执，同通道删除口
+     * 形制）。HTTP <strong>DELETE</strong> 动词——经框架 {@link OpenApiClient#delete}
+     * （通道删除先例）。未知键 404 PRJ_066（4066）原样透传。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_066、409 PRJ_073、400 PRJ_034 等，不做映射）
+     */
+    public void deleteTier(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey);
+        log.debug("AiplatformClient.deleteTier: {}", url);
+        try {
+            openApiClient.delete(url, MODEL_TIER_VOID_TYPEREF);
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 档位变更留痕读面（透传 aiplatform，模型档位域读口）——该档位全部变更留痕按时间
+     * 倒序（最近先）。每痕＝一次实际变更（幂等重写不落痕）：前后全量值快照＋操作者＋
+     * 时刻。创建痕 old 全 null、删除痕 new 全 null；newDisplayName null＝本次清空回落
+     * 语义键。append-only 跨行存活——行删除后留痕仍可读。<strong>留痕读面不要求行存在
+     * </strong>——未知键空清单 200 非 404（空清单＝从未有行，行读面负责 404 判别）；
+     * 回滚＝把某痕旧值快照写回（行在＝PUT、行已删＝按旧值重建行）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/model-tiers/{tierKey}/traces}（#367）：
+     * 返回 {@code ApiResponse<List<BackofficeModelTierTraceResponse>>}——data 为裸 List
+     * （append-only 时间倒序，有界——同通道留痕 List 直出同形，不造分页）。</p>
+     *
+     * @param tierKey 档位语义键（admin 不预检——留痕跨行存活，删行键照查）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public List<AiplatformModelTierTraceWireResponse> listTierTraces(String tierKey) {
+        String url = baseUrl + "/api/backoffice/model-tiers/" + encode(tierKey) + "/traces";
+        log.debug("AiplatformClient.listTierTraces: {}", url);
+        try {
+            ApiResponse<List<AiplatformModelTierTraceWireResponse>> resp =
+                    openApiClient.get(url, MODEL_TIER_TRACE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

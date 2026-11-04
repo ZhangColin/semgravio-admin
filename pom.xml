@@ -124,7 +124,10 @@
         </dependency>
     </dependencies>
 
+    <!-- 发布基线（#115）：唯一定义稳定产物名 target/semgravio-admin.jar，
+         deploy/server.Dockerfile / deploy/build-bundle.sh / deploy/rehearsal.sh 均消费此约定，禁止各自拼接版本名 -->
     <build>
+        <finalName>semgravio-admin</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -152,6 +155,16 @@
                     <mainClass>com.semgravio.AdminApplication</mainClass>
                     <jvmArguments>--enable-preview</jvmArguments>
                 </configuration>
+                <executions>
+                    <!-- package 产出可执行 fat JAR（含 Spring Boot 启动清单与 BOOT-INF/lib 依赖），
+                         而非仅编译产物的瘦 JAR；原瘦 JAR 保留为 .jar.original -->
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.pitest</groupId>

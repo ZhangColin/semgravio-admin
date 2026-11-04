@@ -7,10 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * AI 平台订单写路径回执——北向出口，逐字镜像 aiplatform {@code OrderResponse}（用户面
- * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装，15 字段含内嵌改价历史＋#297/#298
- * 交付物类型字段对）。报价/取消/重试归档三写操作共用本回执：报价回执＝落定后的订单现值
- * （金额/备注取最新价目行）＋append-only 改价历史；取消回执＝已取消终态（cancelledAt
- * 落定）；重试归档回执＝已归档终态（paidAt/archivedAt 双时点）。
+ * 订单详情同构 DTO，下单/详情/取消/报价/支付共用拼装，20 字段含内嵌改价历史＋#297/#298
+ * 交付物类型字段对＋#335 双版本引用＋#336 范围文本三段）。报价/取消/重试归档/范围录入
+ * 四写操作共用本回执：报价回执＝落定后的订单现值（金额/备注取最新价目行）＋append-only
+ * 改价历史；取消回执＝已取消终态（cancelledAt 落定）；重试归档回执＝已归档终态
+ * （paidAt/archivedAt 双时点）；范围录入回执＝工作副本现值（scope 三段＝刚录入的
+ * 整组替换后现值，双版本引用照携不被改写）。
  *
  * <p>与 {@link AiplatformOrderDetailResponse}（后台详情）的差异：无项目名/下单用户昵称/
  * PRD 快照/操作者留痕两肢——provider 回执即用户面 DTO；内嵌价目行为五字段（无操作者
@@ -40,6 +42,19 @@ public record AiplatformOrderResponse(
         /** 交付物类型中文名（前端直读展示） */
         String deliverableTypeName,
 
+        /**
+         * 下单冻结的已确认 PRD 版本号（#335 V37 双版本引用——下单前置＝已确认 PRD 版本＋Demo
+         * 确认版本，双版本随单冻结；遗留单 NULL）。
+         */
+        @Schema(description = "下单冻结的已确认 PRD 版本号（V37 双版本引用随单冻结；遗留单 null）",
+                example = "3")
+        Integer prdVersionNo,
+
+        /** 下单冻结的已确认 Demo 版本号（#335；遗留单 NULL） */
+        @Schema(description = "下单冻结的已确认 Demo 版本号（V37 双版本引用随单冻结；遗留单 null）",
+                example = "2")
+        Integer demoVersionNo,
+
         /** 当前总价（分；待报价 NULL，改价取最新价目行） */
         Long amount,
 
@@ -48,6 +63,25 @@ public record AiplatformOrderResponse(
 
         /** 当前后台备注（最新价目行 note；待报价 NULL） */
         String note,
+
+        /**
+         * 范围文本·交付清单（#336 后台录入工作副本现值；未录入 NULL——「确认范围并准备
+         * 合同」确认面的数据源，合同冻结集的底稿）。
+         */
+        @Schema(description = "范围文本·交付清单（scope 工作副本现值；未录入 null——合同冻结集的"
+                + "底稿，确认后仍可改并触发草稿合同「需更新」）",
+                example = "交付清单：管理后台＋小程序（含 5 个核心页面）")
+        String scopeDeliverables,
+
+        /** 范围文本·验收方式（#336 工作副本；未录入 NULL） */
+        @Schema(description = "范围文本·验收方式（scope 工作副本现值；未录入 null）",
+                example = "验收方式：按 PRD v3 逐项验收")
+        String scopeAcceptance,
+
+        /** 范围文本·工期口径（#336 工作副本；未录入 NULL） */
+        @Schema(description = "范围文本·工期口径（scope 工作副本现值；未录入 null）",
+                example = "工期口径：4 周（含 1 周联调）")
+        String scopeTimeline,
 
         /** 首次报价时点（改价不刷新；待报价 NULL） */
         LocalDateTime quotedAt,

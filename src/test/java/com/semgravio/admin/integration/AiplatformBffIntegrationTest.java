@@ -22,23 +22,49 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 import com.semgravio.admin.aiplatform.application.AiplatformAccountAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformAgentConfigAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformContractAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformCostAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformMaterialAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformModelProviderAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformModelTierAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformOrderAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformUpstreamException;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformAgentConfigUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformEdgeModelUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderCreateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelProviderUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelTierCreateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformModelTierUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentNodesCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentRejectCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionActionCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionSupplementCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformProductionUpdateCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPaymentVerifyCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractRecordCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformContractSignCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCancelCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
+import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformPriceEntryRepriceCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformCostQuery;
+import com.semgravio.admin.aiplatform.application.dto.query.AiplatformContractQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformMaterialQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformPriceEntryQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformProjectQuery;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformAccountProfileResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractDetailResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformContractSummaryResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformCostOverviewResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformMaterialDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformMaterialSummaryResponse;
@@ -54,16 +80,51 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProject
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAccountProfileWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformAgentConfigWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostOverviewWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformCostWindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelConfigWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformEdgeModelUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformMaterialSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelProviderWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformRemoteModelCatalogWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierCreateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierTraceWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierUpdateWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformModelTierWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractRecordWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSignWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractTransitionWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformContractWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodeWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentNodesWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentPlanWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerificationWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVerifyWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPaymentVoucherWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderBriefWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderCancelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderQuoteWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderScopeWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformOrderWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformPriceEntryListWireRequest;
@@ -94,7 +155,11 @@ import com.cartisan.web.response.PageResponse;
  * aiplatform BFF 集成测试（issue #63 T1 账号首批 + #64 订单读路径 + #65 项目核心读路径 +
  * #66 沙箱观测与四干预动作 + #67 成本四读口 + #68 单价表清单/原子改价/停用 + #69 知识素材
  * 清单/详情/停用⇄启用/删除 + #70 订单写路径报价/改价/取消/重试归档 + #71 项目文件区
- * 文件树/文件内容/文件包）——mock {@link AiplatformClient}，
+ * 文件树/文件内容/文件包 + #104 合同域清单/详情/创建重建 + #105 合同域六态推进写口
+ * advance/fail/withdraw/void/sign/record + #106 付款核验域计划详情/节点录入/核验/打回/
+ * 凭证二进制 + #107 生产承接域详情/整组更新/推进/需用户补充 + #110 模型供应商域通道
+ * CRUD/远端清单拉取/留痕 + #112 agent-configs 档位化与边缘点——routingStrongModelId
+ * 字段对映射＋边缘调用点读/写/留痕）——mock {@link AiplatformClient}，
  * 验证 AppService 在 Spring 上下文
  * 中的完整接线（DI、query→wire 映射、wire→response DTO 映射、分页 1-based 透传、二进制载体
  * 保全、下游错误透传不映射）。
@@ -137,6 +202,24 @@ class AiplatformBffIntegrationTest {
 
     @Autowired
     private AiplatformMaterialAppService materialAppService;
+
+    @Autowired
+    private AiplatformContractAppService contractAppService;
+
+    @Autowired
+    private AiplatformPaymentAppService paymentAppService;
+
+    @Autowired
+    private AiplatformProductionAppService productionAppService;
+
+    @Autowired
+    private AiplatformModelProviderAppService modelProviderAppService;
+
+    @Autowired
+    private AiplatformModelTierAppService modelTierAppService;
+
+    @Autowired
+    private AiplatformAgentConfigAppService agentConfigAppService;
 
     @MockBean
     private AiplatformClient aiplatformClient;
@@ -309,6 +392,12 @@ class AiplatformBffIntegrationTest {
         // 交付物类型字段对（#96）：写回执 OrderResponse 同步镜像
         assertThat(receipt.deliverableType()).isEqualTo(3);
         assertThat(receipt.deliverableTypeName()).isEqualTo("系统＋设计");
+        // 双版本引用＋范围文本三段（#108：provider #335/#336——OrderResponse 20 字段镜像）
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
         assertThat(receipt.amount()).isEqualTo(2199000L);
         assertThat(receipt.note()).isEqualTo("含加急费用");
         assertThat(receipt.quotedAt()).isEqualTo(LocalDateTime.of(2026, 9, 11, 9, 0, 0));
@@ -365,6 +454,41 @@ class AiplatformBffIntegrationTest {
     }
 
     @Test
+    void given_scopeReceipt_when_enterScope_then_wireCommandMappedAndWorkingCopyEchoed() {
+        when(aiplatformClient.enterOrderScope(eq("3829492001234567"), any())).thenReturn(orderReceiptWire(
+                2, "已报价", null, null, null, List.of(
+                        new AiplatformOrderWireResponse.PriceEntry(
+                                "3829492011111111", 2199000L, "CNY", "含加急费用",
+                                LocalDateTime.of(2026, 9, 12, 10, 0, 0)))));
+
+        AiplatformOrderResponse receipt = orderAppService.enterScope("3829492001234567",
+                new AiplatformOrderScopeCommand(
+                        "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                        "验收方式：按 PRD v3 逐项验收",
+                        "工期口径：4 周（含 1 周联调）"));
+
+        // 出站参数：北向命令 → wire 命令体逐字段映射（三段原值——半组/超长归 provider 聚合守卫）
+        ArgumentCaptor<AiplatformOrderScopeWireRequest> commandCaptor =
+                ArgumentCaptor.forClass(AiplatformOrderScopeWireRequest.class);
+        verify(aiplatformClient).enterOrderScope(eq("3829492001234567"), commandCaptor.capture());
+        assertThat(commandCaptor.getValue()).isEqualTo(new AiplatformOrderScopeWireRequest(
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）"));
+
+        // wire → response：scope 三段＝工作副本现值回显、双版本引用照携、报价事实不动（工作副本
+        // 录入不改金额/价目行/状态）
+        assertThat(receipt.status()).isEqualTo(2);
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序（含 5 个核心页面）");
+        assertThat(receipt.scopeAcceptance()).isEqualTo("验收方式：按 PRD v3 逐项验收");
+        assertThat(receipt.scopeTimeline()).isEqualTo("工期口径：4 周（含 1 周联调）");
+        assertThat(receipt.prdVersionNo()).isEqualTo(3);
+        assertThat(receipt.demoVersionNo()).isEqualTo(2);
+        assertThat(receipt.amount()).isEqualTo(2199000L);
+        assertThat(receipt.priceEntries()).hasSize(1);
+    }
+
+    @Test
     void given_ord007FromDownstream_when_quote_then_propagateWithoutMapping() {
         when(aiplatformClient.quoteOrder(eq("3829492001234567"), any())).thenThrow(
                 AiplatformUpstreamException.from(new OpenApiClientException(409,
@@ -383,9 +507,10 @@ class AiplatformBffIntegrationTest {
     }
 
     /**
-     * 三写操作共用回执 wire 工厂：按动作后的终态（status/时点组）参数化，固定订单标识与
-     * 报价事实（金额/备注取最新价目行、quotedAt 首次报价时点）。paidAt/ cancelledAt/archivedAt
-     * 全参数化——各终态只落自己的时点（改价/取消单未支付 paidAt=null，归档单双时点俱全）。
+     * 四写操作共用回执 wire 工厂：按动作后的终态（status/时点组）参数化，固定订单标识、
+     * 报价事实（金额/备注取最新价目行、quotedAt 首次报价时点）、双版本引用（#335：3/2）
+     * 与范围文本三段（#336 工作副本现值）。paidAt/cancelledAt/archivedAt 全参数化——
+     * 各终态只落自己的时点（改价/取消单未支付 paidAt=null，归档单双时点俱全）。
      */
     private static AiplatformOrderWireResponse orderReceiptWire(
             Integer status, String statusName,
@@ -393,10 +518,1079 @@ class AiplatformBffIntegrationTest {
             List<AiplatformOrderWireResponse.PriceEntry> priceEntries) {
         return new AiplatformOrderWireResponse(
                 "3829492001234567", "3829492007654321", status, statusName,
-                3, "系统＋设计",
-                2199000L, "CNY", "含加急费用", LocalDateTime.of(2026, 9, 11, 9, 0, 0),
+                3, "系统＋设计", 3, 2,
+                2199000L, "CNY", "含加急费用",
+                "交付清单：管理后台＋小程序（含 5 个核心页面）",
+                "验收方式：按 PRD v3 逐项验收",
+                "工期口径：4 周（含 1 周联调）",
+                LocalDateTime.of(2026, 9, 11, 9, 0, 0),
                 priceEntries, LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                 cancelledAt, paidAt, archivedAt);
+    }
+
+    // ========== 合同域（#104 A1）· query→wire 映射 + 三段详情映射 + 创建回执映射 ==========
+
+    @Test
+    void given_contractQueryAndPage_when_list_then_wireRequestMappedAndPageEchoedFromProvider() {
+        when(aiplatformClient.listContracts(any(), eq(3), eq(20))).thenReturn(
+                new PageResponse<>(List.of(
+                        new AiplatformContractSummaryWireResponse(
+                                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                                3, "签署进行中", 1, 128000L, "CNY",
+                                LocalDateTime.of(2026, 10, 18, 9, 30, 0))), 6, 3, 20));
+
+        PageResponse<AiplatformContractSummaryResponse> page = contractAppService.list(
+                new AiplatformContractQuery(List.of(3, 6),
+                        LocalDateTime.of(2026, 10, 1, 0, 0, 0),
+                        LocalDateTime.of(2026, 10, 31, 23, 59, 59),
+                        "3829492007777777", "SG-l5d3vt0h4b"), 3, 20);
+
+        // 出站参数：北向 query → wire 过滤记录逐字段映射（第四维＝contractNo，区别于订单的 externalId）；
+        // page 1-based 直传（3→3，无 ±1）
+        ArgumentCaptor<AiplatformContractListWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractListWireRequest.class);
+        verify(aiplatformClient).listContracts(wireCaptor.capture(), eq(3), eq(20));
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractListWireRequest(
+                List.of(3, 6),
+                LocalDateTime.of(2026, 10, 1, 0, 0, 0),
+                LocalDateTime.of(2026, 10, 31, 23, 59, 59),
+                "3829492007777777", "SG-l5d3vt0h4b"));
+
+        // 回显取 provider 回报值；wire → response 逐字段（六态 code+中文名/version/金额直通）
+        assertThat(page.total()).isEqualTo(6L);
+        assertThat(page.page()).isEqualTo(3);
+        assertThat(page.size()).isEqualTo(20);
+        var row = page.items().get(0);
+        assertThat(row.id()).isEqualTo("3829493004444444");
+        assertThat(row.contractNo()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(row.orderId()).isEqualTo("3829492007777777");
+        assertThat(row.status()).isEqualTo(3);
+        assertThat(row.statusName()).isEqualTo("签署进行中");
+        assertThat(row.version()).isEqualTo(1);
+        assertThat(row.amount()).isEqualTo(128000L);
+        assertThat(row.currency()).isEqualTo("CNY");
+        assertThat(row.createdAt()).isEqualTo(LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    @Test
+    void given_contractDetailWire_when_getDetail_then_threeSegmentsMapped() {
+        when(aiplatformClient.getContract("3829493004444444")).thenReturn(
+                new AiplatformContractDetailWireResponse(
+                        new AiplatformContractWireResponse(
+                                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                                3, "签署进行中", 1, false,
+                                "语义引力（上海）科技有限公司", "文野",
+                                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                                128000L, "CNY", 3, 2,
+                                true, LocalDateTime.of(2026, 10, 20, 10, 0, 0),
+                                false, null,
+                                LocalDateTime.of(2026, 10, 18, 9, 30, 0)),
+                        "# PRD v3\n\n已确认版本全文",
+                        List.of(new AiplatformContractTransitionWireResponse(
+                                4, "签署标记", 3, "签署进行中", 3, "签署进行中",
+                                "甲方已线下用印", "700100", "运营·小刘",
+                                LocalDateTime.of(2026, 10, 20, 10, 0, 0)))));
+
+        AiplatformContractDetailResponse detail = contractAppService.getDetail("3829493004444444");
+
+        // 三段逐字段映射：contract 全字段（含 needsUpdate/范围快照冻结面/双方签署位）
+        var contract = detail.contract();
+        assertThat(contract.contractNo()).isEqualTo("SG-l5d3vt0h4b");
+        assertThat(contract.status()).isEqualTo(3);
+        assertThat(contract.needsUpdate()).isFalse();
+        assertThat(contract.partyA()).isEqualTo("语义引力（上海）科技有限公司");
+        assertThat(contract.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(contract.prdVersionNo()).isEqualTo(3);
+        assertThat(contract.demoVersionNo()).isEqualTo(2);
+        assertThat(contract.partyASigned()).isTrue();
+        assertThat(contract.partyBSignedAt()).isNull();
+        // PRD 全文冗余拷贝直通；留痕行逐字段直通（动作/两侧状态/依据/操作者两肢）
+        assertThat(detail.prdSnapshot()).isEqualTo("# PRD v3\n\n已确认版本全文");
+        var transition = detail.transitions().get(0);
+        assertThat(transition.action()).isEqualTo(4);
+        assertThat(transition.fromStatus()).isEqualTo(3);
+        assertThat(transition.toStatus()).isEqualTo(3);
+        assertThat(transition.basis()).isEqualTo("甲方已线下用印");
+        assertThat(transition.operatorId()).isEqualTo("700100");
+    }
+
+    @Test
+    void given_createReceiptWire_when_createForOrder_then_preparingReceiptMapped() {
+        when(aiplatformClient.createContractForOrder("3829492007777777")).thenReturn(
+                new AiplatformContractWireResponse(
+                        "3829493007777777", "SG-l5h6zy2g3x", "3829492007777777",
+                        1, "准备中", 1, false,
+                        null, null, null, null,
+                        "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                        128000L, "CNY", 3, 2,
+                        false, null, false, null,
+                        LocalDateTime.of(2026, 10, 23, 9, 0, 0)));
+
+        AiplatformContractResponse receipt = contractAppService.createForOrder("3829492007777777");
+
+        // 创建回执映射：准备中起步、四预览字段 null 直通（BFF 不代填）、冻结集已取现值
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.statusName()).isEqualTo("准备中");
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.partyA()).isNull();
+        assertThat(receipt.paymentPlan()).isNull();
+        assertThat(receipt.scopeDeliverables()).isEqualTo("交付清单：管理后台＋小程序");
+        assertThat(receipt.amount()).isEqualTo(128000L);
+        assertThat(receipt.partyASigned()).isFalse();
+    }
+
+    @Test
+    void given_ord024FromDownstream_when_createForOrder_then_propagateWithoutMapping() {
+        when(aiplatformClient.createContractForOrder("3829492007777777")).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5024,\"message\":\"该订单已有活跃合同（至多一份非终态合同）\",\"data\":null}")));
+
+        assertThatThrownBy(() -> contractAppService.createForOrder("3829492007777777"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_024 → HTTP 409 + 数字业务码 5024（域码 5×1000＋24——活跃唯一前置门归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5024);
+                    assertThat(upstream.getMessage()).isEqualTo("该订单已有活跃合同（至多一份非终态合同）");
+                });
+    }
+
+    // ========== 合同域六态推进写口（#105 A2）· 命令映射 + 动作后回执映射 + 守卫透传 ==========
+
+    /** 六态推进回执 wire 载荷工厂：按动作后状态参数化（advance 4 签署完成/fail 5/withdraw·void 6）。 */
+    private static AiplatformContractWireResponse contractActionReceiptWire(
+            Integer status, String statusName, boolean partyASigned, boolean partyBSigned) {
+        return new AiplatformContractWireResponse(
+                "3829493004444444", "SG-l5d3vt0h4b", "3829492007777777",
+                status, statusName, 1, false,
+                "语义引力（上海）科技有限公司", "文野",
+                "对公官网建设：企业门户＋产品展示", "签约后 3 日内付 50%，验收后付 50%",
+                "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                128000L, "CNY", 3, 2,
+                partyASigned, partyASigned ? LocalDateTime.of(2026, 10, 20, 10, 0, 0) : null,
+                partyBSigned, partyBSigned ? LocalDateTime.of(2026, 10, 21, 9, 5, 0) : null,
+                LocalDateTime.of(2026, 10, 18, 9, 30, 0));
+    }
+
+    @Test
+    void given_advanceCommand_when_advance_then_wireCommandMappedAndSignedReceiptMapped() {
+        when(aiplatformClient.advanceContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(4, "签署完成", true, true));
+
+        AiplatformContractResponse receipt = contractAppService.advance("3829493004444444",
+                new AiplatformContractActionCommand("双方落签，合同完成"));
+
+        // 北向命令 → wire 命令逐字段映射（{basis}——操作者不在 body，经透传头落痕）
+        ArgumentCaptor<AiplatformContractActionWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractActionWireRequest.class);
+        verify(aiplatformClient).advanceContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue())
+                .isEqualTo(new AiplatformContractActionWireRequest("双方落签，合同完成"));
+
+        // 签署完成回执映射：双方签署位 true＋时点、版本不动（version 递增归 record）
+        assertThat(receipt.status()).isEqualTo(4);
+        assertThat(receipt.statusName()).isEqualTo("签署完成");
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.partyASigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+    }
+
+    @Test
+    void given_failWithdrawVoidCommands_when_act_then_sharedActionWireCommandMapped() {
+        // fail：旁落「签署失败或过期」（5）——单方已签如实定格
+        when(aiplatformClient.failContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(5, "签署失败或过期", true, false));
+        AiplatformContractResponse failed = contractAppService.fail("3829493004444444",
+                new AiplatformContractActionCommand("超期未签，如实旁落失败终态"));
+        assertThat(failed.status()).isEqualTo(5);
+        assertThat(failed.statusName()).isEqualTo("签署失败或过期");
+        assertThat(failed.partyASigned()).isTrue();
+
+        // withdraw：旁落「已撤回或作废」（6）——此后换新号重建
+        when(aiplatformClient.withdrawContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(6, "已撤回或作废", false, false));
+        AiplatformContractResponse withdrawn = contractAppService.withdraw("3829493004444444",
+                new AiplatformContractActionCommand("范围录错，整案回炉"));
+        assertThat(withdrawn.status()).isEqualTo(6);
+        assertThat(withdrawn.statusName()).isEqualTo("已撤回或作废");
+
+        // void：守卫与去向同撤回、留痕 action 分立——回执形态共形（区别只在 provider 留痕行）
+        when(aiplatformClient.voidContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(6, "已撤回或作废", false, false));
+        AiplatformContractResponse voided = contractAppService.voidContract("3829493004444444",
+                new AiplatformContractActionCommand("主体信息录错，作废重建"));
+        assertThat(voided.status()).isEqualTo(6);
+
+        // 三旁落口共用动作命令 wire 形制（{basis}），逐口各自映射
+        verify(aiplatformClient).failContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("超期未签，如实旁落失败终态")));
+        verify(aiplatformClient).withdrawContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("范围录错，整案回炉")));
+        verify(aiplatformClient).voidContract(eq("3829493004444444"),
+                eq(new AiplatformContractActionWireRequest("主体信息录错，作废重建")));
+    }
+
+    @Test
+    void given_signCommand_when_sign_then_partyCodeMappedAndPartyReceiptMapped() {
+        when(aiplatformClient.signContract(eq("3829493004444444"),
+                any(AiplatformContractSignWireRequest.class)))
+                .thenReturn(contractActionReceiptWire(3, "签署进行中", true, true));
+
+        AiplatformContractResponse receipt = contractAppService.sign("3829493004444444",
+                new AiplatformContractSignCommand(2, "乙方盖章"));
+
+        // party Integer code 直通映射（1=甲方 2=乙方——不建 typed enum 不预校验）
+        ArgumentCaptor<AiplatformContractSignWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractSignWireRequest.class);
+        verify(aiplatformClient).signContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractSignWireRequest(2, "乙方盖章"));
+
+        // 落签回执映射：乙方签署位翻 true＋时点；状态不迁移（仍签署进行中——推进归 advance）
+        assertThat(receipt.status()).isEqualTo(3);
+        assertThat(receipt.partyBSigned()).isTrue();
+        assertThat(receipt.partyBSignedAt()).isEqualTo(LocalDateTime.of(2026, 10, 21, 9, 5, 0));
+    }
+
+    @Test
+    void given_recordCommand_when_record_then_fiveFieldsMappedAndVersionBumpedReceiptMapped() {
+        when(aiplatformClient.recordContract(eq("3829493004444444"),
+                any(AiplatformContractRecordWireRequest.class)))
+                .thenReturn(new AiplatformContractWireResponse(
+                        "3829493006666666", "SG-l5f2xq9wn1", "3829492001234567",
+                        1, "准备中", 2, false,
+                        "张三", "语义引力科技有限公司",
+                        "管理后台＋小程序", "开工款 50%，验收 50%",
+                        "交付清单：管理后台＋小程序", "验收方式：按 PRD v3 验收", "工期口径：4 周",
+                        99000L, "CNY", 3, 2,
+                        false, null, false, null,
+                        LocalDateTime.of(2026, 10, 22, 9, 0, 0)));
+
+        AiplatformContractResponse receipt = contractAppService.record("3829493004444444",
+                new AiplatformContractRecordCommand("张三", "语义引力科技有限公司",
+                        "管理后台＋小程序", "开工款 50%，验收 50%", "改价后重录"));
+
+        // 北向五字段 → wire 五字段逐字段映射（四预览字段可空直通＋依据必填）
+        ArgumentCaptor<AiplatformContractRecordWireRequest> wireCaptor =
+                ArgumentCaptor.forClass(AiplatformContractRecordWireRequest.class);
+        verify(aiplatformClient).recordContract(eq("3829493004444444"), wireCaptor.capture());
+        assertThat(wireCaptor.getValue()).isEqualTo(new AiplatformContractRecordWireRequest(
+                "张三", "语义引力科技有限公司", "管理后台＋小程序", "开工款 50%，验收 50%", "改价后重录"));
+
+        // 重录回执映射：version +1（1→2）＋「需更新」清零＋冻结集取现值（改价 99000）
+        assertThat(receipt.version()).isEqualTo(2);
+        assertThat(receipt.needsUpdate()).isFalse();
+        assertThat(receipt.amount()).isEqualTo(99000L);
+        assertThat(receipt.partyA()).isEqualTo("张三");
+        assertThat(receipt.paymentPlan()).isEqualTo("开工款 50%，验收 50%");
+    }
+
+    @Test
+    void given_ord027FromDownstream_when_advance_then_bothSignedGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.advanceContract(eq("3829493004444444"),
+                any(AiplatformContractActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5027,\"message\":\"双方尚未全部签署，不能标记签署完成\",\"data\":null}")));
+
+        assertThatThrownBy(() -> contractAppService.advance("3829493004444444",
+                new AiplatformContractActionCommand("乙方未签就想完成")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_027 → HTTP 409 + 数字业务码 5027（域码 5×1000＋27——双方均签守卫归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5027);
+                    assertThat(upstream.getMessage()).isEqualTo("双方尚未全部签署，不能标记签署完成");
+                });
+    }
+
+    // ========== 付款核验域（#106 A3——与既有支付服务 BFF 上下文无关勿混读）· 命令映射 + 回执映射 + 二进制载体保全 ==========
+
+    /** 付款计划详情 wire 工厂：三节点（待支付/待核验/已到账）+ 留痕一行 + 历史一行。 */
+    private static AiplatformPaymentPlanDetailWireResponse paymentPlanDetailWire() {
+        return new AiplatformPaymentPlanDetailWireResponse(
+                new AiplatformPaymentPlanWireResponse(
+                        "3829495000000001", "3829492001234567", "3829493005555555", "SG-l5eq8m2k7c",
+                        3900000L, 195000L, LocalDateTime.of(2026, 10, 20, 9, 0, 0),
+                        List.of(
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000001", 1, "首期开工款", 1950000L, 50,
+                                        1, "待支付", "SG-l5eq8m2k7c-K1", true,
+                                        1, "线下转账", null, 0L, 1950000L, null, List.of()),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000004", 4, "尾款结算一", 585000L, 15,
+                                        4, "线下转账待核验", "SG-l5eq8m2k7c-K4", false,
+                                        1, "线下转账", null, 0L, 585000L, null,
+                                        List.of(new AiplatformPaymentVoucherWireResponse(
+                                                "3829497000000001", "3829496001000004",
+                                                "receipt-1.pdf", "application/pdf", 102400L,
+                                                LocalDateTime.of(2026, 10, 16, 15, 0, 0)))),
+                                new AiplatformPaymentNodeWireResponse(
+                                        "3829496001000005", 5, "尾款结算二", 195000L, 5,
+                                        5, "已到账", "SG-l5eq8m2k7c-K5", false,
+                                        1, "线下转账", "BANK-20261017-0001", 195000L, 0L,
+                                        LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of()))),
+                List.of(new AiplatformPaymentVerificationWireResponse(
+                        "3829498000000002", "3829496001000005", 1, "到账核验", 4, 5,
+                        195000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0), "3829497000000003",
+                        "银企对账一致", "700100", "运营·小刘",
+                        LocalDateTime.of(2026, 10, 17, 10, 5, 0))),
+                List.of(new AiplatformPaymentPlanDetailWireResponse.HistoryPlanWireResponse(
+                        "3829495000000000", "3829493001111111", "SG-l590hd3t5y", 3,
+                        4800000L, 0L, LocalDateTime.of(2026, 10, 12, 11, 0, 0))));
+    }
+
+    @Test
+    void given_paymentPlanDetailWire_when_getPlanDetail_then_threeSegmentsMapped() {
+        when(aiplatformClient.getPaymentPlan("3829492001234567")).thenReturn(paymentPlanDetailWire());
+
+        var detail = paymentAppService.getPlanDetail("3829492001234567");
+
+        // wire 三段 → 北向三段逐字段：plan（五态/附言码/开工门/渠道流水号/凭证清单）＋
+        // trails（留痕行）＋history（历史行）——逐字镜像无增删无换型
+        assertThat(detail.plan().id()).isEqualTo("3829495000000001");
+        assertThat(detail.plan().totalAmount()).isEqualTo(3900000L);
+        assertThat(detail.plan().nodes()).hasSize(3);
+        var awaiting = detail.plan().nodes().get(1);
+        assertThat(awaiting.status()).isEqualTo(4);
+        assertThat(awaiting.statusName()).isEqualTo("线下转账待核验");
+        assertThat(awaiting.vouchers()).hasSize(1);
+        assertThat(awaiting.vouchers().get(0).fileName()).isEqualTo("receipt-1.pdf");
+        var received = detail.plan().nodes().get(2);
+        assertThat(received.status()).isEqualTo(5);
+        assertThat(received.channelRefNo()).isEqualTo("BANK-20261017-0001");
+        assertThat(received.remainingAmount()).isEqualTo(0L);
+        assertThat(detail.trails()).hasSize(1);
+        assertThat(detail.trails().get(0).action()).isEqualTo(1);
+        assertThat(detail.trails().get(0).operatorName()).isEqualTo("运营·小刘");
+        assertThat(detail.history()).hasSize(1);
+        assertThat(detail.history().get(0).contractNo()).isEqualTo("SG-l590hd3t5y");
+        assertThat(detail.history().get(0).nodeCount()).isEqualTo(3);
+    }
+
+    @Test
+    void given_nodesCommand_when_enterNodes_then_wireCommandMappedAndReceiptMapped() {
+        when(aiplatformClient.enterPaymentNodes(eq("3829492001234567"),
+                any(AiplatformPaymentNodesWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.enterNodes("3829492001234567",
+                new AiplatformPaymentNodesCommand(List.of(
+                        new AiplatformPaymentNodesCommand.NodeSpec("首期开工款", 1950000L, true),
+                        new AiplatformPaymentNodesCommand.NodeSpec("尾款结算一", 585000L, false),
+                        new AiplatformPaymentNodesCommand.NodeSpec("尾款结算二", 195000L, false))));
+
+        // 北向节点规格 → wire 规格逐字段映射（{name, amount, kickoffGate} 整组——序号不在录入面）
+        ArgumentCaptor<AiplatformPaymentNodesWireRequest> nodesCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentNodesWireRequest.class);
+        verify(aiplatformClient).enterPaymentNodes(eq("3829492001234567"), nodesCaptor.capture());
+        assertThat(nodesCaptor.getValue()).isEqualTo(new AiplatformPaymentNodesWireRequest(List.of(
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("首期开工款", 1950000L, true),
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("尾款结算一", 585000L, false),
+                new AiplatformPaymentNodesWireRequest.NodeSpecWire("尾款结算二", 195000L, false))));
+
+        // 录入回执映射（录入后计划现值）
+        assertThat(receipt.totalAmount()).isEqualTo(3900000L);
+        assertThat(receipt.nodes().get(0).kickoffGate()).isTrue();
+        assertThat(receipt.nodes().get(0).remarkCode()).isEqualTo("SG-l5eq8m2k7c-K1");
+    }
+
+    @Test
+    void given_verifyCommand_when_verify_then_wireCommandMappedAndReceivedReceiptMapped() {
+        when(aiplatformClient.verifyPayment(eq("3829492001234567"), eq("3829496001000004"),
+                any(AiplatformPaymentVerifyWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.verify("3829492001234567", "3829496001000004",
+                new AiplatformPaymentVerifyCommand(585000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                        "3829497000000001", "BANK-20261017-0001", "银企对账一致"));
+
+        // 北向五字段 → wire 五字段逐字段映射（全额判定归 provider——BFF 不复算不预判）
+        ArgumentCaptor<AiplatformPaymentVerifyWireRequest> verifyCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentVerifyWireRequest.class);
+        verify(aiplatformClient).verifyPayment(eq("3829492001234567"), eq("3829496001000004"),
+                verifyCaptor.capture());
+        assertThat(verifyCaptor.getValue()).isEqualTo(new AiplatformPaymentVerifyWireRequest(
+                585000L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                "3829497000000001", "BANK-20261017-0001", "银企对账一致"));
+
+        // 核验回执映射（动作后计划现值——留痕行不在写口回执，归详情读面）
+        assertThat(receipt.orderId()).isEqualTo("3829492001234567");
+        assertThat(receipt.nodes()).hasSize(3);
+    }
+
+    @Test
+    void given_rejectCommand_when_reject_then_wireCommandMappedAndPendingReceiptMapped() {
+        when(aiplatformClient.rejectPayment(eq("3829492001234567"), eq("3829496001000004"),
+                any(AiplatformPaymentRejectWireRequest.class)))
+                .thenReturn(paymentPlanDetailWire().plan());
+
+        var receipt = paymentAppService.reject("3829492001234567", "3829496001000004",
+                new AiplatformPaymentRejectCommand("3829497000000001", "回单模糊无法对账，请重新上传"));
+
+        // 北向两字段 → wire 两字段映射（依据必填归 provider ORD_042——BFF 不前置拦截）
+        ArgumentCaptor<AiplatformPaymentRejectWireRequest> rejectCaptor =
+                ArgumentCaptor.forClass(AiplatformPaymentRejectWireRequest.class);
+        verify(aiplatformClient).rejectPayment(eq("3829492001234567"), eq("3829496001000004"),
+                rejectCaptor.capture());
+        assertThat(rejectCaptor.getValue()).isEqualTo(new AiplatformPaymentRejectWireRequest(
+                "3829497000000001", "回单模糊无法对账，请重新上传"));
+
+        // 打回回执映射（回待支付后的计划现值）
+        assertThat(receipt.totalSettled()).isEqualTo(195000L);
+        assertThat(receipt.nodes().get(1).status()).isEqualTo(4);
+    }
+
+    @Test
+    void given_voucherBinaryFromDownstream_when_getVoucherContent_then_bytesAndRawHeadersPreserved() {
+        byte[] pdf = {(byte) 0x25, (byte) 0x50, (byte) 0x44, (byte) 0x46, (byte) 0x2d,
+                (byte) 0x31, (byte) 0x2e, (byte) 0x34, 0x20, (byte) 0xff, 0x41, 0x00};
+        HttpHeaders providerHeaders = HttpHeaders.of(Map.of(
+                "Content-Type", List.of("application/pdf"),
+                "Content-Disposition", List.of("attachment; filename=\"receipt-1.pdf\"")),
+                (a, b) -> true);
+        when(aiplatformClient.downloadVoucherContent("3829497000000001"))
+                .thenReturn(new BinaryResponse(200, providerHeaders, pdf));
+
+        var content = paymentAppService.getVoucherContent("3829497000000001");
+
+        // 字节逐位保全（含 0xff/NUL——ofString 解码损坏的回归锚点）+ provider 响应头 raw 值透传
+        // （真实媒体类型＋attachment 文件名——照源码包/设计资产包范式）
+        assertThat(content.content()).containsExactly(pdf);
+        assertThat(content.contentType()).isEqualTo("application/pdf");
+        assertThat(content.contentDisposition()).isEqualTo("attachment; filename=\"receipt-1.pdf\"");
+    }
+
+    @Test
+    void given_ord038FromDownstream_when_verify_then_stateGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.verifyPayment(eq("3829492001234567"), eq("3829496001000001"),
+                any(AiplatformPaymentVerifyWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":5038,\"message\":\"付款节点当前状态不允许该操作\",\"data\":null}")));
+
+        assertThatThrownBy(() -> paymentAppService.verify("3829492001234567", "3829496001000001",
+                new AiplatformPaymentVerifyCommand(100L, LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                        null, null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // ORD_038 → HTTP 409 + 数字业务码 5038（域码 5×1000＋38——状态守卫归 provider）
+                    assertThat(upstream.httpStatus()).isEqualTo(409);
+                    assertThat(upstream.envelopeCode()).isEqualTo(5038);
+                    assertThat(upstream.getMessage()).isEqualTo("付款节点当前状态不允许该操作");
+                });
+    }
+
+    // ========== 生产承接域（#107 A4）· 命令映射 + 回执映射 + 错误信封透传 ==========
+
+    /** 生产承接 wire 工厂：两态第一实值（1=待安排生产）＋留痕两行（信息更新最新/创建系统操作者最旧）。 */
+    private static AiplatformProductionHandoffWireResponse productionHandoffWire() {
+        return new AiplatformProductionHandoffWireResponse(
+                "3829410000000001", "3829409001234567", "3829492001234567",
+                1, "待安排生产",
+                "李经理（微信 ligoods）", "准备服务器环境与域名备案", "已完成技术方案拆解",
+                LocalDateTime.of(2026, 10, 20, 9, 0, 0), LocalDateTime.of(2026, 10, 17, 10, 0, 0),
+                List.of(
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                3, "信息更新", 1, "待安排生产", 1, "待安排生产",
+                                "首次排期录入", "700100", "生产承接_老王",
+                                LocalDateTime.of(2026, 10, 18, 14, 30, 0)),
+                        new AiplatformProductionHandoffWireResponse.TransitionWireResponse(
+                                1, "创建", 1, "待安排生产", 1, "待安排生产",
+                                "开工条件满足（合同签署完成且开工门节点全部到账），创建生产承接记录",
+                                "system", "开工判定",
+                                LocalDateTime.of(2026, 10, 17, 10, 0, 0))));
+    }
+
+    @Test
+    void given_handoffWire_when_getHandoff_then_fieldsAndTrailMapped() {
+        when(aiplatformClient.getProductionHandoff("3829409001234567")).thenReturn(productionHandoffWire());
+
+        var handoff = productionAppService.getHandoff("3829409001234567");
+
+        // wire → 北向逐字段：两态 Integer code 直通＋承接可空段＋留痕时间线（新→旧）
+        assertThat(handoff.status()).isEqualTo(1);
+        assertThat(handoff.statusName()).isEqualTo("待安排生产");
+        assertThat(handoff.contact()).isEqualTo("李经理（微信 ligoods）");
+        assertThat(handoff.estimatedStartAt()).isEqualTo(LocalDateTime.of(2026, 10, 20, 9, 0, 0));
+        assertThat(handoff.transitions()).hasSize(2);
+        // 最新行＝信息更新（action=3，非迁移类 from=to 在场快照，操作者＝后台管理员）
+        assertThat(handoff.transitions().get(0).action()).isEqualTo(3);
+        assertThat(handoff.transitions().get(0).fromStatus()).isEqualTo(1);
+        assertThat(handoff.transitions().get(0).toStatus()).isEqualTo(1);
+        assertThat(handoff.transitions().get(0).operatorId()).isEqualTo("700100");
+        // 最旧行＝创建（action=1，系统触发建档——操作者＝system/开工判定，非人工创建口）
+        assertThat(handoff.transitions().get(1).action()).isEqualTo(1);
+        assertThat(handoff.transitions().get(1).operatorId()).isEqualTo("system");
+        assertThat(handoff.transitions().get(1).operatorName()).isEqualTo("开工判定");
+    }
+
+    @Test
+    void given_updateCommand_when_update_then_wireCommandMappedAndReceiptMapped() {
+        when(aiplatformClient.updateProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionUpdateWireRequest.class)))
+                .thenReturn(productionHandoffWire());
+
+        var receipt = productionAppService.update("3829409001234567",
+                new AiplatformProductionUpdateCommand("李经理（微信 ligoods）",
+                        "准备服务器环境与域名备案", "已完成技术方案拆解",
+                        LocalDateTime.of(2026, 10, 20, 9, 0, 0), "首次排期录入"));
+
+        // 北向五字段 → wire 五字段逐字段映射（整组替换——null 即清空语义归 provider）
+        ArgumentCaptor<AiplatformProductionUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionUpdateWireRequest.class);
+        verify(aiplatformClient).updateProductionHandoff(eq("3829409001234567"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformProductionUpdateWireRequest(
+                "李经理（微信 ligoods）", "准备服务器环境与域名备案", "已完成技术方案拆解",
+                LocalDateTime.of(2026, 10, 20, 9, 0, 0), "首次排期录入"));
+
+        // 更新回执映射（更新后承接现值——状态不动留痕行 from=to）
+        assertThat(receipt.status()).isEqualTo(1);
+        assertThat(receipt.contact()).isEqualTo("李经理（微信 ligoods）");
+    }
+
+    @Test
+    void given_advanceCommand_when_advance_then_wireCommandMappedAndInProductionReceiptMapped() {
+        when(aiplatformClient.advanceProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionActionWireRequest.class)))
+                .thenReturn(new AiplatformProductionHandoffWireResponse(
+                        "3829410000000001", "3829409001234567", "3829492001234567",
+                        2, "生产中", null, null, null, null,
+                        LocalDateTime.of(2026, 10, 17, 10, 0, 0), List.of()));
+
+        var receipt = productionAppService.advance("3829409001234567",
+                new AiplatformProductionActionCommand("排期落定，今日开工"));
+
+        // 北向单字段 → wire 单字段映射（依据必填归 provider PRJ_057——BFF 不前置拦截）
+        ArgumentCaptor<AiplatformProductionActionWireRequest> advanceCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionActionWireRequest.class);
+        verify(aiplatformClient).advanceProductionHandoff(eq("3829409001234567"), advanceCaptor.capture());
+        assertThat(advanceCaptor.getValue()).isEqualTo(
+                new AiplatformProductionActionWireRequest("排期落定，今日开工"));
+
+        // 推进回执映射（两态第二实值 2=生产中——唯一边走完，可空段 null 如实透传）
+        assertThat(receipt.status()).isEqualTo(2);
+        assertThat(receipt.statusName()).isEqualTo("生产中");
+        assertThat(receipt.contact()).isNull();
+        assertThat(receipt.estimatedStartAt()).isNull();
+    }
+
+    @Test
+    void given_supplementCommand_when_setNeedsUserSupplement_then_wireCommandMappedAndVoidReturn() {
+        productionAppService.setNeedsUserSupplement("3829409001234567",
+                new AiplatformProductionSupplementCommand(true));
+
+        // 北向单布尔 → wire 单布尔映射（盖帽置位语义归后台人工判定——provider 只落标志）
+        ArgumentCaptor<AiplatformProductionSupplementWireRequest> supplementCaptor =
+                ArgumentCaptor.forClass(AiplatformProductionSupplementWireRequest.class);
+        verify(aiplatformClient).setProductionNeedsUserSupplement(eq("3829409001234567"),
+                supplementCaptor.capture());
+        assertThat(supplementCaptor.getValue()).isEqualTo(new AiplatformProductionSupplementWireRequest(true));
+    }
+
+    @Test
+    void given_prj059FromDownstream_when_advance_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.advanceProductionHandoff(eq("3829409001234567"),
+                any(AiplatformProductionActionWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4059,\"message\":\"操作者必填（生产承接动作须携带操作者身份）\",\"data\":null}")));
+
+        assertThatThrownBy(() -> productionAppService.advance("3829409001234567",
+                new AiplatformProductionActionCommand("排期落定")))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_059 → HTTP 400 + 数字业务码 4059（域码 4×1000＋59——缺操作者透传头，
+                    // 承接动作以操作者为审计正身归 provider 裁决）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4059);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者必填（生产承接动作须携带操作者身份）");
+                });
+    }
+
+    // ========== 模型供应商域（#110 B1）· 命令映射 + 掩码/对照结构/留痕映射 + 错误信封透传 ==========
+
+    /** 模型供应商 wire 工厂：读面/回执共形——掩码两面（null＝未配置/尾 4 位＝已配置）按参数出。 */
+    private static AiplatformModelProviderWireResponse modelProviderWire(String apiKeyMasked) {
+        return new AiplatformModelProviderWireResponse(
+                "volcengine", "https://ark.cn-beijing.volces.com/api/v3", apiKeyMasked, true,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_providerWires_when_listAndDetail_then_maskedKeyMirroredAsIs() {
+        when(aiplatformClient.listModelProviders()).thenReturn(List.of(
+                new AiplatformModelProviderWireResponse(
+                        "deepseek", "https://api.deepseek.com", null, true,
+                        null, null, LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                modelProviderWire("****cd12")));
+        when(aiplatformClient.getModelProvider("volcengine")).thenReturn(modelProviderWire("****cd12"));
+
+        var providers = modelProviderAppService.listProviders();
+        var detail = modelProviderAppService.getProvider("volcengine");
+
+        // wire → 北向逐字段：掩码值忠实透传（不二次处理不尝试解掩）——null＝未配置如实在场
+        assertThat(providers).hasSize(2);
+        assertThat(providers.get(0).apiKeyMasked()).isNull();
+        assertThat(providers.get(1).apiKeyMasked()).isEqualTo("****cd12");
+        assertThat(detail.providerKey()).isEqualTo("volcengine");
+        assertThat(detail.baseUrl()).isEqualTo("https://ark.cn-beijing.volces.com/api/v3");
+        assertThat(detail.apiKeyMasked()).isEqualTo("****cd12");
+        assertThat(detail.enabled()).isTrue();
+        assertThat(detail.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(detail.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_createCommand_when_createProvider_then_wireCommandMappedAndMaskedReceipt() {
+        when(aiplatformClient.createModelProvider(any(AiplatformModelProviderCreateWireRequest.class)))
+                .thenReturn(modelProviderWire("****9f2c"));
+
+        var receipt = modelProviderAppService.createProvider(new AiplatformModelProviderCreateCommand(
+                "moonshot", "https://api.moonshot.cn/v1", "sk-real-secret-key-9f2c", null));
+
+        // 北向四字段 → wire 四字段逐字段映射（enabled 装箱 null 透传＝provider 缺省 true）
+        ArgumentCaptor<AiplatformModelProviderCreateWireRequest> createCaptor =
+                ArgumentCaptor.forClass(AiplatformModelProviderCreateWireRequest.class);
+        verify(aiplatformClient).createModelProvider(createCaptor.capture());
+        assertThat(createCaptor.getValue()).isEqualTo(new AiplatformModelProviderCreateWireRequest(
+                "moonshot", "https://api.moonshot.cn/v1", "sk-real-secret-key-9f2c", null));
+
+        // 创建回执映射：apiKey 已掩码（provider 单点掩码——admin 全链零明文 key 回显）
+        assertThat(receipt.apiKeyMasked()).isEqualTo("****9f2c");
+    }
+
+    @Test
+    void given_updateCommandWithDefaultedLimbs_when_updateProvider_then_nullLimbsPreservedOnWire() {
+        when(aiplatformClient.updateModelProvider(eq("volcengine"),
+                any(AiplatformModelProviderUpdateWireRequest.class)))
+                .thenReturn(modelProviderWire("****cd12"));
+
+        var receipt = modelProviderAppService.updateProvider("volcengine",
+                new AiplatformModelProviderUpdateCommand("https://ark.cn-beijing.volces.com/api/v4", null, null));
+
+        // 缺省肢保真：北向 null → wire null（apiKey/enabled＝保持现值——不臆造默认值，
+        // 判定全在 provider 侧）
+        ArgumentCaptor<AiplatformModelProviderUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformModelProviderUpdateWireRequest.class);
+        verify(aiplatformClient).updateModelProvider(eq("volcengine"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformModelProviderUpdateWireRequest(
+                "https://ark.cn-beijing.volces.com/api/v4", null, null));
+
+        // 更新回执映射（更新后现值——掩码照实）
+        assertThat(receipt.apiKeyMasked()).isEqualTo("****cd12");
+    }
+
+    @Test
+    void given_providerKey_when_deleteProvider_then_delegatedToClient() {
+        modelProviderAppService.deleteProvider("volcengine");
+
+        // 删除纯委托（无命令体无回执面——信封即回执）；引用拦截 PRJ_072 归 provider 裁决
+        verify(aiplatformClient).deleteModelProvider("volcengine");
+    }
+
+    @Test
+    void given_remoteCatalogWire_when_pullRemoteModels_then_comparisonStructureMapped() {
+        when(aiplatformClient.pullRemoteModels("volcengine")).thenReturn(
+                new AiplatformRemoteModelCatalogWireResponse(
+                        "volcengine", LocalDateTime.of(2026, 11, 3, 9, 0, 0),
+                        List.of(
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "deepseek-v4-flash-ga-260731", "DeepSeek V4 Flash",
+                                        null, "LLM", List.of("flash")),
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "doubao-seed-2-1-flash-250615", "Doubao Seed 2.1 Flash",
+                                        null, "LLM", List.of()),
+                                new AiplatformRemoteModelCatalogWireResponse.RemoteModelEntryWireResponse(
+                                        "doubao-seed-1-6-250615", "Doubao Seed 1.6",
+                                        "Shutdown", "LLM", List.of())),
+                        List.of(new AiplatformRemoteModelCatalogWireResponse.StaleTierWireResponse(
+                                "deepseek-v3", "deepseek-v3-0324", "DeepSeek V3（退场版）", false))));
+
+        var catalog = modelProviderAppService.pullRemoteModels("volcengine");
+
+        // 对照结构逐字镜像：trackedTierKeys 空/非空两态＋status 如实转述＋staleTiers 过时行
+        // （实际模型名不在远端清单——对照语义的定义判据）
+        assertThat(catalog.providerKey()).isEqualTo("volcengine");
+        assertThat(catalog.pulledAt()).isEqualTo(LocalDateTime.of(2026, 11, 3, 9, 0, 0));
+        assertThat(catalog.remoteModels()).hasSize(3);
+        assertThat(catalog.remoteModels().get(0).trackedTierKeys()).containsExactly("flash");
+        assertThat(catalog.remoteModels().get(1).trackedTierKeys()).isEmpty();
+        assertThat(catalog.remoteModels().get(1).modelId()).isEqualTo("doubao-seed-2-1-flash-250615");
+        assertThat(catalog.remoteModels().get(2).status()).isEqualTo("Shutdown");
+        assertThat(catalog.staleTiers()).hasSize(1);
+        assertThat(catalog.staleTiers().get(0).tierKey()).isEqualTo("deepseek-v3");
+        assertThat(catalog.staleTiers().get(0).enabled()).isFalse();
+    }
+
+    @Test
+    void given_traceWires_when_listTraces_then_maskedSnapshotsAndCreateDeleteNullShapesMapped() {
+        when(aiplatformClient.listModelProviderTraces("volcengine")).thenReturn(List.of(
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000003333333",
+                        "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true,
+                        "https://ark.cn-beijing.volces.com/api/v3", "****cd12", true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0)),
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000002222222",
+                        null, null, null,
+                        "https://ark.cn-beijing.volces.com/api/v3", "****ab12", true,
+                        "700100", "运营·平台管理员", LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                new AiplatformModelProviderTraceWireResponse(
+                        "3900000004444444",
+                        "https://api.deepseek.com", null, true,
+                        null, null, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 9, 30, 0))));
+
+        var traces = modelProviderAppService.listTraces("volcengine");
+
+        // 留痕三形映射：换 key 痕（掩码两侧各一面）/创建痕（old 三件 null）/删除痕（new 三件 null）
+        assertThat(traces).hasSize(3);
+        assertThat(traces.get(0).oldApiKeyMasked()).isEqualTo("****ab12");
+        assertThat(traces.get(0).newApiKeyMasked()).isEqualTo("****cd12");
+        assertThat(traces.get(1).oldBaseUrl()).isNull();
+        assertThat(traces.get(1).oldEnabled()).isNull();
+        assertThat(traces.get(1).newApiKeyMasked()).isEqualTo("****ab12");
+        assertThat(traces.get(2).newBaseUrl()).isNull();
+        assertThat(traces.get(2).newApiKeyMasked()).isNull();
+        assertThat(traces.get(2).newEnabled()).isNull();
+        assertThat(traces.get(2).operatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 9, 30, 0));
+    }
+
+    @Test
+    void given_prj034FromDownstream_when_createProvider_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.createModelProvider(any(AiplatformModelProviderCreateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        assertThatThrownBy(() -> modelProviderAppService.createProvider(
+                new AiplatformModelProviderCreateCommand("moonshot", "https://api.moonshot.cn/v1", null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_034 → HTTP 400 + 数字业务码 4034（写操作必留痕——缺操作者透传头由
+                    // provider 域面守卫拦，admin 不拦）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4034);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
+                });
+    }
+
+    // ========== 模型档位域（#111 B2）· 命令映射 + 档位行/留痕映射 + 错误信封透传 ==========
+
+    /** 模型档位 wire 工厂：读面/回执共形——按参数出 modelName（升版后现值）与 displayName。 */
+    private static AiplatformModelTierWireResponse modelTierWire(String modelName, String displayName) {
+        return new AiplatformModelTierWireResponse(
+                "flash", "volcengine", modelName, displayName, true,
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_tierWires_when_listAndDetail_then_tierRowShapeMirrored() {
+        when(aiplatformClient.listTiers()).thenReturn(List.of(
+                new AiplatformModelTierWireResponse(
+                        "doubao-flagship", "volcengine", "doubao-seed-2-1-pro-260915",
+                        "豆包旗舰", true, null, null, LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                modelTierWire("deepseek-v4-flash-ga-260731", "快模型档")));
+        when(aiplatformClient.getTier("flash")).thenReturn(
+                modelTierWire("deepseek-v4-flash-ga-261031", "快模型档"));
+
+        var tiers = modelTierAppService.listTiers();
+        var detail = modelTierAppService.getTier("flash");
+
+        // wire → 北向逐字段：档位行形态五要素（语义键/实际模型名/所属通道/显示名/启用态）
+        // ——enabled=true 键集即绑定下拉数据源与校验放行值域；种子行最近写者 null 如实在场
+        assertThat(tiers).hasSize(2);
+        assertThat(tiers.get(0).tierKey()).isEqualTo("doubao-flagship");
+        assertThat(tiers.get(0).displayName()).isEqualTo("豆包旗舰");
+        assertThat(tiers.get(0).operatorId()).isNull();
+        assertThat(tiers.get(1).tierKey()).isEqualTo("flash");
+        assertThat(tiers.get(1).modelName()).isEqualTo("deepseek-v4-flash-ga-260731");
+        assertThat(detail.providerKey()).isEqualTo("volcengine");
+        assertThat(detail.modelName()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(detail.displayName()).isEqualTo("快模型档");
+        assertThat(detail.enabled()).isTrue();
+        assertThat(detail.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(detail.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 2, 15, 20, 0));
+    }
+
+    @Test
+    void given_createCommand_when_createTier_then_wireCommandMappedAndReceiptBound() {
+        when(aiplatformClient.createTier(any(AiplatformModelTierCreateWireRequest.class)))
+                .thenReturn(modelTierWire("doubao-seed-2-1-flash-250615", null));
+
+        // 「勾选入库」复用创建写口：modelName 填远端清单所选条目 modelId、语义键人工命名
+        var receipt = modelTierAppService.createTier(new AiplatformModelTierCreateCommand(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null));
+
+        // 北向五字段 → wire 五字段逐字段映射（displayName/enabled 装箱 null 透传＝
+        // 回落语义键/provider 缺省 true——语义键已存在/通道不存在守卫归 provider）
+        ArgumentCaptor<AiplatformModelTierCreateWireRequest> createCaptor =
+                ArgumentCaptor.forClass(AiplatformModelTierCreateWireRequest.class);
+        verify(aiplatformClient).createTier(createCaptor.capture());
+        assertThat(createCaptor.getValue()).isEqualTo(new AiplatformModelTierCreateWireRequest(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null));
+
+        // 创建回执映射（与 GET 同形）
+        assertThat(receipt.modelName()).isEqualTo("doubao-seed-2-1-flash-250615");
+        assertThat(receipt.enabled()).isTrue();
+    }
+
+    @Test
+    void given_updateCommandWithDefaultedLimbs_when_updateTier_then_displayNameClearsAndEnabledKeepsCurrent() {
+        when(aiplatformClient.updateTier(eq("flash"), any(AiplatformModelTierUpdateWireRequest.class)))
+                .thenReturn(modelTierWire("deepseek-v4-flash-ga-261031", null));
+
+        // 只升模型版本：displayName null＝终态清空回落语义键（区别于通道 apiKey 的
+        // 「null＝保持现值」）；enabled null＝保持现值——两可空肢在 wire 上保真
+        var receipt = modelTierAppService.updateTier("flash",
+                new AiplatformModelTierUpdateCommand("volcengine",
+                        "deepseek-v4-flash-ga-261031", null, null));
+
+        ArgumentCaptor<AiplatformModelTierUpdateWireRequest> updateCaptor =
+                ArgumentCaptor.forClass(AiplatformModelTierUpdateWireRequest.class);
+        verify(aiplatformClient).updateTier(eq("flash"), updateCaptor.capture());
+        assertThat(updateCaptor.getValue()).isEqualTo(new AiplatformModelTierUpdateWireRequest(
+                "volcengine", "deepseek-v4-flash-ga-261031", null, null));
+
+        // 更新回执映射（升版后现值——清显示名如实 null）
+        assertThat(receipt.modelName()).isEqualTo("deepseek-v4-flash-ga-261031");
+        assertThat(receipt.displayName()).isNull();
+    }
+
+    @Test
+    void given_tierKey_when_deleteTier_then_delegatedToClient() {
+        modelTierAppService.deleteTier("flash");
+
+        // 删除纯委托（无命令体无回执面——信封即回执）；绑定引用拦截 PRJ_073 归 provider 裁决
+        verify(aiplatformClient).deleteTier("flash");
+    }
+
+    @Test
+    void given_traceWires_when_listTierTraces_then_fourFormsAndCreateDeleteNullShapesMapped() {
+        when(aiplatformClient.listTierTraces("flash")).thenReturn(List.of(
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000006666666",
+                        "volcengine", "deepseek-v4-flash-ga-260731", "快模型档", true,
+                        "volcengine", "deepseek-v4-flash-ga-260731", null, true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 20, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000005555555",
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true,
+                        "volcengine", "deepseek-v4-flash-ga-260731", "快模型档", true,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 2, 15, 0, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000004444444",
+                        null, null, null, null,
+                        "volcengine", "deepseek-v4-flash-ga-260501", "快模型档", true,
+                        "700100", "运营·平台管理员", LocalDateTime.of(2026, 10, 20, 10, 0, 0)),
+                new AiplatformModelTierTraceWireResponse(
+                        "3910000007777777",
+                        "volcengine", "deepseek-v4-flash-ga-260731", null, true,
+                        null, null, null, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 9, 30, 0))));
+
+        var traces = modelTierAppService.listTraces("flash");
+
+        // 留痕四形映射：清显示名痕（newDisplayName null＝本次清空）/升模型版本痕（modelName
+        // 两侧异值——语义键与模型版本解耦）/创建痕（old 四件 null）/删除痕（new 四件 null）
+        assertThat(traces).hasSize(4);
+        assertThat(traces.get(0).oldDisplayName()).isEqualTo("快模型档");
+        assertThat(traces.get(0).newDisplayName()).isNull();
+        assertThat(traces.get(1).oldModelName()).isEqualTo("deepseek-v4-flash-ga-260501");
+        assertThat(traces.get(1).newModelName()).isEqualTo("deepseek-v4-flash-ga-260731");
+        assertThat(traces.get(2).oldProviderKey()).isNull();
+        assertThat(traces.get(2).oldEnabled()).isNull();
+        assertThat(traces.get(2).newModelName()).isEqualTo("deepseek-v4-flash-ga-260501");
+        assertThat(traces.get(3).newProviderKey()).isNull();
+        assertThat(traces.get(3).newModelName()).isNull();
+        assertThat(traces.get(3).newEnabled()).isNull();
+        assertThat(traces.get(3).operatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 9, 30, 0));
+    }
+
+    @Test
+    void given_prj034FromDownstream_when_createTier_then_operatorGuardPropagatedWithoutMapping() {
+        when(aiplatformClient.createTier(any(AiplatformModelTierCreateWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(400,
+                        "{\"code\":4034,\"message\":\"操作者不能为空\",\"data\":null}")));
+
+        assertThatThrownBy(() -> modelTierAppService.createTier(new AiplatformModelTierCreateCommand(
+                "doubao-lite", "volcengine", "doubao-seed-2-1-flash-250615", null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_034 → HTTP 400 + 数字业务码 4034（写操作必留痕——缺操作者透传头由
+                    // provider 域面守卫拦，admin 不拦；同通道创建口形制）
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4034);
+                    assertThat(upstream.getMessage()).isEqualTo("操作者不能为空");
+                });
+    }
+
+    // ========== 智能体配置域＋边缘调用点（#112 B3）· routingStrongModelId 字段对映射 + edge 读/写/留痕映射 + 错误信封透传 ==========
+
+    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）。 */
+    private static AiplatformAgentConfigWireResponse agentConfigWire() {
+        return new AiplatformAgentConfigWireResponse(
+                "main", "主智能体",
+                "你是英语学习助手的主智能体：先判意图，再编排执行体。", "pro",
+                true, true,
+                "你是主智能体。（枚举默认全文）", "flash",
+                true, false,
+                "doubao-flagship", true, "pro",
+                "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0));
+    }
+
+    /** 边缘调用点档位 wire 工厂（naming 有覆盖行代表面）：生效档位键＝库覆盖 pro、代码缺省 flash。 */
+    private static AiplatformEdgeModelConfigWireResponse edgeModelConfigWire(
+            String operatorId, String operatorName, LocalDateTime updatedAt) {
+        return new AiplatformEdgeModelConfigWireResponse(
+                "naming", "项目取名",
+                "pro", true, "flash",
+                operatorId, operatorName, updatedAt);
+    }
+
+    @Test
+    void given_agentConfigWireWithStrongTier_when_getConfig_then_sixteenFacetsMirrored() {
+        when(aiplatformClient.getAgentConfig("main")).thenReturn(agentConfigWire());
+
+        var config = agentConfigAppService.getConfig("main");
+
+        // wire → 北向逐字段（16 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
+        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）
+        assertThat(config.agentKey()).isEqualTo("main");
+        assertThat(config.modelId()).isEqualTo("pro");
+        assertThat(config.defaultModelId()).isEqualTo("flash");
+        assertThat(config.routingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(config.routingStrongModelIdOverridden()).isTrue();
+        assertThat(config.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(config.fetchUrlEnabled()).isFalse();
+        assertThat(config.operatorName()).isEqualTo("运营·技能管理员");
+    }
+
+    @Test
+    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredFiveFields() {
+        when(aiplatformClient.updateAgentConfig(eq("main"), any(AiplatformAgentConfigUpdateWireRequest.class)))
+                .thenReturn(agentConfigWire());
+
+        // 北向五字段（含路由强档——主档/强档同范式管理）→ wire 五字段逐字段映射；缺省肢
+        // null 透传（清空回落语义），档位键合法性（PRJ_074/075）归 provider 即时校验
+        var receipt = agentConfigAppService.updateConfig("main",
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship"));
+
+        ArgumentCaptor<AiplatformAgentConfigUpdateWireRequest> captor =
+                ArgumentCaptor.forClass(AiplatformAgentConfigUpdateWireRequest.class);
+        verify(aiplatformClient).updateAgentConfig(eq("main"), captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new AiplatformAgentConfigUpdateWireRequest(
+                "新 prompt", "pro", true, false, "doubao-flagship"));
+
+        // 回执映射（与 GET 同形——强档三件随行）
+        assertThat(receipt.routingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(receipt.defaultRoutingStrongModelId()).isEqualTo("pro");
+    }
+
+    @Test
+    void given_traceWireWithStrongTierPair_when_listTraces_then_oldNewStrongPairMirrored() {
+        when(aiplatformClient.listAgentConfigTraces("main")).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000002222222",
+                        "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        null, null, true, true, null,
+                        "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0))));
+
+        var traces = agentConfigAppService.listTraces("main");
+
+        // 留痕行映射（含强档 old/new 两件——读面可改就必须可回滚）：old 快照＝回滚写回依据
+        assertThat(traces).hasSize(1);
+        assertThat(traces.get(0).oldModelId()).isEqualTo("pro");
+        assertThat(traces.get(0).oldRoutingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(traces.get(0).newModelId()).isNull();
+        assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+    }
+
+    @Test
+    void given_edgeWires_when_getEdgeModelConfig_then_eightFacetsMirrored() {
+        when(aiplatformClient.getEdgeModelConfig("naming")).thenReturn(edgeModelConfigWire(
+                "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0)));
+
+        var config = agentConfigAppService.getEdgeModelConfig("naming");
+
+        // wire → 北向逐字段（8 件，值面仅档位键——字段名对齐三座面）；缺省档 flash＝AgentEdgePoint 定死
+        assertThat(config.agentKey()).isEqualTo("naming");
+        assertThat(config.agentName()).isEqualTo("项目取名");
+        assertThat(config.modelId()).isEqualTo("pro");
+        assertThat(config.modelIdOverridden()).isTrue();
+        assertThat(config.defaultModelId()).isEqualTo("flash");
+        assertThat(config.operatorId()).isEqualTo("700210");
+        assertThat(config.operatorName()).isEqualTo("运营·智能体管理员");
+        assertThat(config.updatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 1, 10, 15, 0));
+    }
+
+    @Test
+    void given_edgeUpdateCommand_when_updateEdgeModel_then_singleFieldWireCommandMirrored() {
+        when(aiplatformClient.updateEdgeModel(eq("naming"), any(AiplatformEdgeModelUpdateWireRequest.class)))
+                .thenReturn(edgeModelConfigWire(
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 3, 9, 40, 0)));
+
+        // 北向单字段命令 → wire {modelId} 单字段（窄形拒绝误带——边缘点无 prompt/开关/路由
+        // 语义）；档位键即时校验（PRJ_074/075）归 provider 写用例
+        var receipt = agentConfigAppService.updateEdgeModel("naming",
+                new AiplatformEdgeModelUpdateCommand("pro"));
+
+        ArgumentCaptor<AiplatformEdgeModelUpdateWireRequest> captor =
+                ArgumentCaptor.forClass(AiplatformEdgeModelUpdateWireRequest.class);
+        verify(aiplatformClient).updateEdgeModel(eq("naming"), captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new AiplatformEdgeModelUpdateWireRequest("pro"));
+
+        // 回执映射（与 GET 同形）
+        assertThat(receipt.modelId()).isEqualTo("pro");
+        assertThat(receipt.defaultModelId()).isEqualTo("flash");
+    }
+
+    @Test
+    void given_edgeTraceWires_when_listEdgeModelTraces_then_tierColumnChangesMirrored() {
+        when(aiplatformClient.listEdgeModelTraces("naming")).thenReturn(List.of(
+                new AiplatformAgentConfigTraceWireResponse(
+                        "3900000003333333",
+                        null, "flash", true, true, null,
+                        null, "pro", true, true, null,
+                        "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0))));
+
+        var traces = agentConfigAppService.listEdgeModelTraces("naming");
+
+        // 边缘留痕与三座同形映射：只有档位列在动（升档 flash→pro），prompt/强档 null＝
+        // 边缘行结构性缺省态、开关恒 true
+        assertThat(traces).hasSize(1);
+        assertThat(traces.get(0).oldModelId()).isEqualTo("flash");
+        assertThat(traces.get(0).newModelId()).isEqualTo("pro");
+        assertThat(traces.get(0).oldSystemPrompt()).isNull();
+        assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+        assertThat(traces.get(0).oldWebSearchEnabled()).isTrue();
+    }
+
+    @Test
+    void given_prj064FromDownstream_when_getEdgeModelConfig_then_errorEnvelopePropagatedWithoutMapping() {
+        when(aiplatformClient.getEdgeModelConfig("summarize")).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4064,\"message\":\"边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）\","
+                                + "\"data\":null}")));
+
+        assertThatThrownBy(() -> agentConfigAppService.getEdgeModelConfig("summarize"))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    // PRJ_064 → HTTP 404 + 数字业务码 4064（边缘面只有四点——edgeKey 透传
+                    // 不预校验，未知键归 provider 裁决）
+                    assertThat(upstream.httpStatus()).isEqualTo(404);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4064);
+                    assertThat(upstream.getMessage())
+                            .isEqualTo("边缘调用点不存在（档位配置面只有 naming/compaction/classification/precheck 四点）");
+                });
     }
 
     // ========== 项目清单 · query→wire 映射（status 单选）+ 分页 1-based 透传 ==========
@@ -445,7 +1639,7 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.getProject("3829492007654321")).thenReturn(
                 new AiplatformProjectDetailWireResponse(
                         "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野", "3829492009999999",
-                        1, "官网", 1, "进行中", false,
+                        1, "官网", 1, "进行中", false, true,  // archived, needsUserSupplement（#119）
                         LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                         LocalDateTime.of(2026, 9, 14, 18, 30, 0),
                         LocalDateTime.of(2026, 9, 10, 20, 0, 0),
@@ -465,6 +1659,8 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.costSummary().cost()).containsEntry("CNY", new BigDecimal("12.3456"));
         assertThat(detail.costSummary().unpriced()).isTrue();
         assertThat(detail.prdProducedAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 20, 0, 0));
+        // 盖帽标志（#119，对接 aiplatform #390）：Boolean 直读透传，置位态如实 true
+        assertThat(detail.needsUserSupplement()).isTrue();
     }
 
     // ========== 深读三组 · 对话史 / PRD / 版本 ==========

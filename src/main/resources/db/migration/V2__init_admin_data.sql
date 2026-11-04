@@ -32,7 +32,7 @@ INSERT INTO sys_admin_roles (
 -- ============================================================================
 -- ID: 1 (reserved for system admin)
 -- Username: admin
--- Password: Hcy@2026 (BCrypt hash)
+-- Password: A1@truth (BCrypt hash)
 -- Status: 1 (ACTIVE)
 -- System: TRUE (built-in account, cannot be deleted)
 -- ============================================================================
@@ -43,7 +43,7 @@ INSERT INTO sys_admin_users (
 ) VALUES (
     1,
     'admin',
-    '$2a$10$ICG05u/zxSMDoGhaAMMQze9gsmlziEMRQK1zHrpbM7Ppl2Kdiu56S',
+    '$2a$10$bS8OxsQvYOSNiyFz/9hIBOXnJnd3Zea7o.drNwsBT3fTlINLHxD4i',
     '超级管理员',
     NULL,
     NULL,

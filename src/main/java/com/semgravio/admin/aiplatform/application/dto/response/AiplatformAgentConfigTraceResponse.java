@@ -7,13 +7,18 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * AI 平台智能体配置变更留痕读面行——北向出口，逐字镜像 aiplatform
  * {@code BackofficeAgentConfigTraceResponse}（#251 留痕回滚，#246 技能线 T5，spec #79 定稿、
- * issue #84）：一次实际变更的前后全量值快照（old&#42;/new&#42; 四件对）＋操作者＋时刻。
+ * issue #84；B3 issue #112 增路由强档两件——镜像 provider #367 落地后的 B3 面）：一次实际
+ * 变更的前后全量值快照（old&#42;/new&#42; 对）＋操作者＋时刻。
  *
  * <p>每痕＝一次实际变更（同值幂等重写不落痕——时间线里没有假变更）；按时间倒序（最近先，
  * provider 定死排序）。append-only——留痕不随任何动作删除（历史事实不随配置行消失）。
- * 回滚＝把某痕旧值快照经 PUT 写回（即一次新变更、留新痕，不做版本树）——old&#42; 四件即
- * 写回依据。old&#42;/new&#42; 的 prompt/档位两件可空（null＝该侧即缺省回落），开关四件 provider
- * 恒在场（原生 boolean，admin 同型镜像）。</p>
+ * 回滚＝把某痕旧值快照经 PUT 写回（即一次新变更、留新痕，不做版本树）——old&#42; 件即
+ * 写回依据。old&#42;/new&#42; 的 prompt/档位/<strong>强档</strong>三件可空（null＝该侧即缺省
+ * 回落；强档件是读面可改就必须可回滚的必然配套），开关四件 provider 恒在场（原生
+ * boolean，admin 同型镜像）。档位语义＝档位键（ADR-0031 语义键）。provider 留痕另带路由
+ * 开关/两阈值六件（#354），B3 票面不镜像（读面不呈现）。边缘调用点留痕行同形复用
+ * （/edge/{edgeKey}/traces——边缘行档位列之外快照件恒缺省态：prompt null、开关 true、
+ * 路由件缺省态）。</p>
  *
  * @since 0.1.0
  */
@@ -27,8 +32,8 @@ public record AiplatformAgentConfigTraceResponse(
         @Schema(description = "变更前 systemPrompt（null＝此前即缺省回落——回滚即把此值写回）")
         String oldSystemPrompt,
 
-        /** 变更前模型档位（null＝此前即缺省回落） */
-        @Schema(description = "变更前模型档位（null＝此前即缺省回落）")
+        /** 变更前模型档位键（null＝此前即缺省回落） */
+        @Schema(description = "变更前模型档位键（null＝此前即缺省回落）")
         String oldModelId,
 
         /** 变更前联网搜索开关 */
@@ -39,12 +44,16 @@ public record AiplatformAgentConfigTraceResponse(
         @Schema(description = "变更前网页抓取开关")
         boolean oldFetchUrlEnabled,
 
+        /** 变更前强模型档（null＝此前即回落代码缺省——回滚即把此值写回） */
+        @Schema(description = "变更前强模型档（null＝此前即回落代码缺省——回滚即把此值写回）")
+        String oldRoutingStrongModelId,
+
         /** 变更后 systemPrompt（null＝本次清空回落枚举默认） */
         @Schema(description = "变更后 systemPrompt（null＝本次清空回落枚举默认）")
         String newSystemPrompt,
 
-        /** 变更后模型档位（null＝本次清空回落） */
-        @Schema(description = "变更后模型档位（null＝本次清空回落）")
+        /** 变更后模型档位键（null＝本次清空回落） */
+        @Schema(description = "变更后模型档位键（null＝本次清空回落）")
         String newModelId,
 
         /** 变更后联网搜索开关 */
@@ -54,6 +63,10 @@ public record AiplatformAgentConfigTraceResponse(
         /** 变更后网页抓取开关 */
         @Schema(description = "变更后网页抓取开关")
         boolean newFetchUrlEnabled,
+
+        /** 变更后强模型档（null＝本次清空回落代码缺省） */
+        @Schema(description = "变更后强模型档（null＝本次清空回落代码缺省）")
+        String newRoutingStrongModelId,
 
         /** 变更操作者 id */
         @Schema(description = "变更操作者 id", example = "700200")

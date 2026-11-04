@@ -17,3 +17,5 @@ target/*.original
 .env
 .env.local
 .env.development
+.env.production
+.scratch
