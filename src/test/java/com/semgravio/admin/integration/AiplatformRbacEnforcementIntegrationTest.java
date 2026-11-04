@@ -965,7 +965,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         LocalDateTime.of(2026, 9, 11, 9, 0, 0))), 42, 3, 20));
         when(aiplatformClient.getOrder(eq(ORDER_ID))).thenReturn(new AiplatformOrderDetailWireResponse(
                 ORDER_ID, "3829492007654321", "英语学习助手", EXTERNAL_ID, "文野",
-                2, "已报价", 1, "设计", 2199000L, "CNY", "含加急费用",
+                2, "已报价", 1, "设计", null, null, 2199000L, "CNY", "含加急费用",  // 双版本（provider 未发版窗口 null，#120）
                 "交付清单：管理后台＋小程序（含 5 个核心页面）",
                 "验收方式：按 PRD v3 逐项验收",
                 "工期口径：4 周（含 1 周联调）",

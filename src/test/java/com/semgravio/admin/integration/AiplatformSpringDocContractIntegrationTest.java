@@ -1135,16 +1135,19 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(retryArchive.path("description").asText(""))
                 .contains("唯一归档触发口");
 
-        // 双版本引用 schema 自描述（写回执面 OrderResponse 携；清单/详情 wire 无此字段——provider 事实）
-        for (String field : List.of("prdVersionNo", "demoVersionNo")) {
-            JsonNode prop = property("AiplatformOrderResponse", field);
-            assertThat(prop.isMissingNode())
-                    .as("AiplatformOrderResponse.%s 缺字段（契约漂移——不镜像＝Jackson 静默丢弃，#75 先例）", field)
-                    .isFalse();
-            assertThat(prop.path("description").asText(""))
-                    .as("AiplatformOrderResponse.%s 应写明随单冻结口径", field)
-                    .contains("随单冻结")
-                    .contains("遗留单 null");
+        // 双版本引用 schema 自描述（回执面 OrderResponse ＋详情面〔#120 增补，对接 aiplatform #391〕；
+        // 清单 Summary wire 无此字段——provider 事实，呈现完整性影响小未提票）
+        for (String schema : List.of("AiplatformOrderResponse", "AiplatformOrderDetailResponse")) {
+            for (String field : List.of("prdVersionNo", "demoVersionNo")) {
+                JsonNode prop = property(schema, field);
+                assertThat(prop.isMissingNode())
+                        .as("%s.%s 缺字段（契约漂移——不镜像＝Jackson 静默丢弃，#75 先例）", schema, field)
+                        .isFalse();
+                assertThat(prop.path("description").asText(""))
+                        .as("%s.%s 应写明随单冻结口径", schema, field)
+                        .contains("随单冻结")
+                        .contains("遗留单 null");
+            }
         }
         // scope 三段 schema（回执面＋详情面同款：工作副本现值语义＋未录入 null）
         for (String schema : List.of("AiplatformOrderResponse", "AiplatformOrderDetailResponse")) {

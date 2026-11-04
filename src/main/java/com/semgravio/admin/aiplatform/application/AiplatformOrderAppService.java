@@ -165,6 +165,7 @@ public class AiplatformOrderAppService {
                 wire.ownerExternalId(), wire.ownerDisplayName(),
                 wire.status(), wire.statusName(),
                 wire.deliverableType(), wire.deliverableTypeName(),
+                wire.prdVersionNo(), wire.demoVersionNo(),
                 wire.amount(), wire.currency(), wire.note(),
                 wire.scopeDeliverables(), wire.scopeAcceptance(), wire.scopeTimeline(),
                 wire.priceEntries() == null ? null : wire.priceEntries().stream()

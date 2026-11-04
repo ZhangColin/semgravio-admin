@@ -15,6 +15,7 @@ import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderCan
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderQuoteCommand;
 import com.semgravio.admin.aiplatform.application.dto.command.AiplatformOrderScopeCommand;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformOrderQuery;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformOrderSummaryResponse;
 import com.cartisan.openapi.client.BinaryResponse;
@@ -55,11 +56,12 @@ import com.cartisan.web.response.PageResponse;
  *       全链零 ±1 换算（区别于 payment 的 page-1）。</li>
  *   <li>写路径四操作（报价/取消/重试归档/范围录入，#108 A5 scope 增）共用回执
  *       {@code ApiResponse<OrderResponse>}（provider <strong>用户面</strong>同构 DTO——区别于
- *       后台详情 27 字段）：内嵌价目行为<strong>五字段</strong>（无操作者留痕，操作者两肢只在
+ *       后台详情 29 字段，#120 双版本增补后）：内嵌价目行为<strong>五字段</strong>（无操作者留痕，操作者两肢只在
  *       后台详情价目行上）。「已报价态重复提交＝改价」语义由 provider 承担。</li>
  *   <li>双版本引用（provider #335，V37）：OrderResponse 增 {@code prdVersionNo}/{@code demoVersionNo}
  *       两 Integer（下单冻结的已确认 PRD/Demo 版本号，遗留单 null）——位于 deliverableTypeName
- *       邻位；范围文本三段（provider #336）：OrderResponse 与后台详情均增
+ *       邻位；后台详情同位增补（#120，对接 aiplatform #391——provider 发版前窗口缺席 null 与
+ *       遗留单同形）；范围文本三段（provider #336）：OrderResponse 与后台详情均增
  *       {@code scopeDeliverables/scopeAcceptance/scopeTimeline}（scope 工作副本现值，未录入
  *       null）——位于 note 邻位。admin 三镜像同步（不跟随＝Jackson 静默丢弃字段，#75 先例）。</li>
  *   <li>报价命令体 {@code {amount, note}}：amount Long 分→JSON <strong>string</strong>
@@ -137,6 +139,8 @@ class AiplatformOrderClientContractTest {
     /**
      * aiplatform GET /api/backoffice/orders/{id} 的真实成功响应形状（已报价单：两次报价留痕，新→旧）。
      * 范围文本三段（#336 scope 工作副本）在 note 邻位、priceEntries 前——后台详情现值回显。
+     * 双版本引用（#120，对接 aiplatform #391）在 deliverableTypeName 邻位——与 OrderResponse
+     * （#335）字段序一致。
      */
     private static final String ORDER_DETAIL_ENVELOPE = """
             {
@@ -152,6 +156,8 @@ class AiplatformOrderClientContractTest {
                 "statusName": "已报价",
                 "deliverableType": 1,
                 "deliverableTypeName": "设计",
+                "prdVersionNo": 3,
+                "demoVersionNo": 2,
                 "amount": "2199000",
                 "currency": "CNY",
                 "note": "含加急费用",
@@ -595,6 +601,9 @@ class AiplatformOrderClientContractTest {
         // 交付物类型字段对（#96）：设计单——PRD 快照即含设计物清单章、取件走 design-package
         assertThat(detail.deliverableType()).isEqualTo(1);
         assertThat(detail.deliverableTypeName()).isEqualTo("设计");
+        // 双版本引用（#120，对接 aiplatform #391）：Integer 直读透传——下单冻结的实值
+        assertThat(detail.prdVersionNo()).isEqualTo(3);
+        assertThat(detail.demoVersionNo()).isEqualTo(2);
         assertThat(detail.amount()).isEqualTo(2199000L);
         assertThat(detail.note()).isEqualTo("含加急费用");
         // 范围文本三段（#336 scope 工作副本现值回显——scope 录入端点的读面；未录入单为 null）
@@ -626,6 +635,30 @@ class AiplatformOrderClientContractTest {
         assertThat(detail.cancelReason()).isNull();
         assertThat(detail.cancelOperatorId()).isNull();
         assertThat(detail.cancelOperatorName()).isNull();
+    }
+
+    /**
+     * provider 未发版窗口（aiplatform #391 落地前，wire 上无两版本肢）：Integer 装箱缺席
+     * 反序列化为 null——与遗留单（下单即无冻结版本）同形，前端 typings 已可选、「—」如实
+     * 呈现，不冒充任何版本号。
+     */
+    @Test
+    void given_detailEnvelopeWithoutVersionLimbs_when_getDetail_then_nullVersions() {
+        // text block 运行时已剥公共缩进：JSON 属性行前导 4 空格（非源码里的 16）。
+        // doesNotContain 前置自检：夹具重排缩进致 replace 失配时，在此当场红（信息直指信封构造），
+        // 不让字段残留到 isNull() 才以费解方式失败。
+        String preDeployEnvelope = ORDER_DETAIL_ENVELOPE
+                .replace("    \"prdVersionNo\": 3,\n", "")
+                .replace("    \"demoVersionNo\": 2,\n", "");
+        assertThat(preDeployEnvelope).doesNotContain("prdVersionNo").doesNotContain("demoVersionNo");
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.orderAppServiceWithStubTransport(
+                preDeployEnvelope, null, wireUrl);
+
+        AiplatformOrderDetailResponse detail = appService.getDetail("3829492001234567");
+
+        assertThat(detail.prdVersionNo()).isNull();
+        assertThat(detail.demoVersionNo()).isNull();
     }
 
     @Test
