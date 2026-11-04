@@ -7,7 +7,7 @@
 #   <包根>/target/   可执行 fat JAR（开发机 mvn 构建——cartisan-boot SNAPSHOT 只在开发机 ~/.m2，
 #                    服务器无需 Java/Maven）
 #   <包根>/REVISION  打包时的 git revision（线上容器可追溯提交）
-#   源码经 git archive 导出、恒 LF；.scratch/ 开发笔记已剔除。
+#   源码经 git archive 导出、恒 LF。
 #
 # 源码树用 git archive 导出而非拷工作区（与 aiplatform 同口径）：
 #   ① Windows Git Bash 无 rsync，git 两平台都在；② Windows checkout 是 CRLF，archive 出仓库
@@ -56,8 +56,6 @@ mkdir -p "${OUT}/target"
 # 覆盖后输出仓库正本、恒 LF
 ga() { git -c core.autocrlf=false -c core.eol=lf archive "$@"; }
 ga HEAD | tar -x -C "${OUT}"
-# .scratch/ 是开发机工作笔记（规格草稿/中间产物），不属于部署材料，剔出发布包
-rm -rf "${OUT}/.scratch"
 cp "${JAR}" "${OUT}/target/"
 git rev-parse HEAD > "${OUT}/REVISION"
 

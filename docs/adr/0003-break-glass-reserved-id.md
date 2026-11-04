@@ -58,4 +58,3 @@
 ## 参见
 
 - 工作原则 memory：`framework-gaps-raise-requirement`。
-- spec：[`.scratch/phase0-completion/spec.md`](../../.scratch/phase0-completion/spec.md)（Bug ③④）。

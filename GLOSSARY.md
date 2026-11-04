@@ -257,8 +257,8 @@ ID：directory=82；leaves=160/170/180/190/200/210（账号读口不种）＋220
 ### Phase 0 — 修 4 个 RBAC bug（地基，CLAUDE.md 强制）
 - ✅ [ADR-0001](docs/adr/0001-admin-uses-default-sa-token-login-type.md) Sa-Token 用默认 loginType、放弃 "admin" 命名空间（Bug ①）— 已定
 - ✅ Bug ② 超管 bypass — 已落地（commit `9db013b`）：`SaTokenConfig` 提供 `AuthorizationBypassResolver` bean 委托 `isSuperAdmin`。见 [ADR-0002](docs/adr/0002-super-admin-bypass-is-framework-gap.md)
-- ✅ Bug ③ 内置账号保护 — **已落地**（2026-07-28）：拆"授权 vs 韧性"；超管 = 角色（已有）；破窗号 = 固定 `admin`(id=1) 不可删/不可禁/可改密；**删 `system` 列**（V4）、按保留 ID 识别；删 `count()<=1` 死逻辑；`assignRoles` 不许从破窗号移除 `SUPER_ADMIN`。见 [ADR-0003](docs/adr/0003-break-glass-reserved-id.md)。spec：[`.scratch/phase0-completion/spec.md`](.scratch/phase0-completion/spec.md)。
-- ✅ Bug ④ 登录未写 `SaSession.userName` — **框架根因已修 + admin 已迁移**：cartisan-boot commit `efcb1e7` 破坏性补全 `login` 签名（两个重载各加 `String userName`、由框架写入 session、删旧重载）；admin 已迁到新签名（传昵称）、删除 `StpUtil.getSession().set(...)` 临时补丁（admin 不再直接依赖 `StpUtil`）。见 [`.scratch/phase0-completion/issues/03`](.scratch/phase0-completion/issues/03-migrate-to-framework-login-signature.md)。
+- ✅ Bug ③ 内置账号保护 — **已落地**（2026-07-28）：拆"授权 vs 韧性"；超管 = 角色（已有）；破窗号 = 固定 `admin`(id=1) 不可删/不可禁/可改密；**删 `system` 列**（V4）、按保留 ID 识别；删 `count()<=1` 死逻辑；`assignRoles` 不许从破窗号移除 `SUPER_ADMIN`。见 [ADR-0003](docs/adr/0003-break-glass-reserved-id.md)。
+- ✅ Bug ④ 登录未写 `SaSession.userName` — **框架根因已修 + admin 已迁移**：cartisan-boot commit `efcb1e7` 破坏性补全 `login` 签名（两个重载各加 `String userName`、由框架写入 session、删旧重载）；admin 已迁到新签名（传昵称）、删除 `StpUtil.getSession().set(...)` 临时补丁（admin 不再直接依赖 `StpUtil`）。
 
 ### Phase 1 — Operator 模型补全
 - ⏳ 部门 / 岗位模型（树？数据权限挂钩？）

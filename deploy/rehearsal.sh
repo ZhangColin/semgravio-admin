@@ -175,12 +175,12 @@ JAR_LISTING="$(unzip -l "$JAR" 2>/dev/null || true)"
 grep -q 'BOOT-INF/lib/' <<<"$JAR_LISTING" || die "缺 BOOT-INF/lib 运行依赖，不是 fat JAR"
 ok "fat JAR 可执行（Start-Class＋BOOT-INF/lib，$(du -h "$JAR" | cut -f1)）"
 
-# 敏感文件排除：包内不得有真实环境文件/私钥/证书/备份/开发笔记
+# 敏感文件排除：包内不得有真实环境文件/私钥/证书/备份
 BAD="$(tar -tzf "$BUNDLE" | grep -E '(^|/)\.env($|\..*)' | grep -v '\.example$' || true)"
 BAD="${BAD}$(tar -tzf "$BUNDLE" | grep -E '\.(pem|key|p12|jks|crt|cer|der)$' || true)"
-BAD="${BAD}$(tar -tzf "$BUNDLE" | grep -E '(^|/)(backup|backups)[-/]|(^|/)\.scratch/' || true)"
+BAD="${BAD}$(tar -tzf "$BUNDLE" | grep -E '(^|/)(backup|backups)[-/]' || true)"
 [ -z "$BAD" ] || die "发布包含敏感文件：$BAD"
-ok "敏感文件排除（.env* 非 example/密钥/证书/备份/.scratch 均不在包内）"
+ok "敏感文件排除（.env* 非 example/密钥/证书/备份 均不在包内）"
 
 # 部署文件齐位：服务器部署面完整（含排练自身与唯一 runbook）
 for f in build-bundle.sh release.sh release-remote.sh server.sh rehearsal.sh \
