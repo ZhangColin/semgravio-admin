@@ -47,11 +47,14 @@ scp -i "$SSH_KEY" "$BUNDLE" "$REMOTE:"
 
 echo "== 3/4 服务器：infra 前置检查 → 备份 → 解包 → 重建 → 健康等待 → 验收 =="
 # 部署目标名显式钉死为生产契约——release-remote.sh 的同名覆盖变量是排练（rehearsal.sh）
-# 的隔离缝，生产路径不留给远端 shell 环境同名导出值任何串道空间
+# 的隔离缝，生产路径不留给远端 shell 环境同名导出值任何串道空间。
+# 灌入前剥 \r：Windows checkout 是 CRLF，原始字节流过去远端 bash 把 pipefail\r 当非法选项
+# （排练是本地 bash deploy/release-remote.sh，MSYS2 文本模式剥 CR，覆盖不到该路径）；
+# 用进程替换而非管道——管道 + pipefail 下 ssh 提前退出会让 tr 死于 SIGPIPE 连带误判发布失败
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
   "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR SKIP_BACKUP=${SKIP_BACKUP:-0} \
    PG_CONTAINER=semgravio-pg REDIS_CONTAINER=semgravio-redis WEBNET=webnet \
    APP_CONTAINER=semgravio-admin DB_NAME=semgravio_admin DB_USER=semgravio_admin bash -s" \
-  < deploy/release-remote.sh
+  < <(tr -d '\r' < deploy/release-remote.sh)
 
 echo "== 4/4 完成：$BASENAME 已上线（健康 UP，OpenAPI 可达） =="
