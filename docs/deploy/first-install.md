@@ -1,6 +1,6 @@
 # 首装接入 runbook：共享 infra 配置与单实例健康服务
 
-> 适用工单：#116（父规格 #114）。日常升级发布见后续发布文档（#117），完整运维
+> 适用工单：#116（父规格 #114）。日常升级发布见 [release.md](release.md)（#117），完整运维
 > runbook 与隔离黑盒排练见 #118。本文档只覆盖**首次部署**。
 
 ## 交付结论（先读这个）
@@ -91,7 +91,7 @@ docker inspect --format='{{.State.Health.Status}}' semgravio-admin   # 等待变
   既有数据源不会被自动切换；模板新增变量只在文档提示核对，不做静默合并。
 - 本应用 Compose 只加入 external `webnet`，`down` 不删共享网络与卷；
   不启动/停止/重建共享 PG、Redis、nginx。
-- 升级发布（SSH 一键换版、数据库备份、服务端运维命令）见 #117；
+- 升级发布（SSH 一键换版、数据库备份、服务端运维命令）见 [release.md](release.md)；
   冒烟与完整 runbook 见 #118。
 
 ## 本文档明确不包含

@@ -43,4 +43,5 @@ mvn package -DskipTests
 ```
 
 首装（共享 infra 建库建号、环境配置、健康验证）见 [docs/deploy/first-install.md](docs/deploy/first-install.md)。
+日常升级发布与服务器运维（打包/SSH 一键换版/备份/冒烟）见 [docs/deploy/release.md](docs/deploy/release.md)。
 admin-web 反代目标：`http://semgravio-admin:8081`，健康检查 `/actuator/health`（仅 webnet 内解析）。
