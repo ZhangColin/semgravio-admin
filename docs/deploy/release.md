@@ -28,7 +28,7 @@
 
 ```bash
 SERVER_HOST=... SERVER_USER=... SSH_KEY=... REMOTE_DIR=... INFRA_DIR=... \
-  ./scripts/release/release.sh
+  ./deploy/release.sh
 ```
 
 流程（任一步失败即非零退出，**后续步骤不执行**）：
@@ -48,22 +48,24 @@ SERVER_HOST=... SERVER_USER=... SSH_KEY=... REMOTE_DIR=... INFRA_DIR=... \
 ## 发布包（单独打包）
 
 ```bash
-./scripts/release/build-bundle.sh        # 产出 dist/semgravio-admin-deploy-<时间戳>.tar.gz
-ALLOW_DIRTY=1 ./scripts/release/build-bundle.sh   # 显式允许带脏打包（不推荐）
+./deploy/build-bundle.sh        # 产出 dist/semgravio-admin-deploy-<时间戳>.tar.gz
+ALLOW_DIRTY=1 ./deploy/build-bundle.sh   # 显式允许带脏打包（不推荐）
 ```
 
 - **默认拒绝脏工作区**：源码树按 `git archive HEAD` 导出（恒 LF，Windows 上不带
   `\r`），与 jar 的构建基线严格一致。
-- **内容**：已提交源码正本＋部署文件（`Dockerfile`/`docker-compose.prod.yml`/
-  `deploy.sh`/`scripts/`/`docs/`）＋`target/semgravio-admin.jar`＋`REVISION`。
+- **内容**：已提交源码正本＋aiplatform 同款 `deploy/` 部署目录＋既有
+  `scripts/` 检查脚本与 `docs/` 说明＋`target/semgravio-admin.jar`＋`REVISION`
+  （`.scratch/` 开发笔记不属于部署材料，打包时剔除）。
 - **排除**：`.env.production`、私钥/证书、备份、临时产物——均未被 git 跟踪，
   `git archive` 天然排除；已提交文件命中敏感模式（`.env*`（非 example）/
-  `.pem/.key/.p12/.jks`/`backup-*`）则**拒绝打包**。
+  `.pem/.key/.p12/.jks/.crt/.cer/.der`/`backup-*`）则**拒绝打包**。
 
 ## 备份与升级检测
 
 - 仅当 `semgravio_admin` 库已存在（`psql` 可连接）才在替换容器前生成
-  **`pg_dump` 压缩备份**：`~/backup-admin-<YYYY-MM-DD-HHMM>.sql.gz`。
+  **`pg_dump` 压缩备份**：`~/backup-admin-<YYYY-MM-DD-HHMMSS>.sql.gz`
+  （秒级时间戳——同分钟内失败重跑不会覆盖前一份备份）。
 - 首装（库不存在）**不生成备份、不伪造旧版本备份**。
 - `SKIP_BACKUP=1` 可跳过备份（应急开关，慎用）。
 
@@ -71,12 +73,13 @@ ALLOW_DIRTY=1 ./scripts/release/build-bundle.sh   # 显式允许带脏打包（�
 
 ```bash
 # 连接参数同发布（SERVER_HOST/SERVER_USER/SSH_KEY）
-./scripts/release/ops.sh status    # admin 容器概览（状态/镜像）
-./scripts/release/ops.sh logs      # 跟日志（--tail 200）
-./scripts/release/ops.sh restart   # 重启应用容器（不重建镜像、不动 infra）
-./scripts/release/ops.sh dump      # pg_dump → ~/backup-admin-<时间>.sql.gz
-./scripts/release/ops.sh smoke     # 冒烟：Actuator UP ＋ OpenAPI 可达
-./scripts/release/ops.sh sh        # 登服务器交互 shell
+./deploy/server.sh status    # admin 容器概览（状态/镜像）
+./deploy/server.sh logs      # 跟日志（--tail 200）
+./deploy/server.sh restart   # 重启应用容器（不重建镜像、不动 infra）
+./deploy/server.sh dump      # pg_dump → ~/backup-admin-<时间>.sql.gz
+./deploy/server.sh smoke     # 冒烟：Actuator UP ＋ OpenAPI 可达
+./deploy/server.sh sh        # 应用级 shell（docker exec -it 进应用容器）
+./deploy/server.sh ssh       # 登服务器交互 shell（应急排查）
 ```
 
 - 运维入口**只面向 admin 应用容器**：不提供共享 infra（PG/Redis/nginx）或
@@ -88,7 +91,7 @@ ALLOW_DIRTY=1 ./scripts/release/build-bundle.sh   # 显式允许带脏打包（�
 | 现象 | 排查 |
 |---|---|
 | 前置检查不过（infra 不健康/webnet 缺失/远端 env 缺失） | 先在服务器起 infra：`cd $INFRA_DIR && ./deploy.sh`；首装未完成则按 first-install.md 补齐，修好后重跑发布（现有应用未被触碰） |
-| 健康等待 180s 超时 | 现场保留，未回滚：`./scripts/release/ops.sh status`、`./scripts/release/ops.sh logs`；常见原因是 Flyway 迁移慢或 `.env.production` 凭据错误 |
+| 健康等待 180s 超时 | 现场保留，未回滚：`./deploy/server.sh status`、`./deploy/server.sh logs`；常见原因是 Flyway 迁移慢或 `.env.production` 凭据错误 |
 | OpenAPI 验收非 200 | 同上看应用日志；`/v3/api-docs` 在安全白名单内，非鉴权问题 |
 
 **人工恢复边界（务必知悉）**：

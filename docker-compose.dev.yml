@@ -3,7 +3,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: deploy/server.Dockerfile
     container_name: semgravio-admin-dev
     ports:
       - "8081:8081"

@@ -1,5 +1,5 @@
 # 管理后台网关 - 生产环境 Docker Compose 配置（首装接入契约见 #116）
-# 使用方法: ./deploy.sh（或 docker-compose -f docker-compose.prod.yml --env-file .env.production up -d）
+# 使用方法: docker compose -f deploy/server.compose.yml --env-file .env.production up -d --build
 #
 # name 必须显式：与 aiplatform 部署单元同目录共存时，默认项目名（目录名）会撞车，
 # 同名服务相互把对方容器当作本项目的旧服务停删（aiplatform 实测踩坑，同口径修复）。
@@ -7,24 +7,25 @@ name: semgravio-admin
 
 services:
   app:
-    # 镜像名显式指定为 admin 专属值，与容器名/Docker DNS 名统一为 semgravio-admin
-    image: semgravio-admin:latest
+    # 镜像名显式指定为 admin 专属值，与容器名/Docker DNS 名统一为 semgravio-admin；
+    # tag 固定专属值 :ecs（部署目标），不用通用 :latest——多镜像主机上避免误引用他单元镜像
+    image: semgravio-admin:ecs
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/server.Dockerfile
     container_name: semgravio-admin
     environment:
       - SPRING_PROFILES_ACTIVE=prod
-      # PG 数据源三项——首装经 infra ensure-db-user.sh 拿到 semgravio_admin 分片（见 .env.production.example）
-      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL 必填——首装先跑 infra ensure-db-user.sh，见 .env.production.example}
+      # PG 数据源三项——首装经 infra ensure-db-user.sh 拿到 semgravio_admin 分片（见 deploy/env.server.example）
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL 必填——首装先跑 infra ensure-db-user.sh，见 deploy/env.server.example}
       - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:?SPRING_DATASOURCE_USERNAME 必填——与库名同为 semgravio_admin}
       - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:?SPRING_DATASOURCE_PASSWORD 必填——ensure-db-user.sh 分片}
       # Redis 主机/端口/密码——共享 infra 契约（semgravio-redis 已启用 requirepass，密码必填无默认）
       - REDIS_HOST=${REDIS_HOST:-semgravio-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必填——共享 Redis 已启用认证，见 .env.production.example}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必填——共享 Redis 已启用认证，见 deploy/env.server.example}
       # BFF 签名凭证——与 app-registry 里 admin-console 的 apiSecret 同值（必填，无默认）
-      - ADMIN_API_SECRET=${ADMIN_API_SECRET:?ADMIN_API_SECRET 必填——见 .env.production.example}
+      - ADMIN_API_SECRET=${ADMIN_API_SECRET:?ADMIN_API_SECRET 必填——见 deploy/env.server.example}
       # 各能力域内网地址（webnet 容器名直连；默认值对应现行容器名，特殊拓扑才需覆盖）
       - APP_REGISTRY_URL=${APP_REGISTRY_URL:-http://semgravio-openapi:8088}
       - AIPLATFORM_SERVICE_URL=${AIPLATFORM_SERVICE_URL:-http://aiplatform-server:8888}

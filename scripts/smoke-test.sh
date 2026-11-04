@@ -74,7 +74,7 @@ ok "fat JAR: $JAR_FILE ($JAR_SIZE)"
 
 # ---------------------------------------------------------------- 3. 构建镜像
 log "步骤 3/4：docker build（仅复制 Maven 产物，构建环境无需 Maven）"
-docker build -q -t "$IMAGE_TAG" . >/dev/null \
+docker build -q -f deploy/server.Dockerfile -t "$IMAGE_TAG" . >/dev/null \
   || fail_step "镜像构建失败，以上输出为真实构建错误"
 ok "镜像 $IMAGE_TAG 构建完成"
 

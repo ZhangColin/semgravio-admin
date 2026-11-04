@@ -2,7 +2,7 @@
 # semgravio-admin Compose 渲染与变量契约检查（#116）
 #
 # 验证首装接入契约，不改任何运行态：
-#   1. 用 .env.production.example 渲染 docker-compose.prod.yml 成功
+#   1. 用 deploy/env.server.example 渲染 deploy/server.compose.yml 成功
 #      （compose 中 ${VAR:?必填} 语法使缺失变量在渲染期即响亮失败）
 #   2. 单实例形态：显式项目名/镜像名/容器名 = semgravio-admin
 #   3. 不映射宿主端口（8081 只存在于 webnet 内）
@@ -14,8 +14,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-COMPOSE_FILE="docker-compose.prod.yml"
-ENV_EXAMPLE=".env.production.example"
+COMPOSE_FILE="deploy/server.compose.yml"
+ENV_EXAMPLE="deploy/env.server.example"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

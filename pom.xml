@@ -125,7 +125,7 @@
     </dependencies>
 
     <!-- 发布基线（#115）：唯一定义稳定产物名 target/semgravio-admin.jar，
-         Dockerfile / deploy.sh / scripts/smoke-test.sh 均消费此约定，禁止各自拼接版本名 -->
+         deploy/server.Dockerfile / deploy/build-bundle.sh / scripts/smoke-test.sh 均消费此约定，禁止各自拼接版本名 -->
     <build>
         <finalName>semgravio-admin</finalName>
         <plugins>

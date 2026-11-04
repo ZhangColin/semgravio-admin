@@ -23,8 +23,8 @@
 # 应用目录（路径自定，与 aiplatform 部署单元平级即可）
 mkdir -p /opt/semgravio-admin && cd /opt/semgravio-admin
 
-# 从发布包/仓库复制 docker-compose.prod.yml、Dockerfile、.env.production.example
-cp .env.production.example .env.production
+# 从发布包/仓库取得 deploy/ 部署目录，在应用根目录准备真实环境文件
+cp deploy/env.server.example .env.production
 chmod 600 .env.production
 ```
 
@@ -55,7 +55,7 @@ DB_PASSWORD=...
 
 ## 3. 填写其余环境配置
 
-`.env.production` 全量口径见 `.env.production.example` 注释：
+`.env.production` 全量口径见 `deploy/env.server.example` 注释：
 
 | 变量 | 来源 |
 |---|---|
@@ -70,7 +70,7 @@ DB_PASSWORD=...
 ```bash
 cd /opt/semgravio-admin
 ./scripts/check-compose.sh          # 渲染与变量契约检查（不改动运行态）
-docker-compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f deploy/server.compose.yml --env-file .env.production up -d --build
 docker inspect --format='{{.State.Health.Status}}' semgravio-admin   # 等待变为 healthy
 ```
 

@@ -1,6 +1,6 @@
 # 管理后台网关 - 生产环境 Dockerfile
 #
-# 前提：本地已执行 mvn package（见 deploy.sh，可自动补齐）。
+# 前提：本地已执行 mvn package（deploy/build-bundle.sh 会自动构建）。
 # 直接复制 Maven 产物构建镜像——构建环境内无需 Maven、Docker CLI 或基础设施组件。
 # 产物名由 pom.xml <finalName> 唯一定义（发布基线 #115），此处仅消费同一约定。
 #

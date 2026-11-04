@@ -1153,3 +1153,18 @@ Optional<User> findByUsername(@Param("username") String username);
 - CI 环境：配置 Docker runner
 
 **相关 Feature**：F02-01
+
+### PIT-006 (2026-11-04)：测试容器停了不是失败，是永远挂死
+
+**问题**：集成测试连 `localhost:25432/26379`（`semgravio-test-pg` / `semgravio-test-redis`
+容器）。容器 Exited 后连接被拒，而 Druid 未设 `maxWait`（默认无限等），创建连接
+线程无限重试，`mvn verify` 不报错、不动弹，surefire fork 停在
+`DruidDataSource.pollLast` WAITING——现场是 48 个单测报告写完后长时间零产出。
+
+**解决方案**：
+- 症状识别：单测报告数长时间不变＋一个 surefire fork 常驻 → `jstack <pid>`
+  见 `DruidDataSource.pollLast` 即此坑；`docker ps -a | grep semgravio-test` 确认
+- 起容器：`docker start semgravio-test-pg semgravio-test-redis`，重跑 `mvn verify`
+- 治本（待办）：测试配置给 Druid 设 `max-wait`，让缺容器响亮失败而非挂死
+
+**相关 Feature**：#117（打包/发布期全量检查时踩中）
