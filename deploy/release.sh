@@ -46,8 +46,12 @@ echo "== 2/4 上传（$(du -h "$BUNDLE" | cut -f1) → $REMOTE） =="
 scp -i "$SSH_KEY" "$BUNDLE" "$REMOTE:"
 
 echo "== 3/4 服务器：infra 前置检查 → 备份 → 解包 → 重建 → 健康等待 → 验收 =="
+# 部署目标名显式钉死为生产契约——release-remote.sh 的同名覆盖变量是排练（rehearsal.sh）
+# 的隔离缝，生产路径不留给远端 shell 环境同名导出值任何串道空间
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
-  "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR SKIP_BACKUP=${SKIP_BACKUP:-0} bash -s" \
+  "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR SKIP_BACKUP=${SKIP_BACKUP:-0} \
+   PG_CONTAINER=semgravio-pg REDIS_CONTAINER=semgravio-redis WEBNET=webnet \
+   APP_CONTAINER=semgravio-admin DB_NAME=semgravio_admin DB_USER=semgravio_admin bash -s" \
   < deploy/release-remote.sh
 
 echo "== 4/4 完成：$BASENAME 已上线（健康 UP，OpenAPI 可达） =="

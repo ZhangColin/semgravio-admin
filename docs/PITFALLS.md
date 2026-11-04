@@ -911,6 +911,27 @@ RUN cd cartisan-boot && ./gradlew publishToMavenLocal
 
 ---
 
+### 规则 CI-003：`grep -q` 提前命中让上游命令吃 SIGPIPE——pipefail 下误判失败
+
+**问题**：`set -o pipefail` 下 `生产者 | grep -q 模式` 一旦 grep 提前命中就退出，生产者
+（unzip -l / grep -A2 等）收到 SIGPIPE 以非零码死掉，整条管道被 pipefail 判为失败——
+即使模式明明匹配上了。#118 排练在 fat JAR 断言处实踩（`unzip -l jar | grep -q 'BOOT-INF/lib/'`
+报「不是 fat JAR」），同日又在 Compose 渲染断言处差点复发；输入小（如 herestring）时
+不触发，纯属运气而非安全。
+
+**正确做法**：先落盘再模式匹配，别让生产者和 grep 同住一条管道：
+
+```bash
+JAR_LISTING="$(unzip -l "$JAR" 2>/dev/null || true)"
+grep -q 'BOOT-INF/lib/' <<<"$JAR_LISTING" || die "不是 fat JAR"
+```
+
+**记忆口诀**：pipefail 脚本里，`| grep -q` ＝ 管道自杀；先落盘，再 grep。
+
+**相关**：#115 scripts/smoke-test.sh 首次记录（该脚本已随 #118 收编进 deploy/rehearsal.sh）
+
+---
+
 ## 前端测试
 
 ### 规则 FTEST-001：前端单元测试使用 vitest + happy-dom

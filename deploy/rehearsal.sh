@@ -18,9 +18,10 @@
 #      内容保留、幂等重建后健康
 #   ⑦ 健康超时：错误凭据 → 非零退出＋诊断提示＋容器现场保留
 #
-# 隔离承诺（#118 AC）：只用 rehearsal-admin-* 前缀的容器/网络/镜像与 mktemp 临时目录，
-# 清场只针对这些测试资源；绝不触碰共享 PG 卷、共享网络（本地 webnet 在场也不加入，
-# 部署面副本把网络重定向到测试专属网络）、生产配置与兄弟应用容器。
+# 隔离承诺（#118 AC）：测试资源一律 rehearsal- 前缀（infra 容器/网络＝rehearsal-admin-*，
+# 应用容器/镜像/项目＝rehearsal-semgravio-admin*）＋ mktemp 临时目录，清场只按名删这些；
+# 绝不触碰共享 PG 卷、共享网络（本地 webnet 在场也不加入，部署面重定向到测试专属网络）、
+# 生产配置与兄弟应用容器。
 #
 # 用法（仓库根，需 Docker Desktop 运行中＋干净工作区＋cartisan SNAPSHOT 在开发机 ~/.m2）：
 #   deploy/rehearsal.sh            # 全量（含 mvn package，约 10 分钟）
@@ -65,7 +66,7 @@ on_exit() {
     printf '\n%s：排练现场保留（退出码 %s）\n' \
       "$([ "$rc" -ne 0 ] && echo '✗ 排练失败' || echo 'KEEP=1')" "$rc"
     printf '  应用日志：docker logs %s\n  工作目录：%s\n' "$APP_CT" "$T"
-    printf '  清场（只删 rehearsal-admin-* 测试资源）：\n'
+    printf '  清场（只删 rehearsal- 前缀测试资源）：\n'
     printf '    docker rm -fv %s %s && docker rm -f %s && docker network rm %s && docker image rm %s && rm -rf %s\n' \
       "$PG" "$RDS" "$APP_CT" "$NET" "$IMG" "$T"
   else
@@ -74,7 +75,7 @@ on_exit() {
     docker network rm "$NET" >/dev/null 2>&1 || true
     docker image rm "$IMG" >/dev/null 2>&1 || true
     rm -rf "$T"
-    ok "清场完成（仅 rehearsal-admin-* 测试资源；共享 PG 卷/webnet/生产配置未触碰）"
+    ok "清场完成（仅 rehearsal- 前缀测试资源；共享 PG 卷/webnet/生产配置未触碰）"
   fi
 }
 trap on_exit EXIT
@@ -115,7 +116,9 @@ grep -q 'container_name: semgravio-admin' <<<"$RENDERED" || die "容器名未显
 grep -qE 'image: semgravio-admin(:[a-z0-9._-]+)?$' <<<"$RENDERED" || die "镜像名非 semgravio-admin 专属值"
 ! grep -q 'published:' <<<"$RENDERED" || die "存在宿主端口映射（published），8081 不得发布到宿主"
 grep -q 'webnet:$' <<<"$RENDERED" || die "未加入 webnet 网络"
-grep -A2 'webnet:$' <<<"$RENDERED" | grep -q 'external: true' || die "webnet 未声明为 external"
+# 先落盘再 grep——grep -q 提前命中会让上游 grep 吃 SIGPIPE、pipefail 误判（同 fat JAR 处老坑）
+WEBNET_BLOCK="$(grep -A2 'webnet:$' <<<"$RENDERED")"
+grep -q 'external: true' <<<"$WEBNET_BLOCK" || die "webnet 未声明为 external"
 grep -q '/actuator/health' <<<"$RENDERED" || die "健康检查路径不是 /actuator/health"
 START_PERIOD="$(grep -oE 'start_period: [0-9smh]+' <<<"$RENDERED" | head -1 | cut -d' ' -f2)"
 SP_SECONDS=0
@@ -269,7 +272,15 @@ sed -i \
   -e '/^  webnet:$/a\    name: rehearsal-admin-webnet' \
   -e 's/^      - webnet$/      webnet:\n        aliases: [semgravio-admin]/' \
   "$T/repack/$TOPDIR/deploy/server.compose.yml"
-docker compose -f "$T/repack/$TOPDIR/deploy/server.compose.yml" --env-file "$ENV_TEMPLATE" config >/dev/null \
+# 断言重定向真的生效——sed 锚定精确缩进，compose 改版重排版会静默不命中，
+# 只验渲染不验替换会把测试容器放进真实 webnet（实测差点踩到）
+REDIRECTED="$T/repack/$TOPDIR/deploy/server.compose.yml"
+grep -q 'name: rehearsal-admin-webnet' "$REDIRECTED" || die "网络名未被重定向（sed 未命中？容器会加入真实 webnet）"
+grep -q 'container_name: rehearsal-semgravio-admin' "$REDIRECTED" || die "容器名未被重定向"
+grep -q 'image: rehearsal-semgravio-admin:ecs' "$REDIRECTED" || die "镜像名未被重定向"
+grep -q 'aliases: \[semgravio-admin\]' "$REDIRECTED" || die "DNS 别名未写入（反代目标契约断言会失败）"
+! grep -q '^name: semgravio-admin$' "$REDIRECTED" || die "项目名未被重定向"
+docker compose -f "$REDIRECTED" --env-file "$ENV_TEMPLATE" config >/dev/null \
   || die "重定向后的部署面渲染失败（sed 改坏了？）"
 tar -C "$T/repack" -czf "$T/rehearsal-bundle.master.tar.gz" "$TOPDIR"
 rm -rf "$T/repack"
@@ -293,10 +304,9 @@ ok "反代目标 http://semgravio-admin:8081/actuator/health 网络内 UP（admi
 phase "5/8 前置失败不动现有应用（.env.production 缺失 → 容器原样）"
 CID_BEFORE=$(docker inspect -f '{{.Id}}' "$APP_CT")
 mkdir -p "$T/app-noenv"
+# REMOTE_DIR 覆盖为无 env 目录——run_release 的 "$@" 追加在后，同名赋值覆盖基线值
 expect_fail '✗ .*\.env\.production 缺失' '应用 env 缺失即拒（infra 在场）' \
-  env HOME="$T" BUNDLE_FN="$BN" REMOTE_DIR=app-noenv INFRA_DIR=infra \
-      PG_CONTAINER="$PG" REDIS_CONTAINER="$RDS" WEBNET="$NET" APP_CONTAINER="$APP_CT" \
-  bash deploy/release-remote.sh
+  run_release REMOTE_DIR=app-noenv
 [ "$(docker inspect -f '{{.Id}}' "$APP_CT")" = "$CID_BEFORE" ] || die "前置失败竟重建了现有应用容器"
 docker ps --format '{{.Names}}' | grep -qx "$APP_CT" || die "现有应用容器不在运行"
 ok "现有应用容器 ID/运行状态原样（失败阶段不替换现有应用）"
@@ -325,10 +335,7 @@ phase "7/8 健康超时（错误凭据 → 非零退出＋诊断现场保留）"
 sed -i "s/^SPRING_DATASOURCE_PASSWORD=.*/SPRING_DATASOURCE_PASSWORD=wrong-pass/" "$T/app/.env.production"
 cp "$T/rehearsal-bundle.master.tar.gz" "$T/$BN"
 expect_fail '未就绪|容器现场保留' '健康超时非零退出＋诊断提示' \
-  env HOME="$T" BUNDLE_FN="$BN" REMOTE_DIR=app INFRA_DIR=infra \
-      PG_CONTAINER="$PG" REDIS_CONTAINER="$RDS" WEBNET="$NET" APP_CONTAINER="$APP_CT" \
-      HEALTH_TIMEOUT=30 \
-  bash deploy/release-remote.sh
+  run_release HEALTH_TIMEOUT=30
 docker inspect "$APP_CT" >/dev/null 2>&1 || die "超时后容器现场未保留"
 ok "容器现场保留（未自动回滚、未自动恢复数据库）——现场与日志归人工排查"
 
