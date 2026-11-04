@@ -1639,7 +1639,7 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.getProject("3829492007654321")).thenReturn(
                 new AiplatformProjectDetailWireResponse(
                         "3829492007654321", "英语学习助手", "auth0|65f2c8a1", "文野", "3829492009999999",
-                        1, "官网", 1, "进行中", false,
+                        1, "官网", 1, "进行中", false, true,  // archived, needsUserSupplement（#119）
                         LocalDateTime.of(2026, 9, 10, 14, 20, 0),
                         LocalDateTime.of(2026, 9, 14, 18, 30, 0),
                         LocalDateTime.of(2026, 9, 10, 20, 0, 0),
@@ -1659,6 +1659,8 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.costSummary().cost()).containsEntry("CNY", new BigDecimal("12.3456"));
         assertThat(detail.costSummary().unpriced()).isTrue();
         assertThat(detail.prdProducedAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 20, 0, 0));
+        // 盖帽标志（#119，对接 aiplatform #390）：Boolean 直读透传，置位态如实 true
+        assertThat(detail.needsUserSupplement()).isTrue();
     }
 
     // ========== 深读三组 · 对话史 / PRD / 版本 ==========

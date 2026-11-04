@@ -8,7 +8,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * AI 平台项目详情——北向出口，逐字镜像 aiplatform {@code BackofficeProjectDetailResponse}
- * （#159 项目域 + #164 成本指针），无增删字段、无换型（spec #62 忠实透传）。
+ * （#159 项目域 + #164 成本指针），无增删字段、无换型（spec #62 忠实透传）。唯一超前肢：
+ * {@code needsUserSupplement}（#119 盖帽回读）按 aiplatform #390 契约先行。
  *
  * <p>订单引用：{@code activeOrder}＝未终结订单摘要（有值即冻结迭代），{@code latestOrder}＝
  * 最近一张任意状态订单（支付归档后承接「完整记录」取单面）；从未下单两者皆 null。成本指针：
@@ -47,6 +48,13 @@ public record AiplatformProjectDetailResponse(
 
         /** 是否已归档（单向终点） */
         Boolean archived,
+
+        /**
+         * 「需用户补充」项目级盖帽标志（#119——盖帽动作可写不可读的回读肢，镜像 provider
+         * 读面增量 aiplatform #390）。Boolean 装箱：null＝读面未下发（provider 发版前窗口，
+         * 与缺席同形＝未知），非 null＝真值——三态语义对齐 admin-web 开关降级契约。
+         */
+        Boolean needsUserSupplement,
 
         /** 创建时间 */
         LocalDateTime createdAt,

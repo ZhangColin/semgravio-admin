@@ -166,6 +166,7 @@ public class AiplatformProjectAppService {
                 wire.id(), wire.name(),
                 wire.ownerExternalId(), wire.ownerDisplayName(), wire.workspaceId(),
                 wire.type(), wire.typeName(), wire.status(), wire.statusName(), wire.archived(),
+                wire.needsUserSupplement(),
                 wire.createdAt(), wire.updatedAt(), wire.prdProducedAt(), wire.generatedAt(),
                 wire.activeOrder() == null ? null : toOrderBrief(wire.activeOrder()),
                 wire.latestOrder() == null ? null : toOrderBrief(wire.latestOrder()),

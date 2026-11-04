@@ -7,6 +7,8 @@ import java.util.Map;
 /**
  * aiplatform 项目详情的 wire 镜像——与 aiplatform {@code BackofficeProjectDetailResponse}
  * （#159 项目域 + #164 成本指针）字段同构：清单字段全量＋归属账号显示名＋订单引用＋成本指针。
+ * 唯一超前肢：{@code needsUserSupplement}（#119）按 aiplatform #390 契约先行——provider
+ * 发版前 wire 缺席＝null（未知），发版后同构恢复。
  *
  * <p>订单引用（照用户面先例，与订单域互链）：{@code activeOrder}＝未终结订单摘要（有值即冻结
  * 迭代）；{@code latestOrder}＝最近一张任意状态订单（支付归档后承接「完整记录」取单面）；从未
@@ -49,6 +51,13 @@ public record AiplatformProjectDetailWireResponse(
 
         /** 是否已归档（单向终点） */
         Boolean archived,
+
+        /**
+         * 「需用户补充」项目级盖帽标志（#338 置位/清零写口的回读肢——对接 aiplatform #390
+         * 读面增量）。Boolean 装箱：provider 发版前 wire 无此肢，缺席反序列化 null＝未下发
+         * （未知），不冒充 false；发版后真值直读。
+         */
+        Boolean needsUserSupplement,
 
         /** 创建时间 */
         LocalDateTime createdAt,

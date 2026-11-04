@@ -115,7 +115,8 @@ class AiplatformProjectClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/projects/{id} 的真实成功响应形状：activeOrder（未终结已报价）
-     * + latestOrder（最近一张已支付）+ costSummary（单币种 CNY + unpriced true——成本不完整标记）。
+     * + latestOrder（最近一张已支付）+ costSummary（单币种 CNY + unpriced true——成本不完整标记）
+     * + needsUserSupplement（盖帽标志置位——对接 aiplatform #390 读面增量）。
      */
     private static final String PROJECT_DETAIL_ENVELOPE = """
             {
@@ -132,6 +133,7 @@ class AiplatformProjectClientContractTest {
                 "status": 1,
                 "statusName": "进行中",
                 "archived": false,
+                "needsUserSupplement": true,
                 "createdAt": "2026-09-10T14:20:00",
                 "updatedAt": "2026-09-14T18:30:00",
                 "prdProducedAt": "2026-09-10T20:00:00",
@@ -572,6 +574,9 @@ class AiplatformProjectClientContractTest {
         assertThat(detail.prdProducedAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 20, 0, 0));
         assertThat(detail.generatedAt()).isEqualTo(LocalDateTime.of(2026, 9, 11, 8, 0, 0));
 
+        // 盖帽标志（#119，对接 aiplatform #390）：Boolean 直读透传——置位态如实 true
+        assertThat(detail.needsUserSupplement()).isTrue();
+
         // 订单引用：activeOrder＝未终结（已报价，有值即冻结迭代）、latestOrder＝最近一张任意状态（已归档）
         assertThat(detail.activeOrder().id()).isEqualTo("3829492001234567");
         assertThat(detail.activeOrder().status()).isEqualTo(2);
@@ -585,6 +590,28 @@ class AiplatformProjectClientContractTest {
                 .containsOnlyKeys("CNY")
                 .containsEntry("CNY", new BigDecimal("12.3456"));
         assertThat(detail.costSummary().unpriced()).isTrue();
+    }
+
+    /**
+     * provider 未发版窗口（aiplatform #390 落地前，wire 上无 needsUserSupplement 肢）：
+     * Boolean 装箱缺席反序列化为 null——「未知」，不得冒充 false（admin-web 三态开关
+     * null＝未下发的降级契约，盲写期与现状同形）。
+     */
+    @Test
+    void given_detailEnvelopeWithoutSupplementFlag_when_getDetail_then_nullNotFalse() {
+        // text block 运行时已剥公共缩进：JSON 属性行前导 4 空格（非源码里的 16）。
+        // doesNotContain 前置自检：夹具重排缩进致 replace 失配时，在此当场红（信息直指信封构造），
+        // 不让字段残留到 isNull() 才以费解方式失败。
+        String preDeployEnvelope = PROJECT_DETAIL_ENVELOPE
+                .replace("    \"needsUserSupplement\": true,\n", "");
+        assertThat(preDeployEnvelope).doesNotContain("needsUserSupplement");
+        String[] wireUrl = new String[1];
+        var appService = AiplatformWireTestSupport.projectAppServiceWithStubTransport(
+                preDeployEnvelope, wireUrl);
+
+        AiplatformProjectDetailResponse detail = appService.getDetail("3829492007654321");
+
+        assertThat(detail.needsUserSupplement()).isNull();
     }
 
     @Test

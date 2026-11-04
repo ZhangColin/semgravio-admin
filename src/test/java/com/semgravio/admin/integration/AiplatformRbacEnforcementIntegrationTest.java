@@ -1010,7 +1010,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         LocalDateTime.of(2026, 9, 1, 12, 0, 0))), 7, 2, 50));
         when(aiplatformClient.getProject(eq(PROJECT_ID))).thenReturn(new AiplatformProjectDetailWireResponse(
                 PROJECT_ID, "英语学习助手", EXTERNAL_ID, "文野", "3829492009999999",
-                1, "官网", 1, "进行中", false,
+                1, "官网", 1, "进行中", false, null,  // archived, needsUserSupplement（provider 未发版窗口 null）
                 LocalDateTime.of(2026, 9, 10, 14, 20, 0), LocalDateTime.of(2026, 9, 14, 18, 30, 0),
                 LocalDateTime.of(2026, 9, 10, 20, 0, 0), LocalDateTime.of(2026, 9, 11, 8, 0, 0),
                 new AiplatformOrderBriefWireResponse(ORDER_ID, 2, "已报价"),
