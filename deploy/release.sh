@@ -18,6 +18,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ---- 连接参数（必填，无默认值） ----------------------------------------------
+# 便利加载：deploy/release.env（gitignored，模板见 deploy/release.env.example）——
+# 存在则先 source 再校验，日常发布免带五参数；现网值仍不进仓库，缺失时行为不变。
+[ -f "$(dirname "$0")/release.env" ] && . "$(dirname "$0")/release.env"
 : "${SERVER_HOST:?SERVER_HOST 必填——服务器地址（如 1.2.3.4），本脚本不内置任何现网默认值}"
 : "${SERVER_USER:?SERVER_USER 必填——SSH 登录用户}"
 : "${SSH_KEY:?SSH_KEY 必填——SSH 私钥路径（如 \$HOME/ssh/<主机>.pem）}"
