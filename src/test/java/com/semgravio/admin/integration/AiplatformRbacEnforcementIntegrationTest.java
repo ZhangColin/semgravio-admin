@@ -357,7 +357,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String AGENT_CONFIG_UPDATE_BODY =
             "{\"systemPrompt\":\"你是英语学习助手的主智能体：先判意图，再编排执行体。\","
                     + "\"modelId\":\"pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false,"
-                    + "\"routingStrongModelId\":\"doubao-flagship\"}";
+                    + "\"routingStrongModelId\":\"doubao-flagship\","
+                    + "\"verificationPresenceGateEnabled\":true,\"proofOfOutputGateEnabled\":false,"
+                    + "\"finalVerificationGateEnabled\":true,\"singleSessionGenerationEnabled\":false,"
+                    + "\"parallelSliceMachineEnabled\":true,\"decisionHintsEnabled\":false,"
+                    + "\"decisionHintErrorStreak\":5,\"decisionHintStackCap\":2,"
+                    + "\"decisionHintDisabled\":[\"anti_mock\",\"parallel_tools\"],"
+                    + "\"verifySelfDecisionEnabled\":false}";
     /** 边缘点稳定键（AgentEdgePoint 四把之一）：naming=项目取名——字符串路径参数透传不预校验。 */
     private static final String EDGE_KEY = "naming";
     private static final String EDGE_MODEL_CONFIG_ENDPOINT = AGENT_CONFIGS_ENDPOINT + "/edge/" + EDGE_KEY;
@@ -1487,26 +1493,42 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003333333",
                         null, "flash", true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "pro", true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700210", "运营·智能体管理员",
                         LocalDateTime.of(2026, 11, 1, 10, 15, 0)),
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003222222",
                         null, null, true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "flash", true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 10, 22, 16, 40, 0))));
         when(aiplatformClient.listAgentConfigTraces(eq(AGENT_KEY))).thenReturn(List.of(
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000002222222",
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         null, null, true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
                         LocalDateTime.of(2026, 9, 22, 14, 30, 0)),
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000001111111",
                         null, null, true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
         // 工具面域 mock（issue #85，aiplatform #252 技能线 T6）：清单＝三槽位代表面（main 槽
@@ -1598,6 +1620,11 @@ class AiplatformRbacEnforcementIntegrationTest {
                 "你是主智能体。（枚举默认全文）", "flash",
                 true, false,
                 "doubao-flagship", true, "pro",
+                true, false, true, false, true, false,
+                5, true, 3,
+                2, true, 3,
+                List.of("anti_mock", "parallel_tools"), true,
+                false,
                 operatorId, operatorName, updatedAt);
     }
 
@@ -3743,6 +3770,23 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("routingStrongModelId").asText()).isEqualTo("doubao-flagship");
         assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
         assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
+        // #432 提速批次十五件（issue #122——读面含十件生效值＋决策注入三件的 Overridden 标志
+        // 与 defaultDecisionHint* 代码缺省预览 3）
+        assertThat(data.path("verificationPresenceGateEnabled").asBoolean()).isTrue();
+        assertThat(data.path("proofOfOutputGateEnabled").asBoolean()).isFalse();
+        assertThat(data.path("finalVerificationGateEnabled").asBoolean()).isTrue();
+        assertThat(data.path("singleSessionGenerationEnabled").asBoolean()).isFalse();
+        assertThat(data.path("parallelSliceMachineEnabled").asBoolean()).isTrue();
+        assertThat(data.path("decisionHintsEnabled").asBoolean()).isFalse();
+        assertThat(data.path("decisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(data.path("decisionHintErrorStreakOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultDecisionHintErrorStreak").asInt()).isEqualTo(3);
+        assertThat(data.path("decisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(data.path("decisionHintStackCapOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultDecisionHintStackCap").asInt()).isEqualTo(3);
+        assertThat(data.path("decisionHintDisabled").get(0).asText()).isEqualTo("anti_mock");
+        assertThat(data.path("decisionHintDisabledOverridden").asBoolean()).isTrue();
+        assertThat(data.path("verifySelfDecisionEnabled").asBoolean()).isFalse();
         // 增强工具开关存储态（一开一关代表面）
         assertThat(data.path("webSearchEnabled").asBoolean()).isTrue();
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
@@ -3778,6 +3822,24 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(latest.path("newWebSearchEnabled").asBoolean()).isTrue();
         assertThat(latest.path("newFetchUrlEnabled").asBoolean()).isTrue();
         assertThat(latest.path("newRoutingStrongModelId").isNull()).isTrue();
+        // 提速批次二十件（issue #122）：首条＝清空提速批次变更——old 快照呈覆盖态（回滚写回
+        // 依据），new 回落缺省态（七开关恒有值、两阈值/禁用集 null）
+        assertThat(latest.path("oldVerificationPresenceGateEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("oldSingleSessionGenerationEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("oldParallelSliceMachineEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("oldDecisionHintsEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("oldDecisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(latest.path("oldDecisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(latest.path("oldDecisionHintDisabled").asText()).isEqualTo("anti_mock,parallel_tools");
+        assertThat(latest.path("oldVerifySelfDecisionEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newVerificationPresenceGateEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newSingleSessionGenerationEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newParallelSliceMachineEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newDecisionHintsEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newDecisionHintErrorStreak").isNull()).isTrue();
+        assertThat(latest.path("newDecisionHintStackCap").isNull()).isTrue();
+        assertThat(latest.path("newDecisionHintDisabled").isNull()).isTrue();
+        assertThat(latest.path("newVerifySelfDecisionEnabled").asBoolean()).isTrue();
         assertThat(latest.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(latest.path("operatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
 
@@ -3813,6 +3875,11 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
         assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
+        // 提速批次十五件（issue #122）随行回执
+        assertThat(data.path("decisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(data.path("decisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(data.path("decisionHintDisabled").get(0).asText()).isEqualTo("anti_mock");
+        assertThat(data.path("verifySelfDecisionEnabled").asBoolean()).isFalse();
         assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(data.path("operatorName").asText()).isEqualTo(agentConfigUpdateUserNickname);
 

@@ -44,7 +44,10 @@ import org.springframework.web.bind.annotation.RestController;
  * #367）：非空须在模型档位面有行且启用——缺行 400 PRJ_074（4074）、停用 400 PRJ_075
  * （4075），错值当场拦截不再靠留痕回滚兜底；null＝清空回落缺省不校验。routingStrongModelId
  * （路由强档——#354 升档落点，主档/强档同范式管理）为 B3 新增字段对：读面三件（生效值/
- * 覆盖标记/代码缺省预览）、命令一件、留痕读面 old/new 两件。</p>
+ * 覆盖标记/代码缺省预览）、命令一件、留痕读面 old/new 两件。issue #122（aiplatform #432
+ * 提速批次 V53–V57）增十件：三闸/单会话/并行机器/决策注入三键＋verify 自决——读面十件
+ * 生效值＋决策注入三件的覆盖标记/代码缺省预览（十五件）、命令十件、留痕 old/new 二十件；
+ * 越界值 PRJ_081/082/083（数字码 4081/4082/4083）归 provider 裁决原样透传。</p>
  *
  * <p>权限码（spec #79，技能线 per-verb 11 码之末两码；edge 三端点复用——issue #112 B3
  * 零新码）：读 {@code agent-config:read} 一码挂三座读面/留痕读面＋边缘读面/留痕读面四端
@@ -86,9 +89,17 @@ public class AiplatformAgentConfigController {
                     + "存储态（webSearchEnabled/fetchUrlEnabled——工具面清单与窄幅开关另见 "
                     + "/agent-tools 两端点）＋路由强档三件（routingStrongModelId 生效值——"
                     + "#354 升档落点、routingStrongModelIdOverridden、defaultRoutingStrongModelId"
-                    + " 代码缺省 pro——主档/强档同范式管理）＋最近写者。无覆盖行＝全回落（覆盖"
-                    + "标记 false、写者 null）。寻址稳定键三把：main=主智能体 / executor=run "
-                    + "执行体 / designer=设计执行体；边缘调用点（naming/compaction/"
+                    + " 代码缺省 pro——主档/强档同范式管理）＋#432 提速批次十五件（issue #122，"
+                    + "迁移 V53–V57：verificationPresenceGateEnabled/proofOfOutputGateEnabled/"
+                    + "finalVerificationGateEnabled 三闸——#435 起缺省 false＝闸关；"
+                    + "singleSessionGenerationEnabled 缺省 true；parallelSliceMachineEnabled 缺省 "
+                    + "false；decisionHintsEnabled 缺省 true＋决策注入三键（decisionHintErrorStreak"
+                    + "〔生效值〕/decisionHintStackCap〔生效值〕/decisionHintDisabled〔键数组〕，"
+                    + "两阈值各带 Overridden 标志与 defaultDecisionHint&#42; 代码缺省预览 3）；"
+                    + "verifySelfDecisionEnabled 缺省 true——十件仅 run 执行体行消费，main/"
+                    + "designer 行同列无消费〔页面可隐藏或置灰〕）＋最近写者。无覆盖行＝全回落"
+                    + "（覆盖标记 false、写者 null）。寻址稳定键三把：main=主智能体 / "
+                    + "executor=run 执行体 / designer=设计执行体；边缘调用点（naming/compaction/"
                     + "classification/precheck）走 /edge/{edgeKey} 档位端点——三座端点对边缘"
                     + "键 404 PRJ_033（数字业务码 4033）。")
     public ApiResponse<AiplatformAgentConfigResponse> config(@PathVariable String agentKey) {
@@ -107,18 +118,31 @@ public class AiplatformAgentConfigController {
                     + "routingStrongModelId 全文替换（null/缺省/纯空白＝清空覆盖，装配回落"
                     + "枚举/代码默认——调整工作协议、换模型不发版）；webSearchEnabled/"
                     + "fetchUrlEnabled 工具开关缺省 true＝开（关即退出槽位装配面、开即回归"
-                    + "——工具面窄幅写口另见 PUT /agent-tools/{toolName}）。档位键即时校验"
-                    + "（aiplatform #367）：modelId 与 routingStrongModelId 非空时必须在模型"
-                    + "档位面（GET /model-tiers，enabled=true 键集即放行值域与改档下拉数据源）"
-                    + "有行且启用——缺行 400 PRJ_074（数字业务码 4074）、停用 400 PRJ_075"
-                    + "（4075），错值写不进去不再靠留痕回滚兜底；null＝清空回落缺省不校验。"
-                    + "装配生效语义：动态查库，变更后下一轮命令构建自然取新值（智能体工厂缓存"
-                    + "键含 sysPrompt、模型串与工具面规格——新值即新实例，进行中 run 不定格）。"
-                    + "变更留痕 append-only：值面有动必落痕（变更前后全量值快照＋操作者，"
-                    + "traces 读面可查）；同值重写＝幂等回执不落痕；回滚＝把留痕旧值快照写回"
-                    + "（即一次新变更、留新痕，不做版本树）。X-User-Id/X-User-Name 透传头必"
-                    + "留痕（缺头 400 PRJ_034＝数字业务码 4034）。寻址同 GET（未知键 404 "
-                    + "PRJ_033＝4033）。回执与 GET 同形。HTTP <strong>PUT</strong> 动词。")
+                    + "——工具面窄幅写口另见 PUT /agent-tools/{toolName}）；#432 提速批次十件"
+                    + "（issue #122——缺省方向不一致，占位/重置须按字段区分：三闸〔"
+                    + "verificationPresenceGateEnabled/proofOfOutputGateEnabled/"
+                    + "finalVerificationGateEnabled〕与 parallelSliceMachineEnabled 缺省 false"
+                    + "＝关，singleSessionGenerationEnabled/decisionHintsEnabled/"
+                    + "verifySelfDecisionEnabled 缺省 true＝开；null 均回落缺省——三闸 null＝"
+                    + "闸关〔#435 归一口径，与工具开关「null＝开」相反〕；decisionHintErrorStreak"
+                    + "（2–10 整数）/decisionHintStackCap（1–3 整数）null＝清空回落代码缺省 3；"
+                    + "decisionHintDisabled 键数组〔封闭集 failure_stop_loss/anti_mock/"
+                    + "context_economy/parallel_tools〕null/空数组＝全启用——十件仅 run 执行体"
+                    + "行消费）。旧页面不带新字段保存会把三闸静默刷回关——表单须带全字段。"
+                    + "档位键即时校验（aiplatform #367）：modelId 与 routingStrongModelId 非空"
+                    + "时必须在模型档位面（GET /model-tiers，enabled=true 键集即放行值域与改档"
+                    + "下拉数据源）有行且启用——缺行 400 PRJ_074（数字业务码 4074）、停用 400 "
+                    + "PRJ_075（4075），错值写不进去不再靠留痕回滚兜底；null＝清空回落缺省不"
+                    + "校验。提速批次越界值归 provider 裁决：errorStreak 越界 400 PRJ_081"
+                    + "（4081）、stackCap 越界 400 PRJ_082（4082）、禁用集非法 token 400 "
+                    + "PRJ_083（4083）。装配生效语义：动态查库，变更后下一轮命令构建自然取新值"
+                    + "（智能体工厂缓存键含 sysPrompt、模型串与工具面规格——新值即新实例，"
+                    + "进行中 run 不定格；所有判定处动态查库不缓存——改完即时生效）。变更留痕"
+                    + " append-only：值面有动必落痕（变更前后全量值快照＋操作者，traces 读面"
+                    + "可查）；同值重写＝幂等回执不落痕；回滚＝把留痕旧值快照写回（即一次新变更、"
+                    + "留新痕，不做版本树）。X-User-Id/X-User-Name 透传头必留痕（缺头 400 "
+                    + "PRJ_034＝数字业务码 4034）。寻址同 GET（未知键 404 PRJ_033＝4033）。"
+                    + "回执与 GET 同形。HTTP <strong>PUT</strong> 动词。")
     public ApiResponse<AiplatformAgentConfigResponse> update(
             @PathVariable String agentKey, @RequestBody AiplatformAgentConfigUpdateCommand command) {
         return ApiResponse.ok(agentConfigAppService.updateConfig(agentKey, command));
@@ -134,10 +158,13 @@ public class AiplatformAgentConfigController {
     @Operation(summary = "配置变更留痕读面（历史可查，回滚依据）——透传 aiplatform",
             description = "该智能体全部配置变更留痕，按时间倒序（最近先）。每痕＝一次实际变更"
                     + "（同值幂等重写不落痕）：变更前后全量值快照（old*/new* 对——prompt/档位/"
-                    + "路由强档三件可空、开关四件恒在场；旧值快照即回滚写回的依据——含强档，"
-                    + "读面可改就必须可回滚）＋操作者＋时刻。append-only：留痕不随任何动作删除，"
-                    + "历史事实不随配置行消失。回滚＝把某痕旧值快照 PUT 回写（即一次新变更、"
-                    + "留新痕）。寻址同 GET（未知键 404 PRJ_033＝数字业务码 4033）。")
+                    + "路由强档三件可空、开关件恒在场、#432 提速批次二十件〔issue #122〕——三闸/"
+                    + "单会话/并行机器/决策注入总开关/verify 自决七开关恒有值〔缺省态：三闸 false、"
+                    + "并行机器 false、余 true〕，决策注入两阈值可空〔null＝该侧即代码缺省 3〕，"
+                    + "禁用集可空〔存储形逗号接键串，null＝该侧即全启用〕；旧值快照即回滚写回的"
+                    + "依据——读面可改就必须可回滚）＋操作者＋时刻。append-only：留痕不随任何"
+                    + "动作删除，历史事实不随配置行消失。回滚＝把某痕旧值快照 PUT 回写（即一次"
+                    + "新变更、留新痕）。寻址同 GET（未知键 404 PRJ_033＝数字业务码 4033）。")
     public ApiResponse<List<AiplatformAgentConfigTraceResponse>> traces(@PathVariable String agentKey) {
         return ApiResponse.ok(agentConfigAppService.listTraces(agentKey));
     }

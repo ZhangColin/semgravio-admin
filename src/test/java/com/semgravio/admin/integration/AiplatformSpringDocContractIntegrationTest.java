@@ -611,7 +611,7 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075 数字码在场）")
+    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义＋#122 提速批次十五件，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075/081/082/083 数字码在场）")
     void given_agentConfigEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");
 
@@ -631,6 +631,9 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("webSearchEnabled/fetchUrlEnabled")
                 .contains("routingStrongModelId")
                 .contains("主档/强档同范式")
+                .contains("提速批次十五件")
+                .contains("verificationPresenceGateEnabled")
+                .contains("仅 run 执行体行消费")
                 .contains("最近写者")
                 .contains("无覆盖行＝全回落")
                 .contains("main=主智能体").contains("executor=run 执行体")
@@ -653,6 +656,11 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("即时校验")
                 .contains("PRJ_074").contains("4074")
                 .contains("PRJ_075").contains("4075")
+                .contains("缺省方向不一致")
+                .contains("表单须带全字段")
+                .contains("PRJ_081").contains("4081")
+                .contains("PRJ_082").contains("4082")
+                .contains("PRJ_083").contains("4083")
                 .contains("进行中 run 不定格")
                 .contains("append-only")
                 .contains("同值重写＝幂等回执不落痕")
@@ -674,6 +682,8 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("old*/new*")
                 .contains("路由强档")
                 .contains("读面可改就必须可回滚")
+                .contains("提速批次二十件")
+                .contains("存储形逗号接键串")
                 .contains("append-only")
                 .contains("留痕不随任何动作删除")
                 .contains("旧值快照 PUT 回写")
@@ -697,6 +707,19 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText("")).contains("清空覆盖即落此值");
         assertThat(property("AiplatformAgentConfigResponse", "operatorId")
                 .path("description").asText("")).contains("null＝从未配置");
+        // 提速批次十五件（issue #122——三闸缺省 false＝闸关、决策注入三键生效值＋越界码）
+        assertThat(property("AiplatformAgentConfigResponse", "verificationPresenceGateEnabled")
+                .path("description").asText("")).contains("闸关");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintErrorStreak")
+                .path("description").asText("")).contains("PRJ_081");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintStackCap")
+                .path("description").asText("")).contains("PRJ_082");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintDisabled")
+                .path("description").asText("")).contains("PRJ_083");
+        assertThat(property("AiplatformAgentConfigResponse", "defaultDecisionHintErrorStreak")
+                .path("description").asText("")).contains("清空覆盖即落此值");
+        assertThat(property("AiplatformAgentConfigResponse", "verifySelfDecisionEnabled")
+                .path("description").asText("")).contains("仅 run 执行体行消费");
 
         // 全量写命令 schema 自描述：清空回落语义＋档位键即时校验（PRJ_074/075）＋开关缺省
         // true（装箱——缺省≠关）＋强档同口径
@@ -715,12 +738,30 @@ class AiplatformSpringDocContractIntegrationTest {
         // example 值逐字对齐 provider swagger（AgentConfigUpdateCommand——强档 example＝pro 代码缺省档）
         assertThat(exampleText(property("AiplatformAgentConfigUpdateCommand", "routingStrongModelId")))
                 .isEqualTo("pro");
+        // 提速批次十件（issue #122——闸关缺省/null 方向相反＋阈值越界码＋禁用集封闭集）
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "verificationPresenceGateEnabled")
+                .path("description").asText("")).contains("闸关");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintErrorStreak")
+                .path("description").asText("")).contains("2–10").contains("PRJ_081");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintStackCap")
+                .path("description").asText("")).contains("1–3").contains("PRJ_082");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintDisabled")
+                .path("description").asText("")).contains("failure_stop_loss").contains("PRJ_083");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "verifySelfDecisionEnabled")
+                .path("description").asText("")).contains("平台驱动验证腿");
 
         // 留痕行 schema 自描述：old 侧可空语义（回滚写回依据）＋强档对＋时刻倒序
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldSystemPrompt")
                 .path("description").asText("")).contains("回滚即把此值写回");
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingStrongModelId")
                 .path("description").asText("")).contains("回滚即把此值写回");
+        // 提速批次二十件（issue #122——old 侧可空语义＋禁用集存储形逗号串＋缺省态开关恒有值）
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldDecisionHintErrorStreak")
+                .path("description").asText("")).contains("null＝此前即代码缺省 3");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldDecisionHintDisabled")
+                .path("description").asText("")).contains("存储形逗号接键串");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldVerifySelfDecisionEnabled")
+                .path("description").asText("")).contains("缺省态 true");
         assertThat(property("AiplatformAgentConfigTraceResponse", "operatedAt")
                 .path("description").asText("")).contains("时间倒序");
     }

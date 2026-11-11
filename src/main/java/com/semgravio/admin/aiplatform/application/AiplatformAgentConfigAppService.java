@@ -19,7 +19,8 @@ import org.springframework.stereotype.Service;
  * aiplatform 智能体配置域 BFF 应用服务——技能线 T5 读写面（issue #84，aiplatform #251）＋
  * 边缘调用点档位三面（issue #112 B3，aiplatform #366 边缘四点收编）：三座智能体（main=
  * 主智能体 / executor=run 执行体 / designer=设计执行体）的 systemPrompt/模型档位运营配置
- * ＋路由强档件（B3 忠实跟随）＋变更留痕读面；边缘四点（naming=项目取名 / compaction=
+ * ＋路由强档件（B3 忠实跟随）＋#432 提速批次十件（issue #122：三闸/单会话/并行机器/决策
+ * 注入三键＋verify 自决——aiplatform V53–V57，仅 run 执行体行消费）＋变更留痕读面；边缘四点（naming=项目取名 / compaction=
  * 上下文压缩 / classification=入口分类 / precheck=技能预检——一次性轻调用，值面仅档位键
  * 无 prompt）的档位读/写/留痕。智能体运营配置归 aiplatform business.project 上下文——
  * admin 不持业务逻辑、不持配置数据（与技能库面零代码交集，独立 controller 面）。
@@ -50,10 +51,12 @@ public class AiplatformAgentConfigAppService {
     /**
      * 智能体配置读面（透传 aiplatform）——生效值（库覆盖或枚举默认——装配实取值；modelId
      * 语义＝档位键）＋覆盖标记＋枚举默认预览（清空覆盖前可看落点）＋增强工具开关存储态＋
-     * 路由强档三件（B3 忠实跟随——主档/强档同范式）＋最近写者。无覆盖行＝全回落（覆盖标记
-     * false、写者 null）。{@code agentKey} 字符串路径参数原样出站（main/executor/designer
-     * 三把稳定键，spec #79 不解析不预校验），未知键由 provider 判 404 PRJ_033（数字业务码
-     * 4033）。
+     * 路由强档三件（B3 忠实跟随——主档/强档同范式）＋#432 提速批次十五件（issue #122——
+     * 三闸/单会话/并行机器/决策注入三键＋verify 自决生效值，决策注入三键各带覆盖标记与
+     * 代码缺省预览）＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者 null）。
+     * {@code agentKey} 字符串路径参数原样出站（main/executor/designer 三把稳定键，spec #79
+     * 不解析不预校验），未知键由 provider 判 404 PRJ_033（数字业务码 4033）。提速批次
+     * 十件仅 run 执行体行消费（main/designer 行同列无消费）。
      */
     public AiplatformAgentConfigResponse getConfig(String agentKey) {
         return toConfig(aiplatformClient.getAgentConfig(agentKey));
@@ -62,8 +65,10 @@ public class AiplatformAgentConfigAppService {
     /**
      * 智能体配置全量写（透传 aiplatform）——PUT 全量语义：请求体即该智能体覆盖态终态
      * （systemPrompt/modelId/routingStrongModelId 全文替换，null/缺省/纯空白＝清空覆盖回落
-     * 枚举/代码默认；工具开关缺省 true＝开）。档位键即时校验（缺行 400 PRJ_074、停用 400
-     * PRJ_075——错值写不进去；null 不校验）归 provider 写用例裁决。变更留痕 append-only
+     * 枚举/代码默认；工具开关缺省 true＝开；三闸缺省 false＝闸关——null 均回落缺省）。
+     * 档位键即时校验（缺行 400 PRJ_074、停用 400 PRJ_075）、提速批次越界值（errorStreak
+     * 2–10 / stackCap 1–3 / 禁用集非法 token → PRJ_081/082/083——错值写不进去）归 provider
+     * 写用例裁决，admin 不代判。变更留痕 append-only
      * （值面有动必落痕——前后全量值快照＋操作者）；同值重写＝幂等回执不落痕；回滚＝把留痕
      * 旧值快照写回（一次新变更、留新痕，不做版本树）。操作者经框架透传头落痕（缺头由
      * provider 域面守卫 PRJ_034 拦，admin 不拦）。回执与 GET 同形——变更后下一轮命令构建
@@ -74,13 +79,20 @@ public class AiplatformAgentConfigAppService {
                 new AiplatformAgentConfigUpdateWireRequest(
                         command.systemPrompt(), command.modelId(),
                         command.webSearchEnabled(), command.fetchUrlEnabled(),
-                        command.routingStrongModelId())));
+                        command.routingStrongModelId(),
+                        command.verificationPresenceGateEnabled(), command.proofOfOutputGateEnabled(),
+                        command.finalVerificationGateEnabled(),
+                        command.singleSessionGenerationEnabled(), command.parallelSliceMachineEnabled(),
+                        command.decisionHintsEnabled(),
+                        command.decisionHintErrorStreak(), command.decisionHintStackCap(),
+                        command.decisionHintDisabled(),
+                        command.verifySelfDecisionEnabled())));
     }
 
     /**
      * 配置变更留痕读面（透传 aiplatform）——该智能体全部配置变更留痕（old&#42;/new&#42; 对＋
-     * 操作者＋时刻；prompt/档位/路由强档三件可空——强档件是读面可改就必须可回滚的必然配套），
-     * 按时间倒序（最近先）。append-only：留痕不随任何动作删除；旧值快照即回滚写回依据
+     * 操作者＋时刻；prompt/档位/路由强档/提速批次阈值与禁用集可空——读面可改就必须可回滚的
+     * 必然配套），按时间倒序（最近先）。append-only：留痕不随任何动作删除；旧值快照即回滚写回依据
      * （回滚＝把某痕旧值快照 PUT 回写）。寻址同 GET（未知键由 provider 判 404 PRJ_033＝4033）。
      */
     public List<AiplatformAgentConfigTraceResponse> listTraces(String agentKey) {
@@ -139,6 +151,16 @@ public class AiplatformAgentConfigAppService {
                 wire.webSearchEnabled(), wire.fetchUrlEnabled(),
                 wire.routingStrongModelId(), wire.routingStrongModelIdOverridden(),
                 wire.defaultRoutingStrongModelId(),
+                wire.verificationPresenceGateEnabled(), wire.proofOfOutputGateEnabled(),
+                wire.finalVerificationGateEnabled(),
+                wire.singleSessionGenerationEnabled(), wire.parallelSliceMachineEnabled(),
+                wire.decisionHintsEnabled(),
+                wire.decisionHintErrorStreak(), wire.decisionHintErrorStreakOverridden(),
+                wire.defaultDecisionHintErrorStreak(),
+                wire.decisionHintStackCap(), wire.decisionHintStackCapOverridden(),
+                wire.defaultDecisionHintStackCap(),
+                wire.decisionHintDisabled(), wire.decisionHintDisabledOverridden(),
+                wire.verifySelfDecisionEnabled(),
                 wire.operatorId(), wire.operatorName(), wire.updatedAt());
     }
 
@@ -148,9 +170,23 @@ public class AiplatformAgentConfigAppService {
                 wire.oldSystemPrompt(), wire.oldModelId(),
                 wire.oldWebSearchEnabled(), wire.oldFetchUrlEnabled(),
                 wire.oldRoutingStrongModelId(),
+                wire.oldVerificationPresenceGateEnabled(), wire.oldProofOfOutputGateEnabled(),
+                wire.oldFinalVerificationGateEnabled(),
+                wire.oldSingleSessionGenerationEnabled(), wire.oldParallelSliceMachineEnabled(),
+                wire.oldDecisionHintsEnabled(),
+                wire.oldDecisionHintErrorStreak(), wire.oldDecisionHintStackCap(),
+                wire.oldDecisionHintDisabled(),
+                wire.oldVerifySelfDecisionEnabled(),
                 wire.newSystemPrompt(), wire.newModelId(),
                 wire.newWebSearchEnabled(), wire.newFetchUrlEnabled(),
                 wire.newRoutingStrongModelId(),
+                wire.newVerificationPresenceGateEnabled(), wire.newProofOfOutputGateEnabled(),
+                wire.newFinalVerificationGateEnabled(),
+                wire.newSingleSessionGenerationEnabled(), wire.newParallelSliceMachineEnabled(),
+                wire.newDecisionHintsEnabled(),
+                wire.newDecisionHintErrorStreak(), wire.newDecisionHintStackCap(),
+                wire.newDecisionHintDisabled(),
+                wire.newVerifySelfDecisionEnabled(),
                 wire.operatorId(), wire.operatorName(), wire.operatedAt());
     }
 

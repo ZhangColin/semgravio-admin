@@ -846,14 +846,16 @@ final class AiplatformWireTestSupport {
 
     /**
      * 智能体配置域版（#251 技能线 T5，issue #84；#366 边缘四点收编 issue #112 B3——edge
-     * 三端点同域复用）——三座读面/留痕读面/边缘读面/边缘留痕读面走 {@code get}、三座全量写/
-     * 边缘档位写走 {@code put}（带命令体——三座 {@code {systemPrompt, modelId,
-     * webSearchEnabled, fetchUrlEnabled, routingStrongModelId}} 五字段〔B3 增路由强档件〕、
-     * 边缘 {@code {modelId}} 单字段窄形；{@code OpenApiClient.put} 与 {@code post} 同走
-     * sendWithBody 序列化路径），均按真实 {@code TypeReference} 反序列化；put 把命令体序列化进
-     * wireBodySink（出站 JSON 形状断言——字段全 String/Boolean 无 Long/BigDecimal 特殊口径，
-     * boot 默认 mapper 即生产口径；Boolean 装箱开关与可空档位键 null 出站在场——provider
-     * 缺省/清空回落语义的全局 Jackson 含 null 证据）。
+     * 三端点同域复用；issue #122 提速批次十件——三座命令体 15 字段）——三座读面/留痕读面/
+     * 边缘读面/边缘留痕读面走 {@code get}、三座全量写/边缘档位写走 {@code put}（带命令体——
+     * 三座 {@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled,
+     * routingStrongModelId}}＋提速批次十件 15 字段〔七开关装箱 Boolean/errorStreak 与
+     * stackCap 装箱 Integer/decisionHintDisabled List&lt;String&gt;〕、边缘 {@code {modelId}}
+     * 单字段窄形；{@code OpenApiClient.put} 与 {@code post} 同走 sendWithBody 序列化路径），
+     * 均按真实 {@code TypeReference} 反序列化；put 把命令体序列化进 wireBodySink（出站 JSON
+     * 形状断言——字段全 String/Boolean/Integer/List 无 Long/BigDecimal 特殊口径，boot 默认
+     * mapper 即生产口径；Boolean 装箱开关与可空值 null 出站在场——provider 缺省/清空回落
+     * 语义的全局 Jackson 含 null 证据）。
      */
     static AiplatformAgentConfigAppService agentConfigAppServiceWithStubTransport(
             String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {

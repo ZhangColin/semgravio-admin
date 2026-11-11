@@ -1434,7 +1434,7 @@ class AiplatformBffIntegrationTest {
 
     // ========== 智能体配置域＋边缘调用点（#112 B3）· routingStrongModelId 字段对映射 + edge 读/写/留痕映射 + 错误信封透传 ==========
 
-    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）。 */
+    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）＋提速批次十五件（issue #122 覆盖行代表面）。 */
     private static AiplatformAgentConfigWireResponse agentConfigWire() {
         return new AiplatformAgentConfigWireResponse(
                 "main", "主智能体",
@@ -1443,6 +1443,11 @@ class AiplatformBffIntegrationTest {
                 "你是主智能体。（枚举默认全文）", "flash",
                 true, false,
                 "doubao-flagship", true, "pro",
+                true, false, true, false, true, false,
+                5, true, 3,
+                2, true, 3,
+                List.of("anti_mock", "parallel_tools"), true,
+                false,
                 "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0));
     }
 
@@ -1456,42 +1461,68 @@ class AiplatformBffIntegrationTest {
     }
 
     @Test
-    void given_agentConfigWireWithStrongTier_when_getConfig_then_sixteenFacetsMirrored() {
+    void given_agentConfigWireWithStrongTier_when_getConfig_then_thirtyOneFacetsMirrored() {
         when(aiplatformClient.getAgentConfig("main")).thenReturn(agentConfigWire());
 
         var config = agentConfigAppService.getConfig("main");
 
-        // wire → 北向逐字段（16 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
-        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）
+        // wire → 北向逐字段（31 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
+        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）；
+        // 提速批次十五件（issue #122）——三闸生效值＋单会话/并行/注入/自决＋决策注入三键
+        // 生效值＋Overridden 标志＋defaultDecisionHint* 预览 3 全镜像
         assertThat(config.agentKey()).isEqualTo("main");
         assertThat(config.modelId()).isEqualTo("pro");
         assertThat(config.defaultModelId()).isEqualTo("flash");
         assertThat(config.routingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(config.routingStrongModelIdOverridden()).isTrue();
         assertThat(config.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(config.verificationPresenceGateEnabled()).isTrue();
+        assertThat(config.proofOfOutputGateEnabled()).isFalse();
+        assertThat(config.finalVerificationGateEnabled()).isTrue();
+        assertThat(config.singleSessionGenerationEnabled()).isFalse();
+        assertThat(config.parallelSliceMachineEnabled()).isTrue();
+        assertThat(config.decisionHintsEnabled()).isFalse();
+        assertThat(config.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(config.decisionHintErrorStreakOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintErrorStreak()).isEqualTo(3);
+        assertThat(config.decisionHintStackCap()).isEqualTo(2);
+        assertThat(config.decisionHintStackCapOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintStackCap()).isEqualTo(3);
+        assertThat(config.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(config.decisionHintDisabledOverridden()).isTrue();
+        assertThat(config.verifySelfDecisionEnabled()).isFalse();
         assertThat(config.fetchUrlEnabled()).isFalse();
         assertThat(config.operatorName()).isEqualTo("运营·技能管理员");
     }
 
     @Test
-    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredFiveFields() {
+    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredFifteenFields() {
         when(aiplatformClient.updateAgentConfig(eq("main"), any(AiplatformAgentConfigUpdateWireRequest.class)))
                 .thenReturn(agentConfigWire());
 
-        // 北向五字段（含路由强档——主档/强档同范式管理）→ wire 五字段逐字段映射；缺省肢
-        // null 透传（清空回落语义），档位键合法性（PRJ_074/075）归 provider 即时校验
+        // 北向 15 字段（含路由强档与提速批次十件）→ wire 15 字段逐字段映射；缺省肢 null
+        // 透传（清空回落语义），档位键合法性（PRJ_074/075）与提速批次越界值（PRJ_081/082/083）
+        // 归 provider 即时校验
         var receipt = agentConfigAppService.updateConfig("main",
-                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship"));
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship",
+                        true, false, true, false, true, false, 5, 2,
+                        List.of("anti_mock", "parallel_tools"), false));
 
         ArgumentCaptor<AiplatformAgentConfigUpdateWireRequest> captor =
                 ArgumentCaptor.forClass(AiplatformAgentConfigUpdateWireRequest.class);
         verify(aiplatformClient).updateAgentConfig(eq("main"), captor.capture());
         assertThat(captor.getValue()).isEqualTo(new AiplatformAgentConfigUpdateWireRequest(
-                "新 prompt", "pro", true, false, "doubao-flagship"));
+                "新 prompt", "pro", true, false, "doubao-flagship",
+                true, false, true, false, true, false, 5, 2,
+                List.of("anti_mock", "parallel_tools"), false));
 
-        // 回执映射（与 GET 同形——强档三件随行）
+        // 回执映射（与 GET 同形——强档三件与提速批次十五件随行）
         assertThat(receipt.routingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(receipt.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(receipt.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(receipt.decisionHintStackCap()).isEqualTo(2);
+        assertThat(receipt.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(receipt.verifySelfDecisionEnabled()).isFalse();
     }
 
     @Test
@@ -1500,17 +1531,34 @@ class AiplatformBffIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000002222222",
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         null, null, true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0))));
 
         var traces = agentConfigAppService.listTraces("main");
 
-        // 留痕行映射（含强档 old/new 两件——读面可改就必须可回滚）：old 快照＝回滚写回依据
+        // 留痕行映射（含强档与提速批次二十件——issue #122：读面可改就必须可回滚）：old
+        // 快照＝回滚写回依据；首条＝清空提速批次变更（new 七开关回落缺省态、两阈值/禁用集 null）
         assertThat(traces).hasSize(1);
         assertThat(traces.get(0).oldModelId()).isEqualTo("pro");
         assertThat(traces.get(0).oldRoutingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(traces.get(0).newModelId()).isNull();
         assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+        assertThat(traces.get(0).oldDecisionHintsEnabled()).isFalse();
+        assertThat(traces.get(0).oldDecisionHintErrorStreak()).isEqualTo(5);
+        assertThat(traces.get(0).oldDecisionHintStackCap()).isEqualTo(2);
+        assertThat(traces.get(0).oldDecisionHintDisabled()).isEqualTo("anti_mock,parallel_tools");
+        assertThat(traces.get(0).newVerificationPresenceGateEnabled()).isFalse();
+        assertThat(traces.get(0).newSingleSessionGenerationEnabled()).isTrue();
+        assertThat(traces.get(0).newParallelSliceMachineEnabled()).isFalse();
+        assertThat(traces.get(0).newDecisionHintsEnabled()).isTrue();
+        assertThat(traces.get(0).newDecisionHintErrorStreak()).isNull();
+        assertThat(traces.get(0).newDecisionHintStackCap()).isNull();
+        assertThat(traces.get(0).newDecisionHintDisabled()).isNull();
+        assertThat(traces.get(0).newVerifySelfDecisionEnabled()).isTrue();
     }
 
     @Test
@@ -1558,19 +1606,29 @@ class AiplatformBffIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003333333",
                         null, "flash", true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "pro", true, true, null,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0))));
 
         var traces = agentConfigAppService.listEdgeModelTraces("naming");
 
         // 边缘留痕与三座同形映射：只有档位列在动（升档 flash→pro），prompt/强档 null＝
-        // 边缘行结构性缺省态、开关恒 true
+        // 边缘行结构性缺省态、开关恒 true；提速批次二十件恒代码缺省态（issue #122）
         assertThat(traces).hasSize(1);
         assertThat(traces.get(0).oldModelId()).isEqualTo("flash");
         assertThat(traces.get(0).newModelId()).isEqualTo("pro");
         assertThat(traces.get(0).oldSystemPrompt()).isNull();
         assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
         assertThat(traces.get(0).oldWebSearchEnabled()).isTrue();
+        assertThat(traces.get(0).oldVerificationPresenceGateEnabled()).isFalse();
+        assertThat(traces.get(0).oldSingleSessionGenerationEnabled()).isTrue();
+        assertThat(traces.get(0).oldDecisionHintsEnabled()).isTrue();
+        assertThat(traces.get(0).oldDecisionHintErrorStreak()).isNull();
+        assertThat(traces.get(0).oldDecisionHintDisabled()).isNull();
+        assertThat(traces.get(0).oldVerifySelfDecisionEnabled()).isTrue();
     }
 
     @Test
