@@ -7,8 +7,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * AI 平台智能体配置全量写北向命令——运营人员提交的「该智能体覆盖态终态」意图，逐字镜像
  * aiplatform {@code AgentConfigUpdateCommand}（#251 智能体运营配置，#246 技能线 T5，spec #79
- * 定稿、issue #84；B3 issue #112 增路由强档件；issue #122 增 #432 提速批次十件〔V53–V57〕）。
- * PUT 全量语义：请求体即覆盖态终态——值面全量替换，与槽位指派「清单即终态」同款形制。
+ * 定稿、issue #84；B3 issue #112 增路由强档件；issue #122 增 #432 提速批次十件〔V53–V57〕；
+ * issue #123 增 #454 路由结构性信号开关两枚〔V58〕）。PUT 全量语义：请求体即覆盖态终态
+ * ——值面全量替换，与槽位指派「清单即终态」同款形制。
  *
  * <p><strong>刻意不带 bean 校验注解</strong>（照 {@code AiplatformSkillUpdateCommand} 先例）：
  * 字段合法性由 provider 写用例裁决（覆盖三件 null/缺省/纯空白＝清空覆盖回落枚举/代码默认；
@@ -30,9 +31,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * <p>provider 命令另带路由开关/两阈值/升档标签映射/verify 面九件（#354/#424/#426/#427）
  * ——B3 票面不点名，本票十件之外不镜像：admin 命令体九件不出站＝provider null＝缺省态；
  * BFF 是 provider 后台唯一写面，九件从无可设处，结构上恒缺省态（票面字面口径）。提速批次
- * 十件仅 run 执行体行消费（main/designer 行同列无消费——前端可隐藏或置灰）。操作者身份
- * 不在命令体——经框架 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传落痕
- * （配置变更必留痕，缺头由 provider 域面守卫 PRJ_034＝数字业务码 4034 拦，admin 不拦）。</p>
+ * 十件与路由结构性信号开关两枚仅 run 执行体行消费（main/designer 行同列无消费——前端可
+ * 隐藏或置灰）。操作者身份不在命令体——经框架 {@code RequestContext}→{@code X-User-Id/
+ * X-User-Name} 自动透传落痕（配置变更必留痕，缺头由 provider 域面守卫 PRJ_034＝数字业务码
+ * 4034 拦，admin 不拦）。</p>
  *
  * @since 0.1.0
  */
@@ -66,6 +68,18 @@ public record AiplatformAgentConfigUpdateCommand(
                 + " modelId：非空须在模型档位面有行且启用（PRJ_074/075））",
                 example = "pro")
         String routingStrongModelId,
+
+        /** 文件面信号开关（#454，ADR-0037；装箱——缺省 null＝关〔false〕；true＝恢复文件数阈值判据，阈值旋钮照旧生效。失败重试升档信号不受本开关影响、常开。仅 run 执行体行消费） */
+        @Schema(description = "文件面信号开关（#454，ADR-0037；缺省 false＝关——文件面不参与"
+                + "升档判定〔观测值照留进判定快照〕；true＝恢复文件数阈值判据——阈值旋钮照旧"
+                + "生效。失败重试升档信号不受本开关影响、常开。仅 run 执行体行消费）")
+        Boolean routingFileCountSignalEnabled,
+
+        /** 规模标签信号开关（#454，ADR-0037；装箱——缺省 null＝关〔false〕；true＝恢复规模标签映射判据，映射旋钮照旧生效。失败重试升档信号不受两开关影响、常开。仅 run 执行体行消费） */
+        @Schema(description = "规模标签信号开关（#454，ADR-0037；缺省 false＝关——规模标签不参与"
+                + "升档判定；true＝恢复标签映射判据——映射旋钮照旧生效。失败重试升档信号不受"
+                + "两开关影响、常开。仅 run 执行体行消费）")
+        Boolean routingSizeLabelSignalEnabled,
 
         /** 验证在场闸开关（#433；装箱——缺省 null＝闸关〔false，#435 归一口径〕；true＝闸开。仅 run 执行体行消费） */
         @Schema(description = "验证在场闸开关（#433；缺省 false＝闸关——本 run 无 "

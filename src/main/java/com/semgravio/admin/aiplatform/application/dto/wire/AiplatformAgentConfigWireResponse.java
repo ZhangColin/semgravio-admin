@@ -6,8 +6,9 @@ import java.util.List;
 /**
  * aiplatform 智能体配置读面的 wire 镜像——与 aiplatform {@code BackofficeAgentConfigResponse}
  * （#251 智能体运营配置，#246 技能线 T5；B3 issue #112 增路由强档三件；issue #122 增
- * #432 提速批次十件〔迁移 V53–V57〕——镜像 provider V53–V57 落地后的 B3 面）字段同构：
- * 生效值＋覆盖标记＋枚举默认预览＋增强工具开关存储态＋路由强档三件＋<strong>提速批次
+ * #432 提速批次十件〔迁移 V53–V57〕——镜像 provider V53–V57 落地后的 B3 面；issue #123 增
+ * #454 路由结构性信号开关两枚〔V58〕）字段同构：生效值＋覆盖标记＋枚举默认预览＋增强工具
+ * 开关存储态＋路由强档三件＋<strong>路由结构性信号开关两枚</strong>＋<strong>提速批次
  * 十五件</strong>（十开关/阈值/禁用集生效值＋决策注入三件的覆盖标记与默认预览）＋最近
  * 写者。GET 读面与 PUT 回执同形（provider 写入后重读同一视图）。
  *
@@ -34,6 +35,8 @@ import java.util.List;
  * @param routingStrongModelId          强模型档生效值（库覆盖值或代码缺省 pro——路由升档落点）
  * @param routingStrongModelIdOverridden 强模型档是否库覆盖值
  * @param defaultRoutingStrongModelId   代码缺省强模型档（清空覆盖即落此值）
+ * @param routingFileCountSignalEnabled 文件面信号开关生效态（#454，ADR-0037；缺省 false＝关。仅 run 执行体行消费）
+ * @param routingSizeLabelSignalEnabled 规模标签信号开关生效态（#454，ADR-0037；缺省 false＝关。仅 run 执行体行消费）
  * @param verificationPresenceGateEnabled 验证在场闸开关生效态（#433；缺省 false＝闸关。仅 run 执行体行消费）
  * @param proofOfOutputGateEnabled      空转产出证明闸开关生效态（#433；缺省 false＝闸关。仅 run 执行体行消费）
  * @param finalVerificationGateEnabled  整轨终验拦「生成完成」开关生效态（#433；缺省 false＝闸关。仅 run 执行体行消费）
@@ -67,6 +70,8 @@ public record AiplatformAgentConfigWireResponse(
         String routingStrongModelId,
         boolean routingStrongModelIdOverridden,
         String defaultRoutingStrongModelId,
+        boolean routingFileCountSignalEnabled,
+        boolean routingSizeLabelSignalEnabled,
         boolean verificationPresenceGateEnabled,
         boolean proofOfOutputGateEnabled,
         boolean finalVerificationGateEnabled,

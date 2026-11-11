@@ -8,8 +8,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * AI 平台智能体配置读面——北向出口，逐字镜像 aiplatform {@code BackofficeAgentConfigResponse}
  * （#251 智能体运营配置，#246 技能线 T5，spec #79 定稿、issue #84；B3 issue #112 增路由
- * 强档三件；issue #122 增 #432 提速批次十五件〔V53–V57〕）：生效值＋覆盖标记＋枚举默认预览
- * ＋增强工具开关存储态＋路由强档三件＋提速批次十五件＋最近写者。GET 读面与 PUT 回执同形
+ * 强档三件；issue #122 增 #432 提速批次十五件〔V53–V57〕；issue #123 增 #454 路由结构性
+ * 信号开关两枚〔V58〕）：生效值＋覆盖标记＋枚举默认预览＋增强工具开关存储态＋路由强档三件
+ * ＋路由结构性信号开关两枚＋提速批次十五件＋最近写者。GET 读面与 PUT 回执同形
  * （provider 写入后重读同一视图）。
  *
  * <p>生效值＝库覆盖值或枚举默认（装配实取值——对照覆盖标记知来源）；默认预览即清空覆盖的
@@ -85,6 +86,18 @@ public record AiplatformAgentConfigResponse(
         /** 代码缺省强模型档（预览：清空覆盖即落此值） */
         @Schema(description = "代码缺省强模型档（预览：清空覆盖即落此值）", example = "pro")
         String defaultRoutingStrongModelId,
+
+        /** 文件面信号开关生效态（#454，ADR-0037；缺省 false＝关——文件面不参与升档判定〔观测值照留进判定快照〕；true＝恢复阈值判据，阈值旋钮照旧生效。失败重试升档信号不受本开关影响、常开。仅 run 执行体行消费） */
+        @Schema(description = "文件面信号开关生效态（#454，ADR-0037；缺省 false＝关——文件面"
+                + "不参与升档判定〔观测值照留进判定快照〕；true＝恢复阈值判据——阈值旋钮照旧"
+                + "生效。失败重试升档信号不受本开关影响、常开。仅 run 执行体行消费）")
+        boolean routingFileCountSignalEnabled,
+
+        /** 规模标签信号开关生效态（#454，ADR-0037；缺省 false＝关——规模标签不参与升档判定；true＝恢复标签映射判据，映射旋钮照旧生效。失败重试升档信号不受两开关影响、常开。仅 run 执行体行消费） */
+        @Schema(description = "规模标签信号开关生效态（#454，ADR-0037；缺省 false＝关——规模"
+                + "标签不参与升档判定；true＝恢复标签映射判据——映射旋钮照旧生效。失败重试"
+                + "升档信号不受两开关影响、常开。仅 run 执行体行消费）")
+        boolean routingSizeLabelSignalEnabled,
 
         /** 验证在场闸开关生效态（#433；缺省 false＝闸关——本 run 无 report_verification 登记不收口。仅 run 执行体行消费） */
         @Schema(description = "验证在场闸开关生效态（#433；缺省 false＝闸关——本 run 无 "

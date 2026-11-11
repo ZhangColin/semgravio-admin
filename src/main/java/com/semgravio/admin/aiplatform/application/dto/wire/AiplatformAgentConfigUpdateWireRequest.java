@@ -5,8 +5,9 @@ import java.util.List;
 /**
  * aiplatform 智能体配置全量写命令体的 wire 镜像——与 aiplatform {@code AgentConfigUpdateCommand}
  * （#251 智能体运营配置，#246 技能线 T5；B3 issue #112 增路由强档件；issue #122 增 #432 提速
- * 批次十件〔V53–V57〕）字段同构：覆盖三件（systemPrompt/modelId/routingStrongModelId）＋
- * 增强工具开关两件＋提速批次十件（三闸/单会话/并行机器/决策注入三键＋verify 自决）。
+ * 批次十件〔V53–V57〕；issue #123 增 #454 路由结构性信号开关两枚〔V58〕）字段同构：覆盖三件
+ * （systemPrompt/modelId/routingStrongModelId）＋增强工具开关两件＋路由结构性信号开关两枚
+ * ＋提速批次十件（三闸/单会话/并行机器/决策注入三键＋verify 自决）。
  *
  * <p>出站序列化口径：String/List/Integer 字段无 Long/BigDecimal 特殊口径；开关全部
  * <strong>Boolean 装箱</strong>（与 provider 命令同型）——北向缺省＝null 出站在场（全局
@@ -27,6 +28,8 @@ import java.util.List;
  * @param webSearchEnabled   联网搜索开关（null＝provider 缺省 true 开）
  * @param fetchUrlEnabled    网页抓取开关（null＝provider 缺省 true 开）
  * @param routingStrongModelId 覆盖路由强档键（null＝清空回落代码缺省 pro）
+ * @param routingFileCountSignalEnabled 文件面信号开关（#454；null＝缺省 false＝关——文件面不参与升档判定。仅 run 执行体行消费）
+ * @param routingSizeLabelSignalEnabled 规模标签信号开关（#454；null＝缺省 false＝关。仅 run 执行体行消费）
  * @param verificationPresenceGateEnabled 验证在场闸开关（#433；null＝缺省 false＝闸关。仅 run 执行体行消费）
  * @param proofOfOutputGateEnabled 空转产出证明闸开关（#433；null＝缺省 false＝闸关。仅 run 执行体行消费）
  * @param finalVerificationGateEnabled 整轨终验拦「生成完成」开关（#433；null＝缺省 false＝闸关。仅 run 执行体行消费）
@@ -44,6 +47,8 @@ public record AiplatformAgentConfigUpdateWireRequest(
         Boolean webSearchEnabled,
         Boolean fetchUrlEnabled,
         String routingStrongModelId,
+        Boolean routingFileCountSignalEnabled,
+        Boolean routingSizeLabelSignalEnabled,
         Boolean verificationPresenceGateEnabled,
         Boolean proofOfOutputGateEnabled,
         Boolean finalVerificationGateEnabled,

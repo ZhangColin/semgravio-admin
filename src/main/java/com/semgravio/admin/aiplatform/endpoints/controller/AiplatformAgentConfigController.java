@@ -44,8 +44,12 @@ import org.springframework.web.bind.annotation.RestController;
  * #367）：非空须在模型档位面有行且启用——缺行 400 PRJ_074（4074）、停用 400 PRJ_075
  * （4075），错值当场拦截不再靠留痕回滚兜底；null＝清空回落缺省不校验。routingStrongModelId
  * （路由强档——#354 升档落点，主档/强档同范式管理）为 B3 新增字段对：读面三件（生效值/
- * 覆盖标记/代码缺省预览）、命令一件、留痕读面 old/new 两件。issue #122（aiplatform #432
- * 提速批次 V53–V57）增十件：三闸/单会话/并行机器/决策注入三键＋verify 自决——读面十件
+ * 覆盖标记/代码缺省预览）、命令一件、留痕读面 old/new 两件。issue #123（aiplatform #454
+ * 路由结构性信号开关，V58/ADR-0037）增两枚：routingFileCountSignalEnabled（文件面信号开关）/
+ * routingSizeLabelSignalEnabled（规模标签信号开关）——读面两枚生效值、命令两枚、留痕读面
+ * old/new 四枚；缺省 false＝关（null＝关），true＝恢复对应结构性判据（阈值/映射旋钮照旧
+ * 生效），失败重试升档信号不受两开关影响、常开；仅 run 执行体行消费。issue #122（aiplatform
+ * #432 提速批次 V53–V57）增十件：三闸/单会话/并行机器/决策注入三键＋verify 自决——读面十件
  * 生效值＋决策注入三件的覆盖标记/代码缺省预览（十五件）、命令十件、留痕 old/new 二十件；
  * 越界值 PRJ_081/082/083（数字码 4081/4082/4083）归 provider 裁决原样透传。</p>
  *
@@ -89,7 +93,12 @@ public class AiplatformAgentConfigController {
                     + "存储态（webSearchEnabled/fetchUrlEnabled——工具面清单与窄幅开关另见 "
                     + "/agent-tools 两端点）＋路由强档三件（routingStrongModelId 生效值——"
                     + "#354 升档落点、routingStrongModelIdOverridden、defaultRoutingStrongModelId"
-                    + " 代码缺省 pro——主档/强档同范式管理）＋#432 提速批次十五件（issue #122，"
+                    + " 代码缺省 pro——主档/强档同范式管理）＋#454 路由结构性信号开关两枚生效值"
+                    + "（issue #123，V58/ADR-0037：routingFileCountSignalEnabled 文件面信号开关／"
+                    + "routingSizeLabelSignalEnabled 规模标签信号开关——缺省 false＝关〔新默认关〕，"
+                    + "true＝恢复对应结构性判据〔阈值/映射旋钮照旧生效〕；失败重试升档信号不受"
+                    + "两开关影响、常开——控件说明文案须带此口径；仅 run 执行体行消费）"
+                    + "＋#432 提速批次十五件（issue #122，"
                     + "迁移 V53–V57：verificationPresenceGateEnabled/proofOfOutputGateEnabled/"
                     + "finalVerificationGateEnabled 三闸——#435 起缺省 false＝闸关；"
                     + "singleSessionGenerationEnabled 缺省 true；parallelSliceMachineEnabled 缺省 "
@@ -118,7 +127,12 @@ public class AiplatformAgentConfigController {
                     + "routingStrongModelId 全文替换（null/缺省/纯空白＝清空覆盖，装配回落"
                     + "枚举/代码默认——调整工作协议、换模型不发版）；webSearchEnabled/"
                     + "fetchUrlEnabled 工具开关缺省 true＝开（关即退出槽位装配面、开即回归"
-                    + "——工具面窄幅写口另见 PUT /agent-tools/{toolName}）；#432 提速批次十件"
+                    + "——工具面窄幅写口另见 PUT /agent-tools/{toolName}）；#454 路由结构性信号"
+                    + "开关两枚（issue #123——routingFileCountSignalEnabled 文件面信号开关／"
+                    + "routingSizeLabelSignalEnabled 规模标签信号开关：缺省 false＝关〔新默认关，"
+                    + "无覆盖行语境＝false〕；true＝恢复对应结构性判据〔文件数阈值/规模标签映射"
+                    + "旋钮照旧生效〕；失败重试升档信号不受两开关影响、常开——控件说明文案须带"
+                    + "此口径；仅 run 执行体行消费）；#432 提速批次十件"
                     + "（issue #122——缺省方向不一致，占位/重置须按字段区分：三闸〔"
                     + "verificationPresenceGateEnabled/proofOfOutputGateEnabled/"
                     + "finalVerificationGateEnabled〕与 parallelSliceMachineEnabled 缺省 false"
@@ -158,7 +172,9 @@ public class AiplatformAgentConfigController {
     @Operation(summary = "配置变更留痕读面（历史可查，回滚依据）——透传 aiplatform",
             description = "该智能体全部配置变更留痕，按时间倒序（最近先）。每痕＝一次实际变更"
                     + "（同值幂等重写不落痕）：变更前后全量值快照（old*/new* 对——prompt/档位/"
-                    + "路由强档三件可空、开关件恒在场、#432 提速批次二十件〔issue #122〕——三闸/"
+                    + "路由强档三件可空、开关件恒在场、#454 路由结构性信号开关 old/new 四枚"
+                    + "〔issue #123——恒有值，缺省态恒 false＝关〕、#432 提速批次二十件〔issue "
+                    + "#122〕——三闸/"
                     + "单会话/并行机器/决策注入总开关/verify 自决七开关恒有值〔缺省态：三闸 false、"
                     + "并行机器 false、余 true〕，决策注入两阈值可空〔null＝该侧即代码缺省 3〕，"
                     + "禁用集可空〔存储形逗号接键串，null＝该侧即全启用〕；旧值快照即回滚写回的"

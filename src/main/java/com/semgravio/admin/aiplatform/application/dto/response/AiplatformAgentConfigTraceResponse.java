@@ -7,8 +7,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * AI 平台智能体配置变更留痕读面行——北向出口，逐字镜像 aiplatform
  * {@code BackofficeAgentConfigTraceResponse}（#251 留痕回滚，#246 技能线 T5，spec #79 定稿、
- * issue #84；B3 issue #112 增路由强档两件；issue #122 增 #432 提速批次二十件〔V53–V57〕）：
- * 一次实际变更的前后全量值快照（old&#42;/new&#42; 对）＋操作者＋时刻。
+ * issue #84；B3 issue #112 增路由强档两件；issue #122 增 #432 提速批次二十件〔V53–V57〕；
+ * issue #123 增 #454 路由结构性信号开关 old/new 四枚〔V58〕）：一次实际变更的前后全量值快照
+ * （old&#42;/new&#42; 对）＋操作者＋时刻。
  *
  * <p>每痕＝一次实际变更（同值幂等重写不落痕——时间线里没有假变更）；按时间倒序（最近先，
  * provider 定死排序）。append-only——留痕不随任何动作删除（历史事实不随配置行消失）。
@@ -50,6 +51,14 @@ public record AiplatformAgentConfigTraceResponse(
         /** 变更前强模型档（null＝此前即回落代码缺省——回滚即把此值写回） */
         @Schema(description = "变更前强模型档（null＝此前即回落代码缺省——回滚即把此值写回）")
         String oldRoutingStrongModelId,
+
+        /** 变更前文件面信号开关（#454；恒有值——缺省态恒 false＝不参与升档判定） */
+        @Schema(description = "变更前文件面信号开关（#454；恒有值——缺省态恒 false＝不参与升档判定）")
+        boolean oldRoutingFileCountSignalEnabled,
+
+        /** 变更前规模标签信号开关（#454；恒有值——缺省态恒 false） */
+        @Schema(description = "变更前规模标签信号开关（#454；恒有值——缺省态恒 false）")
+        boolean oldRoutingSizeLabelSignalEnabled,
 
         /** 变更前验证在场闸开关（#433；恒有值——缺省态 false＝闸关） */
         @Schema(description = "变更前验证在场闸开关（#433；恒有值——缺省态 false＝闸关）")
@@ -111,6 +120,14 @@ public record AiplatformAgentConfigTraceResponse(
         /** 变更后强模型档（null＝本次清空回落代码缺省） */
         @Schema(description = "变更后强模型档（null＝本次清空回落代码缺省）")
         String newRoutingStrongModelId,
+
+        /** 变更后文件面信号开关（#454；恒有值） */
+        @Schema(description = "变更后文件面信号开关（#454；恒有值）")
+        boolean newRoutingFileCountSignalEnabled,
+
+        /** 变更后规模标签信号开关（#454；恒有值） */
+        @Schema(description = "变更后规模标签信号开关（#454；恒有值）")
+        boolean newRoutingSizeLabelSignalEnabled,
 
         /** 变更后验证在场闸开关（#433；恒有值） */
         @Schema(description = "变更后验证在场闸开关（#433；恒有值）")

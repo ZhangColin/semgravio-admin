@@ -5,9 +5,10 @@ import java.time.LocalDateTime;
 /**
  * aiplatform 智能体配置变更留痕读面行的 wire 镜像——与 aiplatform
  * {@code BackofficeAgentConfigTraceResponse}（#251 留痕回滚，#246 技能线 T5；B3 issue #112
- * 增路由强档两件；issue #122 增 #432 提速批次二十件〔V53–V57〕）字段同构：一次实际变更的
- * 前后全量值快照（old&#42;/new&#42; 对＋操作者＋时刻）。append-only——留痕不随任何动作删除；
- * 按时间倒序（最近先）；回滚＝把某痕旧值快照经 PUT 写回（一次新变更、留新痕，不做版本树）。
+ * 增路由强档两件；issue #122 增 #432 提速批次二十件〔V53–V57〕；issue #123 增 #454 路由
+ * 结构性信号开关 old/new 四枚〔V58〕）字段同构：一次实际变更的前后全量值快照（old&#42;/
+ * new&#42; 对＋操作者＋时刻）。append-only——留痕不随任何动作删除；按时间倒序（最近先）；
+ * 回滚＝把某痕旧值快照经 PUT 写回（一次新变更、留新痕，不做版本树）。
  *
  * <p>old&#42;/new&#42; 的 prompt/档位/<strong>强档</strong>三件可空（null＝该侧即缺省回落——
  * 回滚写回 null 即清空覆盖），决策注入两阈值与禁用集同样可空（null＝该侧即代码缺省/全启用；
@@ -23,6 +24,8 @@ import java.time.LocalDateTime;
  * @param oldWebSearchEnabled      变更前联网搜索开关
  * @param oldFetchUrlEnabled       变更前网页抓取开关
  * @param oldRoutingStrongModelId  变更前强模型档（null＝此前即回落代码缺省）
+ * @param oldRoutingFileCountSignalEnabled 变更前文件面信号开关（#454；恒有值——缺省态恒 false＝不参与升档判定）
+ * @param oldRoutingSizeLabelSignalEnabled 变更前规模标签信号开关（#454；同上）
  * @param oldVerificationPresenceGateEnabled 变更前验证在场闸开关（#433；恒有值——缺省态 false＝闸关）
  * @param oldProofOfOutputGateEnabled 变更前空转产出证明闸开关（#433；恒有值）
  * @param oldFinalVerificationGateEnabled 变更前整轨终验拦「生成完成」开关（#433；恒有值）
@@ -38,6 +41,8 @@ import java.time.LocalDateTime;
  * @param newWebSearchEnabled      变更后联网搜索开关
  * @param newFetchUrlEnabled       变更后网页抓取开关
  * @param newRoutingStrongModelId  变更后强模型档（null＝本次清空回落代码缺省）
+ * @param newRoutingFileCountSignalEnabled 变更后文件面信号开关（#454；恒有值）
+ * @param newRoutingSizeLabelSignalEnabled 变更后规模标签信号开关（#454；恒有值）
  * @param newVerificationPresenceGateEnabled 变更后验证在场闸开关（#433；恒有值）
  * @param newProofOfOutputGateEnabled 变更后空转产出证明闸开关（#433；恒有值）
  * @param newFinalVerificationGateEnabled 变更后整轨终验拦「生成完成」开关（#433；恒有值）
@@ -59,6 +64,8 @@ public record AiplatformAgentConfigTraceWireResponse(
         boolean oldWebSearchEnabled,
         boolean oldFetchUrlEnabled,
         String oldRoutingStrongModelId,
+        boolean oldRoutingFileCountSignalEnabled,
+        boolean oldRoutingSizeLabelSignalEnabled,
         boolean oldVerificationPresenceGateEnabled,
         boolean oldProofOfOutputGateEnabled,
         boolean oldFinalVerificationGateEnabled,
@@ -74,6 +81,8 @@ public record AiplatformAgentConfigTraceWireResponse(
         boolean newWebSearchEnabled,
         boolean newFetchUrlEnabled,
         String newRoutingStrongModelId,
+        boolean newRoutingFileCountSignalEnabled,
+        boolean newRoutingSizeLabelSignalEnabled,
         boolean newVerificationPresenceGateEnabled,
         boolean newProofOfOutputGateEnabled,
         boolean newFinalVerificationGateEnabled,

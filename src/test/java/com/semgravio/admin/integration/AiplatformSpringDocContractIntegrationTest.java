@@ -611,13 +611,13 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义＋#122 提速批次十五件，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075/081/082/083 数字码在场）")
+    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义＋#122 提速批次十五件＋#123 信号开关两枚〔含失败重试常开口径〕，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075/081/082/083 数字码在场）")
     void given_agentConfigEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");
 
-        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋最近写者——无覆盖行全
-        // 回落、三把稳定键（designer 到场）、modelId 档位键语义、边缘点指路、未知键 404
-        // PRJ_033 数字码
+        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋信号开关两枚＋最近写者
+        // ——无覆盖行全回落、三把稳定键（designer 到场）、modelId 档位键语义、边缘点指路、
+        // 未知键 404 PRJ_033 数字码
         JsonNode config = paths.path("/api/admin/aiplatform/agent-configs/{agentKey}").path("get");
         assertThat(config.isMissingNode()).as("api-docs 应含智能体配置读面端点").isFalse();
         assertThat(config.path("summary").asText(""))
@@ -631,6 +631,11 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("webSearchEnabled/fetchUrlEnabled")
                 .contains("routingStrongModelId")
                 .contains("主档/强档同范式")
+                .contains("routingFileCountSignalEnabled")
+                .contains("routingSizeLabelSignalEnabled")
+                .contains("阈值/映射旋钮照旧生效")
+                .contains("失败重试升档信号不受两开关影响、常开")
+                .contains("控件说明文案须带此口径")
                 .contains("提速批次十五件")
                 .contains("verificationPresenceGateEnabled")
                 .contains("仅 run 执行体行消费")
@@ -658,6 +663,8 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("PRJ_075").contains("4075")
                 .contains("缺省方向不一致")
                 .contains("表单须带全字段")
+                .contains("routingFileCountSignalEnabled")
+                .contains("失败重试升档信号不受两开关影响、常开")
                 .contains("PRJ_081").contains("4081")
                 .contains("PRJ_082").contains("4082")
                 .contains("PRJ_083").contains("4083")
@@ -682,6 +689,7 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("old*/new*")
                 .contains("路由强档")
                 .contains("读面可改就必须可回滚")
+                .contains("old/new 四枚")
                 .contains("提速批次二十件")
                 .contains("存储形逗号接键串")
                 .contains("append-only")
@@ -705,6 +713,14 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText("")).contains("主档/强档同范式");
         assertThat(property("AiplatformAgentConfigResponse", "defaultRoutingStrongModelId")
                 .path("description").asText("")).contains("清空覆盖即落此值");
+        // #454 信号开关两枚（issue #123——缺省 false＝关/恢复结构性判据/失败重试常开口径）
+        assertThat(property("AiplatformAgentConfigResponse", "routingFileCountSignalEnabled")
+                .path("description").asText(""))
+                .contains("不参与升档判定").contains("阈值旋钮照旧生效")
+                .contains("失败重试升档信号不受本开关影响、常开");
+        assertThat(property("AiplatformAgentConfigResponse", "routingSizeLabelSignalEnabled")
+                .path("description").asText(""))
+                .contains("映射旋钮照旧生效").contains("仅 run 执行体行消费");
         assertThat(property("AiplatformAgentConfigResponse", "operatorId")
                 .path("description").asText("")).contains("null＝从未配置");
         // 提速批次十五件（issue #122——三闸缺省 false＝闸关、决策注入三键生效值＋越界码）
@@ -738,6 +754,14 @@ class AiplatformSpringDocContractIntegrationTest {
         // example 值逐字对齐 provider swagger（AgentConfigUpdateCommand——强档 example＝pro 代码缺省档）
         assertThat(exampleText(property("AiplatformAgentConfigUpdateCommand", "routingStrongModelId")))
                 .isEqualTo("pro");
+        // #454 信号开关两枚（issue #123——缺省 false＝关〔null 同向〕＋仅 run 执行体行消费）
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "routingFileCountSignalEnabled")
+                .path("description").asText(""))
+                .contains("缺省 false＝关").contains("阈值旋钮照旧生效")
+                .contains("失败重试升档信号不受本开关影响、常开");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "routingSizeLabelSignalEnabled")
+                .path("description").asText(""))
+                .contains("缺省 false＝关").contains("映射旋钮照旧生效");
         // 提速批次十件（issue #122——闸关缺省/null 方向相反＋阈值越界码＋禁用集封闭集）
         assertThat(property("AiplatformAgentConfigUpdateCommand", "verificationPresenceGateEnabled")
                 .path("description").asText("")).contains("闸关");
@@ -755,6 +779,15 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText("")).contains("回滚即把此值写回");
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingStrongModelId")
                 .path("description").asText("")).contains("回滚即把此值写回");
+        // #454 信号开关 old/new 四枚（issue #123——恒有值/缺省态恒 false）
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingFileCountSignalEnabled")
+                .path("description").asText("")).contains("恒有值").contains("缺省态恒 false");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingSizeLabelSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "newRoutingFileCountSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "newRoutingSizeLabelSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
         // 提速批次二十件（issue #122——old 侧可空语义＋禁用集存储形逗号串＋缺省态开关恒有值）
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldDecisionHintErrorStreak")
                 .path("description").asText("")).contains("null＝此前即代码缺省 3");

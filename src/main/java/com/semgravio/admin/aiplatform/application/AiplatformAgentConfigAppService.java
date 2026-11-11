@@ -20,7 +20,9 @@ import org.springframework.stereotype.Service;
  * 边缘调用点档位三面（issue #112 B3，aiplatform #366 边缘四点收编）：三座智能体（main=
  * 主智能体 / executor=run 执行体 / designer=设计执行体）的 systemPrompt/模型档位运营配置
  * ＋路由强档件（B3 忠实跟随）＋#432 提速批次十件（issue #122：三闸/单会话/并行机器/决策
- * 注入三键＋verify 自决——aiplatform V53–V57，仅 run 执行体行消费）＋变更留痕读面；边缘四点（naming=项目取名 / compaction=
+ * 注入三键＋verify 自决——aiplatform V53–V57，仅 run 执行体行消费）＋#454 路由结构性信号
+ * 开关两枚（issue #123：routingFileCountSignalEnabled/routingSizeLabelSignalEnabled——
+ * aiplatform V58，仅 run 执行体行消费）＋变更留痕读面；边缘四点（naming=项目取名 / compaction=
  * 上下文压缩 / classification=入口分类 / precheck=技能预检——一次性轻调用，值面仅档位键
  * 无 prompt）的档位读/写/留痕。智能体运营配置归 aiplatform business.project 上下文——
  * admin 不持业务逻辑、不持配置数据（与技能库面零代码交集，独立 controller 面）。
@@ -51,9 +53,9 @@ public class AiplatformAgentConfigAppService {
     /**
      * 智能体配置读面（透传 aiplatform）——生效值（库覆盖或枚举默认——装配实取值；modelId
      * 语义＝档位键）＋覆盖标记＋枚举默认预览（清空覆盖前可看落点）＋增强工具开关存储态＋
-     * 路由强档三件（B3 忠实跟随——主档/强档同范式）＋#432 提速批次十五件（issue #122——
-     * 三闸/单会话/并行机器/决策注入三键＋verify 自决生效值，决策注入三键各带覆盖标记与
-     * 代码缺省预览）＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者 null）。
+     * 路由强档三件（B3 忠实跟随——主档/强档同范式）＋#454 路由结构性信号开关两枚（issue #123
+     * ——生效值，缺省 false＝关）＋#432 提速批次十五件（issue #122——三闸/单会话/并行机器/
+     * 决策注入三键＋verify 自决生效值，决策注入三键各带覆盖标记与代码缺省预览）＋最近写者。无覆盖行＝全回落（覆盖标记 false、写者 null）。
      * {@code agentKey} 字符串路径参数原样出站（main/executor/designer 三把稳定键，spec #79
      * 不解析不预校验），未知键由 provider 判 404 PRJ_033（数字业务码 4033）。提速批次
      * 十件仅 run 执行体行消费（main/designer 行同列无消费）。
@@ -80,6 +82,7 @@ public class AiplatformAgentConfigAppService {
                         command.systemPrompt(), command.modelId(),
                         command.webSearchEnabled(), command.fetchUrlEnabled(),
                         command.routingStrongModelId(),
+                        command.routingFileCountSignalEnabled(), command.routingSizeLabelSignalEnabled(),
                         command.verificationPresenceGateEnabled(), command.proofOfOutputGateEnabled(),
                         command.finalVerificationGateEnabled(),
                         command.singleSessionGenerationEnabled(), command.parallelSliceMachineEnabled(),
@@ -151,6 +154,7 @@ public class AiplatformAgentConfigAppService {
                 wire.webSearchEnabled(), wire.fetchUrlEnabled(),
                 wire.routingStrongModelId(), wire.routingStrongModelIdOverridden(),
                 wire.defaultRoutingStrongModelId(),
+                wire.routingFileCountSignalEnabled(), wire.routingSizeLabelSignalEnabled(),
                 wire.verificationPresenceGateEnabled(), wire.proofOfOutputGateEnabled(),
                 wire.finalVerificationGateEnabled(),
                 wire.singleSessionGenerationEnabled(), wire.parallelSliceMachineEnabled(),
@@ -170,6 +174,7 @@ public class AiplatformAgentConfigAppService {
                 wire.oldSystemPrompt(), wire.oldModelId(),
                 wire.oldWebSearchEnabled(), wire.oldFetchUrlEnabled(),
                 wire.oldRoutingStrongModelId(),
+                wire.oldRoutingFileCountSignalEnabled(), wire.oldRoutingSizeLabelSignalEnabled(),
                 wire.oldVerificationPresenceGateEnabled(), wire.oldProofOfOutputGateEnabled(),
                 wire.oldFinalVerificationGateEnabled(),
                 wire.oldSingleSessionGenerationEnabled(), wire.oldParallelSliceMachineEnabled(),
@@ -180,6 +185,7 @@ public class AiplatformAgentConfigAppService {
                 wire.newSystemPrompt(), wire.newModelId(),
                 wire.newWebSearchEnabled(), wire.newFetchUrlEnabled(),
                 wire.newRoutingStrongModelId(),
+                wire.newRoutingFileCountSignalEnabled(), wire.newRoutingSizeLabelSignalEnabled(),
                 wire.newVerificationPresenceGateEnabled(), wire.newProofOfOutputGateEnabled(),
                 wire.newFinalVerificationGateEnabled(),
                 wire.newSingleSessionGenerationEnabled(), wire.newParallelSliceMachineEnabled(),
