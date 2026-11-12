@@ -3,6 +3,7 @@ package com.semgravio.admin.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -100,6 +101,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdate
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRelabelWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
@@ -184,7 +190,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 读写不串、三写码互不串）+ 模型档位域四码
  * （{@code model-tier:read|create|update|delete}——#111 B2：清单/单行/留痕三读端点复用
  * read〔traces 留痕读面〕、三写口各一码，读写不串、三写码互不串、与通道四码互不串
- * 〔通道/档位分权〕）对未登录（401）/
+ * 〔通道/档位分权〕）+「数据标注」域四码
+ * （{@code sediment-draft:read|activate|reject|relabel}——issue #124：标注队列/详情两读
+ * 端点复用 read、三键各一码，读写不串、三写码互不串——激活权/拒绝权/分诊权独立授受，
+ * 连知识域既有 material:read 也不放行）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -459,6 +468,22 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String MODEL_TIER_UPDATE_BODY =
             "{\"providerKey\":\"volcengine\",\"modelName\":\"deepseek-v4-flash-ga-261031\","
                     + "\"displayName\":null,\"enabled\":null}";
+    // 沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层人审口，知识域第二面：
+    // 标注队列＋激活/拒绝/改标签三键，沉淀草稿归 base.knowledge）
+    private static final String SEDIMENT_DRAFT_READ_PERMISSION = "admin:aiplatform:sediment-draft:read";
+    private static final String SEDIMENT_DRAFT_ACTIVATE_PERMISSION = "admin:aiplatform:sediment-draft:activate";
+    private static final String SEDIMENT_DRAFT_REJECT_PERMISSION = "admin:aiplatform:sediment-draft:reject";
+    private static final String SEDIMENT_DRAFT_RELABEL_PERMISSION = "admin:aiplatform:sediment-draft:relabel";
+    /** 沉淀草稿 TSID 十进制串柄（透传不解析不预校验——畸形/未寻址由 provider 判 404 KNW_008）。 */
+    private static final String SEDIMENT_DRAFT_ID = "3853000001111111";
+    private static final String SEDIMENT_DRAFTS_ENDPOINT = "/api/admin/aiplatform/sediment-drafts";
+    private static final String SEDIMENT_DRAFT_DETAIL_ENDPOINT = SEDIMENT_DRAFTS_ENDPOINT + "/" + SEDIMENT_DRAFT_ID;
+    private static final String SEDIMENT_DRAFT_ACTIVATE_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/activate";
+    private static final String SEDIMENT_DRAFT_REJECT_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/reject";
+    private static final String SEDIMENT_DRAFT_RELABEL_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/relabel";
+    private static final String SEDIMENT_DRAFT_REJECT_BODY =
+            "{\"reason\":\"与已激活知识「排课冲突案例」内容重叠，无增量价值\"}";
+    private static final String SEDIMENT_DRAFT_RELABEL_BODY = "{\"kind\":\"MODULE\"}";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -499,6 +524,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithProviderDeleteOnly;
     private String usernameWithModelTierWrite;
     private String usernameWithTierDeleteOnly;
+    private String usernameWithSedimentDraftWrite;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -536,6 +562,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String modelProviderWriteUserNickname;
     private Long modelTierWriteUserId;
     private String modelTierWriteUserNickname;
+    private Long sedimentDraftWriteUserId;
+    private String sedimentDraftWriteUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -587,6 +615,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithProviderDeleteOnly = "aiplapdel" + suffix;
         usernameWithModelTierWrite = "aiplatwr" + suffix;
         usernameWithTierDeleteOnly = "aiplatdel" + suffix;
+        usernameWithSedimentDraftWrite = "aiplasdwrt" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -598,7 +627,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
                         PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
-                        MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION)));
+                        MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION,
+                        SEDIMENT_DRAFT_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -957,6 +987,22 @@ class AiplatformRbacEnforcementIntegrationTest {
                         "档位清理专员_" + suffix, null, null, null));
         userAppService.assignRoles(tierDeleteOnlyUserId,
                 new AssignRolesCommand(List.of(tierDeleteOnlyRoleId)));
+
+        // 「数据标注」三写码专用运营（activate+reject+relabel，无读码——读写不串，#124
+        // 照 skill-draft 先例每写操作一码）——操作者透传断言用其 id/昵称（provider 标注
+        // 动作必留痕、缺头 400 KNW_006 拦，无落空通道）
+        Long sedimentDraftWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台数据标注写操作_" + suffix, "AIPLASEDWR_" + suffix,
+                        "AI 平台沉淀草稿激活 + 拒绝 + 改标签权限", 119, null));
+        roleAppService.assignPermissions(sedimentDraftWriteRoleId, new AssignPermissionsCommand(List.of(
+                SEDIMENT_DRAFT_ACTIVATE_PERMISSION, SEDIMENT_DRAFT_REJECT_PERMISSION,
+                SEDIMENT_DRAFT_RELABEL_PERMISSION)));
+        sedimentDraftWriteUserNickname = "数据标注运营_" + suffix;
+        sedimentDraftWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSedimentDraftWrite, PASSWORD,
+                        sedimentDraftWriteUserNickname, null, null, null));
+        userAppService.assignRoles(sedimentDraftWriteUserId,
+                new AssignRolesCommand(List.of(sedimentDraftWriteRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -1612,6 +1658,79 @@ class AiplatformRbacEnforcementIntegrationTest {
                     LocalDateTime.of(2026, 9, 29, 11, 20, 0),
                     "正文与现有技能 prd-writing 方法论重叠，解消方向不明");
         }).when(aiplatformClient).rejectSkillDraft(eq(DRAFT_ID), any(AiplatformSkillDraftRejectWireRequest.class));
+        // 「数据标注」域 mock（issue #124，aiplatform #464 采集层人审口）：标注队列两行（在途
+        // SAFE＋已激活终态——队列缺省含终态行、自荐时间倒序）/ 详情＝在途态（payload 一期恒
+        // 空面＋findings untyped map 代表面＋终态留痕四 null）；三键抓取 RequestContext（操作者
+        // 透传契约证据，provider 标注动作必留痕、缺头必拦 KNW_006，断言必带）——activate/reject
+        // 回终态详情（留痕回填、在途名额释放 inflightSlot=null）、relabel 回现值详情（新类别
+        // 直读、不翻终态）
+        when(aiplatformClient.listSedimentDrafts(
+                any(AiplatformSedimentDraftListWireRequest.class), anyInt(), anyInt()))
+                .thenReturn(new PageResponse<>(List.of(
+                        new AiplatformSedimentDraftSummaryWireResponse(
+                                SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                                "两名教师同时段占用同一教室的冲突调解流程",
+                                "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                                1, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30)),
+                        new AiplatformSedimentDraftSummaryWireResponse(
+                                "3853000002222222", "RULE", "退款审批业务规则",
+                                "超过 7 天的退款须二级审批",
+                                "main", "3829492005555444", "run-9f22e1", "CAUTION",
+                                2, 2, "已激活", LocalDateTime.of(2026, 11, 8, 14, 0, 0))),
+                        2L, 1, 20));
+        when(aiplatformClient.getSedimentDraft(eq(SEDIMENT_DRAFT_ID)))
+                .thenReturn(new AiplatformSedimentDraftDetailWireResponse(
+                        SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                        "两名教师同时段占用同一教室的冲突调解流程",
+                        "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                        1, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                        "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                        Map.of(),
+                        List.of(Map.of(
+                                "patternId", "secret-like-token", "severity", "CAUTION",
+                                "category", "security", "file", "CASE.md",
+                                "line", 42, "matchText", "sk-***",
+                                "description", "疑似密钥形态字符串")),
+                        null, null, null, null));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    null, 2, "已激活", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    String.valueOf(sedimentDraftWriteUserId), sedimentDraftWriteUserNickname,
+                    LocalDateTime.of(2026, 11, 12, 10, 0, 0),
+                    null);
+        }).when(aiplatformClient).activateSedimentDraft(eq(SEDIMENT_DRAFT_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    null, 3, "已拒绝", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    String.valueOf(sedimentDraftWriteUserId), sedimentDraftWriteUserNickname,
+                    LocalDateTime.of(2026, 11, 12, 10, 30, 0),
+                    "与已激活知识「排课冲突案例」内容重叠，无增量价值");
+        }).when(aiplatformClient).rejectSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRejectWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "MODULE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    2, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    null, null, null, null);
+        }).when(aiplatformClient).relabelSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class));
     }
 
     /**
@@ -4503,6 +4622,219 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 信封 code＝数字业务码 7018（SKL_018＝域码 7×1000＋18），而非映射后的 400——前端比对业务码的分支活
         assertThat(root.path("code").asInt()).isEqualTo(7018);
         assertThat(root.path("message").asText()).isEqualTo("拒绝理由不能为空（终态留档，拒绝须有据）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「数据标注」域（sediment-draft:read 读面 / :activate、:reject、:relabel 写面，issue #124）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 sediment-draft:read → 标注队列 200，三过滤透传 wire＋分页回显 provider 值＋行形状镜像 provider（含终态行）")
+    void given_nonSuperAdminWithSedimentDraftRead_when_queue_then_200AndRowsMirrorProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(
+                SEDIMENT_DRAFTS_ENDPOINT + "?projectId=" + PROJECT_ID + "&kind=CASE&status=1&page=1&size=20",
+                token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 三过滤维度 query→wire 逐字映射（projectId 宽松串/kind 串/status Integer）＋分页 1-based 直传
+        verify(aiplatformClient).listSedimentDrafts(
+                argThat(wire -> PROJECT_ID.equals(wire.projectId()) && "CASE".equals(wire.kind())
+                        && Integer.valueOf(1).equals(wire.status())),
+                eq(1), eq(20));
+
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // PageResponse 形状：items/total/page/size——回显 provider 回报值（1-based 原值）
+        assertThat(data.path("total").asLong()).isEqualTo(2L);
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("size").asInt()).isEqualTo(20);
+        assertThat(data.path("items").size()).isEqualTo(2);
+
+        // 首行（在途待审）：kind/title/summary＋血统三件＋扫描判定＋在途序号 inflightSlot（结构性
+        // 承载——队列拥挤度可视化锚）＋status Integer code＋statusName 中文名随行＋createdAt
+        JsonNode pending = data.path("items").get(0);
+        assertThat(pending.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(pending.path("kind").asText()).isEqualTo("CASE");
+        assertThat(pending.path("title").asText()).isEqualTo("排课冲突处理案例");
+        assertThat(pending.path("summary").asText()).isEqualTo("两名教师同时段占用同一教室的冲突调解流程");
+        assertThat(pending.path("slot").asText()).isEqualTo("executor");
+        assertThat(pending.path("projectId").asText()).isEqualTo(PROJECT_ID);
+        assertThat(pending.path("runId").asText()).isEqualTo("run-7c31ab");
+        assertThat(pending.path("scanVerdict").asText()).isEqualTo("SAFE");
+        assertThat(pending.path("inflightSlot").isNumber()).isTrue();
+        assertThat(pending.path("inflightSlot").asInt()).isEqualTo(1);
+        assertThat(pending.path("status").asInt()).isEqualTo(1);
+        assertThat(pending.path("statusName").asText()).isEqualTo("在途");
+        assertThat(pending.path("createdAt").asText()).isEqualTo("2026-11-10T09:15:30");
+
+        // 次行（终态行代表面）：队列缺省含终态行——status=2 已激活照常绑定（终态留档可查）
+        JsonNode activated = data.path("items").get(1);
+        assertThat(activated.path("status").asInt()).isEqualTo(2);
+        assertThat(activated.path("statusName").asText()).isEqualTo("已激活");
+        assertThat(activated.path("inflightSlot").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 sediment-draft:read → 标注详情 200，正文全文＋payload 恒空面＋findings untyped＋终态留痕四 null")
+    void given_nonSuperAdminWithSedimentDraftRead_when_getSedimentDraftDetail_then_200DetailMirrorsProvider()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(data.path("status").asInt()).isEqualTo(1);
+        assertThat(data.path("statusName").asText()).isEqualTo("在途");
+        // 正文全文原样到达（激活原样升格不改稿——审核面所见即入库内容）
+        assertThat(data.path("content").asText()).startsWith("# 排课冲突处理");
+        // payload 一期恒空面（untyped 逐字透传）
+        assertThat(data.path("payload").isObject()).isTrue();
+        assertThat(data.path("payload").size()).isZero();
+        // findings untyped map 逐条留档：line 为数字（Object 绑定混合类型在场）
+        JsonNode finding = data.path("scanFindings").get(0);
+        assertThat(finding.path("patternId").asText()).isEqualTo("secret-like-token");
+        assertThat(finding.path("line").asInt()).isEqualTo(42);
+        // 终态留痕四字段在途恒 null（如实出 JSON null——全局 Jackson 含 null）
+        assertThat(data.path("operatorId").isNull()).isTrue();
+        assertThat(data.path("operatorName").isNull()).isTrue();
+        assertThat(data.path("reviewedAt").isNull()).isTrue();
+        assertThat(data.path("rejectReason").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 激活/拒绝/改标签 200，回执＝终态/现值详情且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithSedimentDraftWriteCodes_when_threeKeys_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSedimentDraftWrite);
+
+        // 激活（无请求体）：回执＝终态详情——status=2 已激活、留痕回填（操作者/时刻）、在途名额
+        // 已释放（inflightSlot null——队列拥挤度下降）、rejectReason null（拒绝理由不适用）
+        ResponseEntity<String> activate = postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token);
+        assertThat(activate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode activated = objectMapper.readTree(activate.getBody()).path("data");
+        assertThat(activated.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(activated.path("status").asInt()).isEqualTo(2);
+        assertThat(activated.path("statusName").asText()).isEqualTo("已激活");
+        assertThat(activated.path("operatorId").asText())
+                .isEqualTo(String.valueOf(sedimentDraftWriteUserId));
+        assertThat(activated.path("operatorName").asText()).isEqualTo(sedimentDraftWriteUserNickname);
+        assertThat(activated.path("reviewedAt").asText()).isEqualTo("2026-11-12T10:00:00");
+        assertThat(activated.path("inflightSlot").isNull()).isTrue();
+        assertThat(activated.path("rejectReason").isNull()).isTrue();
+
+        // 拒绝（带 reason 命令体）：回执＝终态详情——status=3 已拒绝、留痕四字段回填直读
+        //（操作者/时刻/理由随行留档）
+        ResponseEntity<String> reject =
+                postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, token);
+        assertThat(reject.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rejected = objectMapper.readTree(reject.getBody()).path("data");
+        assertThat(rejected.path("status").asInt()).isEqualTo(3);
+        assertThat(rejected.path("statusName").asText()).isEqualTo("已拒绝");
+        assertThat(rejected.path("operatorId").asText())
+                .isEqualTo(String.valueOf(sedimentDraftWriteUserId));
+        assertThat(rejected.path("reviewedAt").asText()).isEqualTo("2026-11-12T10:30:00");
+        assertThat(rejected.path("rejectReason").asText())
+                .isEqualTo("与已激活知识「排课冲突案例」内容重叠，无增量价值");
+
+        // 改标签（带 kind 命令体）：回执＝现值详情——kind=MODULE 新类别直读、不翻终态
+        //（status=1 在途、终态留痕四 null、inflightSlot 仍占位 2＝跨类别占目标类别在途名额）
+        ResponseEntity<String> relabel =
+                postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token);
+        assertThat(relabel.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode relabeled = objectMapper.readTree(relabel.getBody()).path("data");
+        assertThat(relabeled.path("kind").asText()).isEqualTo("MODULE");
+        assertThat(relabeled.path("status").asInt()).isEqualTo(1);
+        assertThat(relabeled.path("inflightSlot").asInt()).isEqualTo(2);
+        assertThat(relabeled.path("operatorId").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 标注动作必留痕、缺头必拦 KNW_006
+        // ——issue #124 断言必带）：== 登录数据标注运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(sedimentDraftWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(sedimentDraftWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写两码不串：无 sediment-draft:read → 两读口 403；仅有 read（无写码）→ 三写口 403")
+    void given_readCodesOnly_when_sedimentDraftEndpoints_then_403OnTheOtherSide() {
+        // 三写码专用运营（无 sediment-draft:read）→ 两读口 403：sediment-draft 独立成码
+        //（连知识域既有 material:read 也不放行——#124 四码分权）
+        String writer = login(usernameWithSedimentDraftWrite);
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // sediment-draft:read（无写码）→ 三写口 403：审阅只读角色不得激活/拒绝/改标签
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, reader)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, reader)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 数据标注五端点 403；未登录 → 401（含三键 POST）")
+    void given_noPermissionOrUnauthenticated_when_sedimentDraftEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, token)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("激活下游 KNW_008（沉淀草稿不存在，含畸形 id）→ 北向 HTTP 404 + 信封 code=2008 + message 原文（不映射）")
+    void given_knw008FromDownstream_when_activateSedimentDraft_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.activateSedimentDraft(eq(SEDIMENT_DRAFT_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":2008,\"message\":\"沉淀草稿不存在\",\"data\":null}")));
+
+        String token = login(usernameWithSedimentDraftWrite);
+        ResponseEntity<String> response = postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 2008（KNW_008＝域码 2×1000＋8），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(2008);
+        assertThat(root.path("message").asText()).isEqualTo("沉淀草稿不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("改标签下游 KNW_012（目标类别在途满 3）→ 北向 HTTP 409 + 信封 code=2012 + message 原文（不映射）")
+    void given_knw012FromDownstream_when_relabelSedimentDraft_then_errorEnvelopePassedThrough() throws Exception {
+        // 改标签跨类别占目标类别在途名额——结构性约束跨类别生效，满员由 provider 裁决
+        //（前端提示「目标类别在途已满，先审结该类别草稿」）
+        when(aiplatformClient.relabelSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":2012,\"message\":\"目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithSedimentDraftWrite);
+        ResponseEntity<String> response =
+                postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 2012（KNW_012＝域码 2×1000＋12），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(2012);
+        assertThat(root.path("message").asText())
+                .isEqualTo("目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

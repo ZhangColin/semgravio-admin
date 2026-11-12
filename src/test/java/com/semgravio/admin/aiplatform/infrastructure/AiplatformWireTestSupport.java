@@ -14,6 +14,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSkillAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformSedimentDraftAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.cartisan.openapi.client.BinaryResponse;
 import com.cartisan.openapi.client.OpenApiClient;
@@ -842,6 +843,65 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformSkillAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 沉淀草稿「数据标注」域版 {@link #skillDraftAppServiceWithStubTransport}（issue #124，
+     * aiplatform #464）——标注队列/详情两读口走 {@code get}、激活走 {@code post}
+     * （<strong>无命令体</strong>——null body 发空 body，同晋升先例）、拒绝/改标签走
+     * {@code post}（带单字段命令体 {@code {reason}}／{@code {kind}}），均按真实
+     * {@code TypeReference} 反序列化；post 把命令体序列化进 wireBodySink（null body
+     * 原样记 null——钉死激活无请求体契约）。
+     */
+    static AiplatformSedimentDraftAppService sedimentDraftAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformSedimentDraftAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 沉淀草稿「数据标注」域版 {@link #skillDraftAppServiceWithErrorTransport}（issue #124）
+     * ——{@code get} 与 {@code post} 都始终抛 {@code OpenApiClientException}（框架对 ≥400
+     * 的行为复刻：KNW_006/008/009/010/011/012 错误族与读口错误信封同形）。
+     */
+    static AiplatformSedimentDraftAppService sedimentDraftAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformSedimentDraftAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     /**

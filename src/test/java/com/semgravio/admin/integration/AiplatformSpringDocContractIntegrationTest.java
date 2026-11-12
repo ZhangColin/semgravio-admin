@@ -1093,6 +1093,162 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("swagger 契约：「数据标注」五端点 @Operation 描述镜像 provider（#124，队列含终态行 + 宽松 projectId + 已激活≠已入库 + KNW_006/008/009/010/011/012 数字码在场）")
+    void given_sedimentDraftEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 标注队列：三过滤维度（projectId 宽松≠kind 非法 400 有意不同）＋含终态行（待办须显式
+        // status=1）＋自荐时间倒序 provider 定死＋inflightSlot 结构性承载＋分页 1-based 缺省 1/20
+        JsonNode queue = paths.path("/api/admin/aiplatform/sediment-drafts").path("get");
+        assertThat(queue.isMissingNode()).as("api-docs 应含标注队列端点").isFalse();
+        assertThat(queue.path("summary").asText(""))
+                .contains("标注队列").contains("按项目/类别/状态过滤").contains("分页");
+        assertThat(queue.path("description").asText(""))
+                .contains("含终态行")
+                .contains("待办视角须显式 status=1")
+                .contains("宽松口径")
+                .contains("与 kind 非法即 400 有意不同")
+                .contains("CASE/MODULE/RULE")
+                .contains("KNW_011").contains("2011")
+                .contains("自荐时间倒序")
+                .contains("血统三件")
+                .contains("SAFE/CAUTION")
+                .contains("inflightSlot")
+                .contains("结构性承载")
+                .contains("拥挤度")
+                .contains("1 基（缺省 1）");
+
+        // 标注详情：审核面（正文＋payload＋findings 逐条＋终态留痕）＋任意状态可查＋404 KNW_008
+        // 数字码＋语义陷阱「已激活≠已入库」文案红线
+        JsonNode detail = paths.path("/api/admin/aiplatform/sediment-drafts/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含标注详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("标注详情").contains("终态留痕").contains("审核面");
+        assertThat(detail.path("description").asText(""))
+                .contains("原样升格不改稿")
+                .contains("一期恒空面")
+                .contains("patternId/severity/category/file/line/matchText/description")
+                .contains("空列表＝无发现")
+                .contains("在途恒 null")
+                .contains("任意状态可查")
+                .contains("KNW_008").contains("2008")
+                .contains("「已激活」≠「已入库」");
+
+        // 激活：无请求体＋CAS 已审结 409＋语义陷阱（不得暗示「激活即可被检索」）＋按钮态由
+        // 行 status 驱动＋缺操作者 KNW_006＋回执＝终态详情
+        JsonNode activate = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/activate").path("post");
+        assertThat(activate.isMissingNode()).as("api-docs 应含激活端点").isFalse();
+        assertThat(activate.path("summary").asText(""))
+                .contains("激活草稿").contains("人审采纳").contains("原样升格不改稿");
+        assertThat(activate.path("description").asText(""))
+                .contains("CAS")
+                .contains("KNW_009").contains("2009")
+                .contains("「已激活」≠「已入库」")
+                .contains("不得暗示「激活即可被检索」")
+                .contains("status=1 才可按")
+                .contains("KNW_008").contains("2008")
+                .contains("KNW_006").contains("2006")
+                .contains("无请求体")
+                .contains("终态详情");
+
+        // 拒绝：理由必填（KNW_010 库级 CHECK 双锁、可选绑定不前置拦截）＋拒绝即终态不改稿不复活＋
+        // body 仅 reason＋回执＝终态详情
+        JsonNode reject = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/reject").path("post");
+        assertThat(reject.isMissingNode()).as("api-docs 应含拒绝端点").isFalse();
+        assertThat(reject.path("summary").asText(""))
+                .contains("拒绝草稿").contains("终态留档").contains("理由必填");
+        assertThat(reject.path("description").asText(""))
+                .contains("KNW_010").contains("2010")
+                .contains("不前置拦截")
+                .contains("拒绝即终态")
+                .contains("重提只能靠未来会话产生新草稿")
+                .contains("KNW_009").contains("2009")
+                .contains("KNW_008").contains("2008")
+                .contains("KNW_006").contains("2006")
+                .contains("body 仅 reason")
+                .contains("终态详情");
+
+        // 改标签：占目标类别在途名额（跨类别结构性约束）＋满 409 KNW_012＋前端提示文案＋同类别
+        // 幂等 no-op＋不翻终态不动正文＋body 仅 kind＋回执＝详情（新类别直读）
+        JsonNode relabel = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/relabel").path("post");
+        assertThat(relabel.isMissingNode()).as("api-docs 应含改标签端点").isFalse();
+        assertThat(relabel.path("summary").asText(""))
+                .contains("改标签").contains("占目标类别在途名额");
+        assertThat(relabel.path("description").asText(""))
+                .contains("CASE/MODULE/RULE")
+                .contains("KNW_011").contains("2011")
+                .contains("幂等 no-op")
+                .contains("占目标类别在途名额")
+                .contains("上限 3")
+                .contains("KNW_012").contains("2012")
+                .contains("目标类别在途已满，先审结该类别草稿")
+                .contains("不翻终态、不动正文")
+                .contains("body 仅 kind")
+                .contains("新类别直读");
+
+        // 队列行 schema 自描述：id TSID 十进制串（勿做数值假设）＋kind 三类中文对照＋inflightSlot
+        // 结构性承载＋status 三态（队列缺省含终态行）
+        JsonNode draftId = property("AiplatformSedimentDraftSummaryResponse", "id");
+        assertThat(draftId.path("description").asText(""))
+                .contains("TSID 十进制串")
+                .contains("勿做数值假设")
+                .contains("KNW_008");
+        JsonNode kind = property("AiplatformSedimentDraftSummaryResponse", "kind");
+        assertThat(kind.path("description").asText(""))
+                .contains("CASE=需求案例")
+                .contains("MODULE=功能模块")
+                .contains("RULE=业务规则")
+                .contains("占目标类别在途名额");
+        assertThat(exampleText(kind)).isEqualTo("CASE");
+        assertThat(property("AiplatformSedimentDraftSummaryResponse", "inflightSlot")
+                .path("description").asText(""))
+                .contains("在途序号 1-3")
+                .contains("结构性承载")
+                .contains("终态翻行即释放名额");
+        assertThat(property("AiplatformSedimentDraftSummaryResponse", "status")
+                .path("description").asText(""))
+                .contains("1=在途 2=已激活 3=已拒绝")
+                .contains("队列缺省含终态行");
+
+        // 详情 schema 自描述：content 原样升格语义＋payload/findings untyped＋终态留痕四字段可空
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "content")
+                .path("description").asText(""))
+                .contains("原样入库")
+                .contains("审核者不改稿")
+                .contains("所见即入库内容");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "payload")
+                .path("description").asText(""))
+                .contains("一期恒空面")
+                .contains("untyped");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "scanFindings")
+                .path("description").asText(""))
+                .contains("空列表＝无发现")
+                .contains("untyped");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "operatorId")
+                .path("description").asText(""))
+                .contains("在途为 null")
+                .contains("三键审结后回填");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "rejectReason")
+                .path("description").asText(""))
+                .contains("已拒绝态携带");
+
+        // 三键命令 schema 自描述：拒绝理由终态留档＋空白 KNW_010（provider 裁决不前置拦截）、
+        // 改标签类别三类对照＋非法 KNW_011
+        JsonNode reason = property("AiplatformSedimentDraftRejectCommand", "reason");
+        assertThat(reason.path("description").asText(""))
+                .contains("终态留档")
+                .contains("KNW_010")
+                .contains("不前置拦截");
+        assertThat(exampleText(reason)).isNotBlank();
+        JsonNode relabelKind = property("AiplatformSedimentDraftRelabelCommand", "kind");
+        assertThat(relabelKind.path("description").asText(""))
+                .contains("CASE=需求案例")
+                .contains("同类别幂等 no-op")
+                .contains("KNW_011");
+        assertThat(exampleText(relabelKind)).isEqualTo("MODULE");
+    }
+
+    @Test
     @DisplayName("swagger 契约：订单设计面三处 @Operation 自描述（#96，类型三值语义 + 冻结件直取不按支付态门控 + ORD_016/PRJ_051 数字码在场）")
     void given_orderDesignSurfaces_when_readOperations_then_descriptionsSelfDescribed() throws Exception {
         JsonNode paths = apiDocs().path("paths");

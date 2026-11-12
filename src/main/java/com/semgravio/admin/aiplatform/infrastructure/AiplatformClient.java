@@ -64,6 +64,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillSummar
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRelabelWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
@@ -111,7 +116,9 @@ import org.springframework.stereotype.Component;
  * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）、模型供应商域
  * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
  * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
- * CRUD＋留痕）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * CRUD＋留痕）与沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层
+ * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）共用本客户端——同一
+ * downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -282,6 +289,16 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSkillDraftDetailWireResponse>> SKILL_DRAFT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 沉淀草稿「数据标注」域（#464 数据飞轮采集层人审口，issue #124）：队列 data 为 PageResponse
+    // （page 1-based、含终态行——终态留档可查）；详情任意状态可查（终态留档），三键（激活/拒绝/
+    // 改标签）回执共形＝终态详情（与 GET 详情同形——SEDIMENT_DRAFT_DETAIL_TYPEREF 复用；激活
+    // 无请求体，拒绝/改标签单字段命令体可选绑定不前置拦截）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformSedimentDraftSummaryWireResponse>>> SEDIMENT_DRAFT_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformSedimentDraftDetailWireResponse>> SEDIMENT_DRAFT_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
     // 智能体配置域（#251 技能线 T5；#366 边缘四点收编 issue #112 B3）：GET 读面与 PUT 回执
@@ -2306,6 +2323,161 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSkillDraftDetailWireResponse> resp =
                     openApiClient.post(url, command, SKILL_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 分页查询沉淀草稿标注队列（透传 aiplatform，「数据标注」域读口，issue #124）——
+     * 采集层自荐沉淀草稿的人审队列分诊面。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/sediment-drafts}（#464）：返回
+     * {@code ApiResponse<PageResponse<BackofficeSedimentDraftSummaryResponse>>}。三过滤
+     * 维度可组合、均可缺省（缺省＝全量<strong>含终态行</strong>——终态留档可查；待办视角
+     * 须显式 status=1）：{@code projectId} 来源项目 id 精确（<strong>宽松</strong>——畸形值
+     * provider {@code Tsid.parseOrNull} 归 null 即缺省不过滤，与 kind 非法即 400 有意不同）；
+     * {@code kind} 类别单选（CASE/MODULE/RULE 大小写不敏感——非法 400 KNW_011＝数字业务码
+     * 2011 带合法取值表）；{@code status} 状态单选 Integer code（1=在途 2=已激活 3=已拒绝
+     * ——未知 code 骑 provider 框架 400 带合法取值表，非 KNW 码）。排序服务端定死＝自荐
+     * 时间倒序（id 倒序稳定）。</p>
+     *
+     * <p>page 1-based 直传零换算（同订单/项目/素材），provider clamp（page≥1、size∈[1,100]
+     * 默认 20——{@code Pagination} 框架契约）行为透传、本客户端不重复夹取。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformSedimentDraftQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（400 KNW_011 等，不做映射）
+     */
+    public PageResponse<AiplatformSedimentDraftSummaryWireResponse> listSedimentDrafts(
+            AiplatformSedimentDraftListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/sediment-drafts?page=").append(page)
+                .append("&size=").append(size);
+        appendParam(url, "projectId", filter.projectId());
+        appendParam(url, "kind", filter.kind());
+        appendParam(url, "status", filter.status());
+        log.debug("AiplatformClient.listSedimentDrafts: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformSedimentDraftSummaryWireResponse>> resp =
+                    openApiClient.get(url.toString(), SEDIMENT_DRAFT_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询沉淀草稿标注详情（透传 aiplatform，「数据标注」域读口，issue #124）——队列行
+     * 同形字段＋正文全文（激活原样升格不改稿——审核面所见即入库内容）＋载荷（untyped
+     * 一期恒空面）＋扫描 findings 逐条留档（untyped map 透传）＋终态留痕四字段（在途
+     * 恒 null）。<strong>任意状态可查</strong>（终态留档）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/sediment-drafts/{id}}（#464）：返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>}；草稿不存在（含未寻址/
+     * 畸形 TSID——provider {@code Tsid.resolve} lenient 解析）时 HTTP 404 + 数字业务码
+     * 2008（KNW_008）原样透传。</p>
+     *
+     * @param id 草稿柄（TSID 十进制字符串原样出站；畸形值由 provider 判 404 KNW_008）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 KNW_008 等，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse getSedimentDraft(String id) {
+        String url = baseUrl + "/api/backoffice/sediment-drafts/" + encode(id);
+        log.debug("AiplatformClient.getSedimentDraft: {}", url);
+        try {
+            ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
+                    openApiClient.get(url, SEDIMENT_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 激活沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——人审采纳：
+     * 在途翻已激活＋操作者留痕（CAS——并发审结零行命中 409 KNW_009）。激活即出标注
+     * 队列、释放在途名额，升格 knw_materials 归激活链（激活只翻审结终态——「已激活」
+     * ≠「已入库」，素材检索在升格落地前不命中已激活沉淀）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/activate}（#464）：
+     * <strong>无请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数——同素材停用⇄启用先例），返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>}——回执＝<strong>终态
+     * 详情</strong>（留痕形状直读，与 GET 详情同形——SEDIMENT_DRAFT_DETAIL_TYPEREF 复用）。
+     * 操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name} 头
+     * （RequestContext→provider 落痕）——<strong>缺头 400 KNW_006</strong>（数字业务码
+     * 2006，标注动作必留痕，无落空通道）。草稿须在途（已审结 409 KNW_009＝2009）；
+     * 不存在 404 KNW_008（2008）——均原样透传。</p>
+     *
+     * @param id 草稿柄（TSID 十进制字符串；在途判定归 provider CAS 条件更新）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse activateSedimentDraft(String id) {
+        return postSedimentDraftAction(id, "activate", null);
+    }
+
+    /**
+     * 拒绝沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——人审不采纳：
+     * 理由必填（空白 400 KNW_010＝数字业务码 2010——终态留档拒绝须有据，库级 CHECK
+     * 双锁）＋在途翻已拒绝＋操作者留痕（CAS 同激活）。拒绝即终态：不再列标注队列、
+     * 详情仍可查（留档）；不改稿不复活——重提只能靠未来会话产生新草稿。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/reject}（#464）：
+     * 请求体 {@code {reason}} 逐字镜像（单字段——BFF 不前置拦截，空白由 provider 手工
+     * 校验出 400 KNW_010 原样透传；缺 body 同语义），返回终态详情（同 GET 详情形）。
+     * 操作者透传头口径同激活（缺头 400 KNW_006＝2006）；已审结 409 KNW_009（2009）、
+     * 不存在 404 KNW_008（2008）——均原样透传。</p>
+     *
+     * @param id      草稿柄（TSID 十进制字符串原样出站）
+     * @param command 拒绝命令体（由应用层从北向命令映射而来，理由合法性归 provider 用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009/010，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse rejectSedimentDraft(
+            String id, AiplatformSedimentDraftRejectWireRequest command) {
+        return postSedimentDraftAction(id, "reject", command);
+    }
+
+    /**
+     * 改标签沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——在途内调整
+     * 类别（纯队列分诊修正：不翻终态、不动正文）。{@code kind} 一期合法取值 CASE/MODULE/
+     * RULE（大小写不敏感归一大写稳定键；非法 400 KNW_011＝2011 带合法取值表；同类别
+     * 幂等 no-op）；<strong>占目标类别在途名额</strong>——跨类别占目标类别在途序号最低
+     * 空位（每项目每 kind 上限 3 的结构性约束跨类别生效），目标类别满 409 KNW_012
+     * （数字业务码 2012——前端提示「目标类别在途已满，先审结该类别草稿」）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/relabel}（#464）：
+     * 请求体 {@code {kind}} 逐字镜像（单字段——BFF 不前置拦截，非法由 provider 用例裁决；
+     * 缺 body 同语义），返回详情（新类别直读，同 GET 详情形）。操作者透传头口径同激活
+     * （缺头 400 KNW_006＝2006）；已审结 409 KNW_009（2009）、不存在 404 KNW_008（2008）
+     * ——均原样透传。</p>
+     *
+     * @param id      草稿柄（TSID 十进制字符串原样出站）
+     * @param command 改标签命令体（由应用层从北向命令映射而来，类别合法性归 provider 用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009/011/012，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse relabelSedimentDraft(
+            String id, AiplatformSedimentDraftRelabelWireRequest command) {
+        return postSedimentDraftAction(id, "relabel", command);
+    }
+
+    /**
+     * 「数据标注」三键共用的出站形状（#464）：{@code POST /api/backoffice/sediment-drafts/
+     * {id}/{action}}——激活无请求体（{@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数），拒绝/改标签单字段命令体可选绑定不前置拦截；返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>} 信封取 {@code .data()}
+     * （三键回执共形＝详情：激活/拒绝回<strong>终态</strong>详情、改标签回现值详情）；
+     * 操作者身份由框架经 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传
+     * （缺头会被 provider 域面守卫 KNW_006 拦截——标注动作必留痕，无落空通道）。
+     */
+    private AiplatformSedimentDraftDetailWireResponse postSedimentDraftAction(
+            String id, String action, Object command) {
+        String url = baseUrl + "/api/backoffice/sediment-drafts/" + encode(id) + "/" + action;
+        log.debug("AiplatformClient.postSedimentDraftAction: {}", url);
+        try {
+            ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
+                    openApiClient.post(url, command, SEDIMENT_DRAFT_DETAIL_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
