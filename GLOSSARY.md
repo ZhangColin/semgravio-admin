@@ -115,6 +115,10 @@ _Avoid_: 文案暗示「激活即可被检索」（升格未落地前不命中�
 采集层（数据飞轮一期 `knw_sediment_drafts`，aiplatform #460 V59）自荐沉淀物的**库制草稿**——kind 三类 CASE（需求案例）/MODULE（功能模块）/RULE（业务规则）；在途占每项目每 kind 在途序号 1-3（上限 3 防单一项目淹没标注队列）；三键审结翻终态（已激活/已拒绝）即释放名额、不可再审不改稿不复活（重提靠未来会话新草稿）。审核承载＝数据标注员人审（`sediment-draft:*` 权限码族）。
 _Avoid_: 把沉淀草稿与技能草稿混概念（不同域不同表：knowledge vs skills，但共享 ADR-0022 终态语义）；把已激活当已入库（升格归激活链，检索命中以其落地为准）；改标签不占名额（跨类别结构性约束生效）。
 
+**一键回收 (Reclaim)**:
+aiplatform 一键回收两端点（`/api/admin/aiplatform/projects/{id}/reclaim`＋`/api/admin/aiplatform/workspaces/{id}/reclaim`，issue #129 镜像 aiplatform #490——#473/ADR-0045「一键回收」：删除＋清残＋对账报告一次完成，**同形回执**）：**项目级**（在飞 run 先级联停止〔承 #477——置停＋cancel(true) 中断在途，不留僵尸任务〕→ 工作区销毁〔#485 销毁终态一致内核〕→ `prj_*` 真删级联〔受理即删，与用户面 DELETE 同内核〕；用途：账户属主无会话凭证的项目不再裸操改挂属主、生成中项目回收不留僵尸任务）＋**工作区级**（单台三清〔容器/卷/注册表行〕，**项目行与其余资产不动**——回执 `projectRow`＝UNTOUCHED 如实分示；在册失联行〔lostAt〕的人工裁决出口，标记随注册行级联消亡；无所属〔失联裁决/fork〕无停止面可挂 `runsStopped` 如实 false）。回执逐面 `CLEAN`/`RESIDUE`/`UNKNOWN`（工作区级项目面 UNTOUCHED）＋`residueFree` 零残留判据——**UNKNOWN 不算清**（销毁未全成/探查未成不冒充清，residueFree=false）＋**RESIDUE 如实红不报错重试**（物理销毁尽力而为不阻断记录删除〔受理即删〕，残留归扫描轮/手动清扫收编——前端展示「残留待收编」提示）；操作者 X-User-Id/X-User-Name 透传头落 append-only `wsp_reclaim_actions`（缺头落空 NULL——照沙箱动作面口径；成功落痕、未成不留痕）；错误：项目不存在 404 PRJ_001→4001、工作区不存在〔含畸形 id〕404 WSP_001→1001、销毁自身失败 500（未成不留痕可重试）。动刀类走 admin 手动＋留痕（ADR-0045），确认弹窗建议展示回收范围（项目级＝项目连同工作区全删；工作区级＝只删单台沙箱，项目仍在）。权限码两枚 `project:reclaim`/`workspace:reclaim`（62→64——动刀类各一独立写码，最小授权）；**无菜单叶**（回收按钮挂项目/沙箱详情页与失联行裁决，页内动作不种路由）。
+_Avoid_: 把 UNKNOWN 面当清（不算清——residueFree=false 如实红）；对 RESIDUE 报错重试（尽力而为已删记录，残留归收编通道）；把工作区级回收当项目级（项目面 UNTOUCHED——项目仍在）；绕过 admin BFF 直连 aiplatform 回收（前端不直连各域，经本 BFF 聚合＋签名）。
+
 **自产技能 (Self-authored Skill)**:
 技能库第三来源（source=3，区别于内置=1/安装=2）——由草稿晋升而来，`sourcePackage`/`version`＝**固定虚拟值 `self`**（无远端仓库身份：`updateAvailable` 恒 null 不适用——无远端可查）；**结构性无 scripts**（草稿线 a-only：正文全文即全部注入面）。入库后与安装技能同权（启停/指派/预检/卸载同套治理）。
 _Avoid_: 给自产行造远端更新语义（self 无远端）；把自产当二等技能限制指派（同权）。

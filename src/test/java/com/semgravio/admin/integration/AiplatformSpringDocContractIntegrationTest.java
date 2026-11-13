@@ -2093,6 +2093,65 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("本次清空回落语义键");
     }
 
+    @Test
+    @DisplayName("swagger 契约：「一键回收」两端点 @Operation 描述镜像 provider（#129，UNKNOWN 不算清/RESIDUE 如实红不报错重试/UNTOUCHED 如实分示/回收范围确认弹窗/PRJ_001/WSP_001 数字码在场）")
+    void given_reclaimEndpoints_when_postOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 项目级回收：级联停止→销毁→真删级联（受理即删）＋四面逐面三态＋UNKNOWN 不算清＋
+        // 残留如实红不报错重试＋无凭证属主照收＋动刀类留痕（缺头落空 NULL）＋确认弹窗回收范围
+        JsonNode projectReclaim = paths.path("/api/admin/aiplatform/projects/{id}/reclaim").path("post");
+        assertThat(projectReclaim.isMissingNode()).as("api-docs 应含项目级回收端点").isFalse();
+        assertThat(projectReclaim.path("summary").asText(""))
+                .contains("项目级一键回收")
+                .contains("四面报告");
+        assertThat(projectReclaim.path("description").asText(""))
+                .contains("先级联停止")
+                .contains("受理即删")
+                .contains("UNKNOWN 不算清")
+                .contains("如实红不报错重试")
+                .contains("无凭证属主的账户项目照收")
+                .contains("落空 NULL")
+                .contains("项目连同工作区全删")
+                .contains("PRJ_001").contains("4001");
+
+        // 工作区级回收：单台三清＋项目其余不动（UNTOUCHED 如实分示）＋失联裁决出口＋
+        // 确认弹窗回收范围（只删单台沙箱，项目仍在）
+        JsonNode workspaceReclaim = paths.path("/api/admin/aiplatform/workspaces/{id}/reclaim").path("post");
+        assertThat(workspaceReclaim.isMissingNode()).as("api-docs 应含工作区级回收端点").isFalse();
+        assertThat(workspaceReclaim.path("summary").asText(""))
+                .contains("工作区级一键回收")
+                .contains("项目其余部分不动");
+        assertThat(workspaceReclaim.path("description").asText(""))
+                .contains("UNTOUCHED")
+                .contains("人工裁决出口")
+                .contains("只删单台沙箱，项目仍在")
+                .contains("含畸形 id")
+                .contains("WSP_001").contains("1001");
+
+        // 回执 schema 自描述：逐面三态＋UNKNOWN 不算清 residueFree 判据＋UNTOUCHED 语义＋
+        // runsStopped 口径＋操作者落空口径
+        assertThat(property("AiplatformReclaimResponse", "container")
+                .path("description").asText(""))
+                .contains("CLEAN")
+                .contains("RESIDUE")
+                .contains("UNKNOWN");
+        assertThat(property("AiplatformReclaimResponse", "projectRow")
+                .path("description").asText(""))
+                .contains("UNTOUCHED")
+                .contains("非清非残留");
+        assertThat(property("AiplatformReclaimResponse", "residueFree")
+                .path("description").asText(""))
+                .contains("UNKNOWN 不算清");
+        assertThat(property("AiplatformReclaimResponse", "runsStopped")
+                .path("description").asText(""))
+                .contains("级联停止");
+        assertThat(property("AiplatformReclaimResponse", "operatorId")
+                .path("description").asText(""))
+                .contains("落空 NULL")
+                .contains("wsp_reclaim_actions");
+    }
+
     // ---------- 装载 ----------
     private JsonNode apiDocs() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(

@@ -2,6 +2,7 @@ package com.semgravio.admin.aiplatform.endpoints.controller;
 
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
 import com.semgravio.admin.constants.AdminScopes;
@@ -175,5 +176,31 @@ public class AiplatformWorkspaceController {
                     + "（1017）。响应＝动作后的观测详情（含封存包元数据）。操作者透传头落痕同唤醒。")
     public ApiResponse<AiplatformWorkspaceDetailResponse> seal(@PathVariable String id) {
         return ApiResponse.ok(workspaceAppService.seal(id));
+    }
+
+    @PostMapping("/{id}/reclaim")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:workspace:reclaim",
+            name = "AI 平台 / 沙箱回收",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "工作区级一键回收（单台三清，项目其余部分不动）——透传 aiplatform",
+            description = "处置单点残留而不动整个项目（#473 故事 7，issue #129 镜像 aiplatform "
+                    + "#490）：单台工作区三清（容器/卷/注册表行，#485 销毁终态一致内核），"
+                    + "<strong>项目行与其余资产不动</strong>（回执 projectRow＝UNTOUCHED 如实"
+                    + "分示）；#488 在册失联行（lostAt 标记）的人工裁决出口——确认后经本端点"
+                    + "回收，标记随注册行级联消亡。所属项目有在飞 run 先级联停止（承 #477）；"
+                    + "无所属（失联裁决/fork）无停止面可挂，runsStopped 如实 false。回执＝同形"
+                    + "回收报告：三面逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留判据"
+                    + "（<strong>UNKNOWN 不算清</strong>——回执如实红不报错重试，残留归扫描轮/"
+                    + "手动清扫收编——建议前端展示「残留待收编」提示而非报错重试）。动刀类走 "
+                    + "admin 手动＋留痕（ADR-0045）：操作者经 X-User-Id/X-User-Name 透传头落 "
+                    + "append-only wsp_reclaim_actions（缺头落空 NULL，未成不留痕）；确认弹窗"
+                    + "建议展示回收范围（工作区级＝只删单台沙箱，项目仍在）。工作区不存在"
+                    + "（含畸形 id）404 WSP_001（数字业务码 1001）；销毁自身失败 500（未成不"
+                    + "留痕，可重试）。")
+    public ApiResponse<AiplatformReclaimResponse> reclaim(@PathVariable String id) {
+        return ApiResponse.ok(workspaceAppService.reclaim(id));
     }
 }

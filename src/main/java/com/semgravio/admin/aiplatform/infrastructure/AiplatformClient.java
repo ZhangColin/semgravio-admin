@@ -81,6 +81,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnpricedUsageWireResponse;
@@ -212,6 +213,11 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformWorkspaceDetailWireResponse>> WORKSPACE_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 一键回收（#490，issue #129）：项目级/工作区级 reclaim 同形回执（ApiResponse 单对象信封）、
+    // 均无请求体——一个 TypeRef 两端点复用
+    private static final TypeReference<ApiResponse<AiplatformReclaimWireResponse>> RECLAIM_TYPEREF =
             new TypeReference<>() {};
 
     // 成本域（#161/#164 观测）同为 ApiResponse<T> 信封；四端点均为读口（时间窗 + 可选分页）
@@ -1533,6 +1539,70 @@ public class AiplatformClient {
             // provider 端只读路径参数（同 payment 主动查行先例）
             ApiResponse<AiplatformWorkspaceDetailWireResponse> resp =
                     openApiClient.post(url, null, WORKSPACE_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 项目级一键回收（透传 aiplatform，issue #129——镜像 aiplatform #490 #473/ADR-0045「一键
+     * 回收」）：删除＋清残＋四面报告一次完成——在飞 run 先级联停止（承 #477）→ 工作区销毁
+     * （#485 销毁终态一致内核）→ prj_* 真删级联（受理即删，与用户面 DELETE 同内核）。用途：
+     * 账户属主无会话凭证的项目不再裸操改挂属主；生成中项目回收不留僵尸任务。运维通道不经
+     * 用户会话凭证——签名面担保调用应用，归属不查。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{id}/reclaim}（#490）：无请求体，
+     * 回执＝同形回收报告（四面〔容器/卷/注册表行/项目行〕逐面 CLEAN/RESIDUE/UNKNOWN＋
+     * residueFree 零残留判据〔UNKNOWN 不算清〕＋runsStopped＋操作者两列＋reclaimedAt）。
+     * 物理销毁尽力而为不阻断记录删除（受理即删），残留如实红不报错重试、归扫描轮/手动清扫
+     * （#486/#489）收编。动刀类走 admin 手动＋留痕（ADR-0045）：操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头落 append-only {@code wsp_reclaim_actions}（缺头落空
+     * NULL——照沙箱动作面口径）；成功落痕、未成不留痕。项目不存在 404 PRJ_001（数字业务码
+     * 4001）；销毁自身失败 500（未成不留痕，可重试）——均原样透传。</p>
+     *
+     * @param id 项目标识（TSID 十进制字符串）
+     * @return 同形回收报告（scope=PROJECT）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_001、500 等，不做映射）
+     */
+    public AiplatformReclaimWireResponse reclaimProject(String id) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(id) + "/reclaim";
+        log.debug("AiplatformClient.reclaimProject: {}", url);
+        try {
+            // 无请求体：框架 OpenApiClient.post 对 null body 发空 body（同沙箱动作/手动清扫先例）
+            ApiResponse<AiplatformReclaimWireResponse> resp =
+                    openApiClient.post(url, null, RECLAIM_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 工作区级一键回收（透传 aiplatform，issue #129——镜像 aiplatform #490）：单台工作区三清
+     * （容器/卷/注册表行，#485 销毁终态一致内核），<strong>项目行与其余资产不动</strong>（回执
+     * projectRow＝UNTOUCHED 如实分示）；#488 在册失联行（lostAt 标记）的人工裁决出口——确认
+     * 后回收，标记随注册行级联消亡。所属项目有在飞 run 先级联停止（承 #477）；无所属（失联
+     * 裁决/fork）无停止面可挂，runsStopped 如实 false。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/workspaces/{id}/reclaim}（#490）：无请求体，
+     * 回执＝同形回收报告（三面〔容器/卷/注册表行〕逐面 CLEAN/RESIDUE/UNKNOWN＋项目面
+     * UNTOUCHED＋residueFree〔UNKNOWN 不算清〕＋runsStopped＋操作者两列＋reclaimedAt）。
+     * 操作者透传头落痕同项目级（append-only {@code wsp_reclaim_actions}，缺头落空 NULL）。
+     * 工作区不存在（含畸形 id）404 WSP_001（数字业务码 1001）；销毁自身失败 500（未成不留痕，
+     * 可重试）——均原样透传。</p>
+     *
+     * @param id 工作区标识（TSID 十进制字符串）
+     * @return 同形回收报告（scope=WORKSPACE）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 WSP_001、500 等，不做映射）
+     */
+    public AiplatformReclaimWireResponse reclaimWorkspace(String id) {
+        String url = baseUrl + "/api/backoffice/workspaces/" + encode(id) + "/reclaim";
+        log.debug("AiplatformClient.reclaimWorkspace: {}", url);
+        try {
+            // 无请求体：框架 OpenApiClient.post 对 null body 发空 body（同项目级 reclaim 先例）
+            ApiResponse<AiplatformReclaimWireResponse> resp =
+                    openApiClient.post(url, null, RECLAIM_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

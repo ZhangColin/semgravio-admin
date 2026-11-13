@@ -3,8 +3,10 @@ package com.semgravio.admin.aiplatform.application;
 import java.util.List;
 
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceSummaryWireResponse;
@@ -96,6 +98,26 @@ public class AiplatformWorkspaceAppService {
      */
     public AiplatformWorkspaceDetailResponse seal(String id) {
         return toDetail(aiplatformClient.sealWorkspace(id));
+    }
+
+    /**
+     * 工作区级一键回收（透传 aiplatform，issue #129 镜像 aiplatform #490）——单台三清（容器/
+     * 卷/注册表行），项目行与其余资产不动（回执 projectRow＝UNTOUCHED）；#488 在册失联行的
+     * 人工裁决出口。回执＝同形回收报告：三面逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留
+     * 判据（UNKNOWN 不算清——回执如实红不报错重试，残留归收编通道）＋runsStopped。操作者经
+     * 框架 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传落痕（AppService 不
+     * 经手，缺头落空 NULL——照沙箱动作面口径）；错误（404 WSP_001〔含畸形 id〕、销毁自身失败
+     * 500〔未成不留痕可重试〕）经 {@link AiplatformClient} 原样透传，本层不 try/catch。
+     */
+    public AiplatformReclaimResponse reclaim(String id) {
+        return toReclaim(aiplatformClient.reclaimWorkspace(id));
+    }
+
+    private static AiplatformReclaimResponse toReclaim(AiplatformReclaimWireResponse wire) {
+        return new AiplatformReclaimResponse(
+                wire.scope(), wire.projectId(), wire.workspaceId(), wire.runsStopped(),
+                wire.container(), wire.volume(), wire.registryRow(), wire.projectRow(),
+                wire.residueFree(), wire.operatorId(), wire.operatorName(), wire.reclaimedAt());
     }
 
     private static AiplatformWorkspaceSummaryResponse toSummary(AiplatformWorkspaceSummaryWireResponse wire) {

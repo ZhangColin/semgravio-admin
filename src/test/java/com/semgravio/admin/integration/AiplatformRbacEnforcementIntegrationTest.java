@@ -112,6 +112,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectDeta
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFileContentWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTokenUsageWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
@@ -193,7 +194,11 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 〔通道/档位分权〕）+「数据标注」域四码
  * （{@code sediment-draft:read|activate|reject|relabel}——issue #124：标注队列/详情两读
  * 端点复用 read、三键各一码，读写不串、三写码互不串——激活权/拒绝权/分诊权独立授受，
- * 连知识域既有 material:read 也不放行）对未登录（401）/
+ * 连知识域既有 material:read 也不放行）+「一键回收」两码
+ * （{@code project:reclaim|workspace:reclaim}——issue #129 镜像 aiplatform #490：项目级/工作区级
+ * reclaim 同形回执、动刀类各一独立写码〔ADR-0045 动刀类走 admin 手动＋留痕〕——四面/三面
+ * 逐面 CLEAN/RESIDUE/UNKNOWN 北向形状＋UNKNOWN 不算清 residueFree 判据＋UNTOUCHED 如实分示
+ * ＋操作者透传断言＋PRJ_001/WSP_001 信封透传）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -303,6 +308,10 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String HIBERNATE_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/hibernate";
     private static final String REBUILD_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/rebuild";
     private static final String SEAL_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/seal";
+    private static final String WORKSPACE_RECLAIM_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/reclaim";
+    private static final String PROJECT_RECLAIM_PERMISSION = "admin:aiplatform:project:reclaim";
+    private static final String WORKSPACE_RECLAIM_PERMISSION = "admin:aiplatform:workspace:reclaim";
+    private static final String PROJECT_RECLAIM_ENDPOINT = PROJECT_DETAIL_ENDPOINT + "/reclaim";
     private static final String COST_READ_PERMISSION = "admin:aiplatform:cost:read";
     private static final String COSTS_ENDPOINT = "/api/admin/aiplatform/costs";
     private static final String COST_FROM = "2026-09-01T00:00:00Z";
@@ -525,6 +534,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithModelTierWrite;
     private String usernameWithTierDeleteOnly;
     private String usernameWithSedimentDraftWrite;
+    private String usernameWithReclaim;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -564,6 +574,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String modelTierWriteUserNickname;
     private Long sedimentDraftWriteUserId;
     private String sedimentDraftWriteUserNickname;
+    private Long reclaimUserId;
+    private String reclaimUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -616,6 +628,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithModelTierWrite = "aiplatwr" + suffix;
         usernameWithTierDeleteOnly = "aiplatdel" + suffix;
         usernameWithSedimentDraftWrite = "aiplasdwrt" + suffix;
+        usernameWithReclaim = "aiplarcl" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -1003,6 +1016,22 @@ class AiplatformRbacEnforcementIntegrationTest {
                         sedimentDraftWriteUserNickname, null, null, null));
         userAppService.assignRoles(sedimentDraftWriteUserId,
                 new AssignRolesCommand(List.of(sedimentDraftWriteRoleId)));
+
+        // 「一键回收」双写码专用运营（project:reclaim＋workspace:reclaim，无读码——动刀类最小授权
+        // 照 ADR-0045，issue #129 镜像 aiplatform #490）——操作者透传断言用其 id/昵称（provider
+        // 落 append-only wsp_reclaim_actions 留痕行，缺头落空 NULL 不拦）
+        Long reclaimRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台一键回收_" + suffix, "AIPLARCL_" + suffix,
+                        "AI 平台项目级/工作区级一键回收权限", 120, null));
+        roleAppService.assignPermissions(reclaimRoleId,
+                new AssignPermissionsCommand(List.of(
+                        PROJECT_RECLAIM_PERMISSION, WORKSPACE_RECLAIM_PERMISSION)));
+        reclaimUserNickname = "回收专员_" + suffix;
+        reclaimUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithReclaim, PASSWORD,
+                        reclaimUserNickname, null, null, null));
+        userAppService.assignRoles(reclaimUserId,
+                new AssignRolesCommand(List.of(reclaimRoleId)));
 
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
@@ -1731,6 +1760,26 @@ class AiplatformRbacEnforcementIntegrationTest {
                     null, null, null, null);
         }).when(aiplatformClient).relabelSedimentDraft(
                 eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class));
+        // 「一键回收」mock（issue #129，aiplatform #490）：项目级回执＝四面全 CLEAN＋runsStopped
+        // true＋residueFree true；工作区级回执＝三面全 CLEAN＋项目面 UNTOUCHED＋runsStopped
+        // false——均抓取 RequestContext（操作者透传契约证据——provider 落 append-only
+        // wsp_reclaim_actions 留痕行，缺头落空 NULL 不拦）
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformReclaimWireResponse(
+                    "PROJECT", PROJECT_ID, WORKSPACE_ID, true,
+                    "CLEAN", "CLEAN", "CLEAN", "CLEAN", true,
+                    String.valueOf(reclaimUserId), reclaimUserNickname,
+                    LocalDateTime.of(2026, 11, 13, 9, 30, 0));
+        }).when(aiplatformClient).reclaimProject(eq(PROJECT_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformReclaimWireResponse(
+                    "WORKSPACE", PROJECT_ID, WORKSPACE_ID, false,
+                    "CLEAN", "CLEAN", "CLEAN", "UNTOUCHED", true,
+                    String.valueOf(reclaimUserId), reclaimUserNickname,
+                    LocalDateTime.of(2026, 11, 13, 9, 35, 0));
+        }).when(aiplatformClient).reclaimWorkspace(eq(WORKSPACE_ID));
     }
 
     /**
@@ -4845,6 +4894,116 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("message").asText())
                 .isEqualTo("目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签");
         assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「一键回收」（project:reclaim / workspace:reclaim 两写码，issue #129 镜像 aiplatform #490）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 project:reclaim → 项目级回收 200，四面全 CLEAN＋runsStopped＋residueFree＋操作者回显且 RequestContext 透传")
+    void given_nonSuperAdminWithReclaimCodes_when_projectReclaim_then_200FourFacesAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> response = postWithToken(PROJECT_RECLAIM_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 项目级同形回执：scope＋双 id＋在飞 run 级联停止＋四面全 CLEAN＋零残留判据
+        assertThat(data.path("scope").asText()).isEqualTo("PROJECT");
+        assertThat(data.path("projectId").asText()).isEqualTo(PROJECT_ID);
+        assertThat(data.path("workspaceId").asText()).isEqualTo(WORKSPACE_ID);
+        assertThat(data.path("runsStopped").asBoolean()).isTrue();
+        assertThat(data.path("container").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("volume").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("registryRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("projectRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("residueFree").asBoolean()).isTrue();
+        // 操作者两列＝透传头落痕回显（本次登录的回收专员）
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(reclaimUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(reclaimUserNickname);
+        assertThat(data.path("reclaimedAt").asText()).isEqualTo("2026-11-13T09:30:00");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头落 append-only wsp_reclaim_actions，缺头落空 NULL
+        // ——issue #129 断言必带）：== 登录回收专员的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(reclaimUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(reclaimUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 workspace:reclaim → 工作区级回收 200，三面全 CLEAN＋项目面 UNTOUCHED 如实分示＋runsStopped false＋RequestContext 透传")
+    void given_nonSuperAdminWithReclaimCodes_when_workspaceReclaim_then_200UntouchedFaceAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> response = postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 工作区级同形回执：三面全 CLEAN＋项目面 UNTOUCHED（单台三清不动项目行——非清非残留）
+        //＋无所属无停止面可挂 runsStopped false
+        assertThat(data.path("scope").asText()).isEqualTo("WORKSPACE");
+        assertThat(data.path("container").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("volume").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("registryRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("projectRow").asText()).isEqualTo("UNTOUCHED");
+        assertThat(data.path("runsStopped").asBoolean()).isFalse();
+        assertThat(data.path("residueFree").asBoolean()).isTrue();
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(reclaimUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(reclaimUserNickname);
+
+        assertThat(capturedOperatorId.get()).isEqualTo(reclaimUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(reclaimUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 read 码（无 reclaim 写码）→ 项目级/工作区级回收 403（动刀写码独立于读码，最小授权）")
+    void given_readCodesOnly_when_reclaimEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 回收两端点 403；未登录 → 401")
+    void given_noPermissionOrUnauthenticated_when_reclaimEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("回收下游 PRJ_001/WSP_001 → 北向 HTTP 404 + 信封 code=4001/1001 + message 原文（不映射）")
+    void given_notFoundFromDownstream_when_reclaim_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.reclaimProject(eq(PROJECT_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4001,\"message\":\"项目不存在\",\"data\":null}")));
+        when(aiplatformClient.reclaimWorkspace(eq(WORKSPACE_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":1001,\"message\":\"工作区不存在\",\"data\":null}")));
+
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> projectResponse = postWithToken(PROJECT_RECLAIM_ENDPOINT, token);
+        assertThat(projectResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode projectRoot = objectMapper.readTree(projectResponse.getBody());
+        // 信封 code＝数字业务码 4001（PRJ_001＝域码 4×1000＋1）——前端比对 aiplatform 业务码的分支活
+        assertThat(projectRoot.path("code").asInt()).isEqualTo(4001);
+        assertThat(projectRoot.path("message").asText()).isEqualTo("项目不存在");
+        assertThat(projectRoot.path("data").isNull()).isTrue();
+
+        ResponseEntity<String> workspaceResponse = postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token);
+        assertThat(workspaceResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode workspaceRoot = objectMapper.readTree(workspaceResponse.getBody());
+        assertThat(workspaceRoot.path("code").asInt()).isEqualTo(1001);
+        assertThat(workspaceRoot.path("message").asText()).isEqualTo("工作区不存在");
+        assertThat(workspaceRoot.path("data").isNull()).isTrue();
     }
 
     // ========== 合同域（contract:read/create 两码）· 权限三态 + 北向出口形状 + 操作者透传 ==========

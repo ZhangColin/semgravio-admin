@@ -12,6 +12,7 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProject
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectFilesPackageResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectFilesResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectSummaryResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformVersionDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformVersionResponse;
 import com.semgravio.admin.constants.AdminScopes;
@@ -26,6 +27,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -250,5 +252,32 @@ public class AiplatformProjectController {
                 .header(HttpHeaders.CONTENT_TYPE, pkg.contentType())
                 .header(HttpHeaders.CONTENT_DISPOSITION, pkg.contentDisposition())
                 .body(pkg.content());
+    }
+
+    @PostMapping("/{id}/reclaim")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:project:reclaim",
+            name = "AI 平台 / 项目回收",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "项目级一键回收（删除＋清残＋四面报告）——透传 aiplatform",
+            description = "删除＋清残＋对账报告一次完成（#473 故事 6，issue #129 镜像 aiplatform "
+                    + "#490）：在飞 run <strong>先级联停止</strong>（承 #477 停止面——置停＋"
+                    + "cancel(true) 中断在途，不留僵尸任务对着已删容器自救）→ 工作区销毁"
+                    + "（复用 #485 销毁终态一致内核）→ prj_* 真删级联（受理即删语义与用户面 "
+                    + "DELETE 同内核）。用途：账户属主无会话凭证的项目不再裸操改挂属主；生成中"
+                    + "项目回收不留僵尸任务。回执＝同形回收报告：四面（注册表行/项目行/容器/卷）"
+                    + "逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留判据（<strong>UNKNOWN 不算"
+                    + "清</strong>——销毁未全成/探查未成不冒充清，回执如实红不报错重试，残留归"
+                    + "扫描轮/手动清扫收编——建议前端展示「残留待收编」提示而非报错重试）＋"
+                    + "runsStopped。运维通道不经用户会话凭证——无凭证属主的账户项目照收（归属"
+                    + "不查，签名面担保调用应用）。动刀类走 admin 手动＋留痕（ADR-0045）：操作者"
+                    + "经 X-User-Id/X-User-Name 透传头落 append-only wsp_reclaim_actions（缺头"
+                    + "落空 NULL，未成不留痕）；确认弹窗建议展示回收范围（项目级＝项目连同工作区"
+                    + "全删）。项目不存在 404 PRJ_001（数字业务码 4001）；销毁自身失败 500（未成"
+                    + "不留痕，可重试）。")
+    public ApiResponse<AiplatformReclaimResponse> reclaim(@PathVariable String id) {
+        return ApiResponse.ok(projectAppService.reclaim(id));
     }
 }

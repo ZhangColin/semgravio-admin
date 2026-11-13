@@ -66,7 +66,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * （90→95，58→62 码——aiplatform #464 采集层人审口，知识域第二面；队列/详情两读端点
  * 复用 read、三键各一码）、#61 冒烟四项之「域内全端点」就绪态）。
  *
- * <p>十三域 95 端点合入后的收口审计，两条腿：</p>
+ * <p>十三域 97 端点合入后的收口审计（#129 一键回收 95→97、62→64 码——aiplatform #490
+ * 项目级/工作区级 reclaim 同形回执、动刀类各一独立写码〔ADR-0045〕），两条腿：</p>
  * <ul>
  *   <li><b>swagger 全量可见</b>：拉 {@code /v3/api-docs}（springdoc 真实输出），与反射扫描
  *       十六个 controller 的映射注解派生的期望集<b>精确相等</b>（前缀 {@code /api/admin/aiplatform}
@@ -102,8 +103,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AiplatformNorthboundSmokeIntegrationTest {
 
-    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点）+ #105 合同域 A2（六态推进六写口）+ #106 付款核验域 A3（计划详情/节点录入/核验/打回/凭证二进制五端点）+ #107 生产承接域 A4（详情/整组更新/两态推进/需用户补充四端点）+ #108 订单域 A5（范围录入写口一端点）+ #110 模型供应商域 B1（通道 CRUD＋远端清单拉取＋留痕七端点）+ #111 模型档位域 B2（档位 CRUD＋留痕六端点）+ #112 agent-configs 档位化与边缘点 B3（边缘调用点读/写/留痕三端点——复用 agent-config 两码零新码）+ #124 沉淀草稿「数据标注」域（标注队列/详情/激活/拒绝/改标签五端点——aiplatform #464 采集层人审口，知识域第二面）：十三域 95 端点 = 订单 8 + 项目 9 + 沙箱 6 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 6 + 工具面 2 + 草稿 4 + 账号 1 + 合同 9 + 付款 5 + 生产承接 4 + 模型供应商 7 + 模型档位 6 + 数据标注 5。 */
-    private static final int EXPECTED_ENDPOINT_COUNT = 95;
+    /** spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿审核面 + #93 观测扩展（纯字段不加端点）+ #96 设计能力线 T1（design-package 取件端点）+ #104 合同域 A1（清单/详情/创建重建三端点）+ #105 合同域 A2（六态推进六写口）+ #106 付款核验域 A3（计划详情/节点录入/核验/打回/凭证二进制五端点）+ #107 生产承接域 A4（详情/整组更新/两态推进/需用户补充四端点）+ #108 订单域 A5（范围录入写口一端点）+ #110 模型供应商域 B1（通道 CRUD＋远端清单拉取＋留痕七端点）+ #111 模型档位域 B2（档位 CRUD＋留痕六端点）+ #112 agent-configs 档位化与边缘点 B3（边缘调用点读/写/留痕三端点——复用 agent-config 两码零新码）+ #124 沉淀草稿「数据标注」域（标注队列/详情/激活/拒绝/改标签五端点——aiplatform #464 采集层人审口，知识域第二面）+ #129「一键回收」（projects/{id}/reclaim＋workspaces/{id}/reclaim 两端点同形回执——aiplatform #490 #473/ADR-0045，动刀类各一独立写码）：十三域 97 端点 = 订单 8 + 项目 10 + 沙箱 7 + 成本 4 + 单价表 3 + 素材 5 + 技能 11 + 智能体配置 6 + 工具面 2 + 草稿 4 + 账号 1 + 合同 9 + 付款 5 + 生产承接 4 + 模型供应商 7 + 模型档位 6 + 数据标注 5。 */
+    private static final int EXPECTED_ENDPOINT_COUNT = 97;
 
     private static final String ROUTE_PREFIX = "/api/admin/aiplatform";
 
@@ -125,7 +126,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
             AiplatformModelTierController.class,
             AiplatformSedimentDraftController.class);
 
-    /** 权限码清单（62）：十七读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位＋数据标注）＋四十五写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码、三写口各一码；#108 订单域 scope 一码——范围录入独立写口、与既有三写码互不串；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read〔remote-models 只读探测不动库〕、三写口各一码；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码，读写不串写码互不串、与通道四码互不串〔通道/档位分权〕；#124「数据标注」域 read/activate/reject/relabel 四码——标注队列/详情两读端点复用 read、三键各一码，激活权/拒绝权/分诊权独立授受）。 */
+    /** 权限码清单（64）：十七读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位＋数据标注）＋四十七写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——留痕读面复用 agent-config:read；#92 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create 两码——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码、三写口各一码；#108 订单域 scope 一码——范围录入独立写口、与既有三写码互不串；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read〔remote-models 只读探测不动库〕、三写口各一码；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码，读写不串写码互不串、与通道四码互不串〔通道/档位分权〕；#124「数据标注」域 read/activate/reject/relabel 四码——标注队列/详情两读端点复用 read、三键各一码，激活权/拒绝权/分诊权独立授受；#129「一键回收」project:reclaim/workspace:reclaim 两码——项目级/工作区级 reclaim 同形回执、动刀类各一独立写码〔ADR-0045 动刀类走 admin 手动＋留痕〕）。 */
     private static final Set<String> EXPECTED_PERMISSION_CODES = Set.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -188,7 +189,9 @@ class AiplatformNorthboundSmokeIntegrationTest {
             "admin:aiplatform:sediment-draft:read",
             "admin:aiplatform:sediment-draft:activate",
             "admin:aiplatform:sediment-draft:reject",
-            "admin:aiplatform:sediment-draft:relabel");
+            "admin:aiplatform:sediment-draft:relabel",
+            "admin:aiplatform:project:reclaim",
+            "admin:aiplatform:workspace:reclaim");
 
     private final TestRestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -203,8 +206,8 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 95 端点全量可见（与 controller 映射精确相等）")
-    void given_openApiDocs_when_fetch_then_all95AiplatformEndpointsVisible() throws Exception {
+    @DisplayName("swagger 冒烟：/v3/api-docs 中 aiplatform 97 端点全量可见（与 controller 映射精确相等）")
+    void given_openApiDocs_when_fetch_then_all97AiplatformEndpointsVisible() throws Exception {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + port + "/v3/api-docs", String.class);
         assertThat(response.getStatusCode()).as("api-docs 应可匿名拉取：%s", response.getBody())
@@ -231,7 +234,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
         // provider /edge/ 路由原形一致）
         Map<String, Set<String>> expected = deriveFromControllers();
         int endpointPairCount = expected.values().stream().mapToInt(Set::size).sum();
-        assertThat(endpointPairCount).as("十六 controller 映射（路径×方法）对应为 95（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点 + #105 合同六态推进写口 + #106 付款核验域五端点 + #107 生产承接域四端点 + #108 订单范围录入写口 + #110 模型供应商域七端点 + #111 模型档位域六端点 + #112 边缘调用点三端点 + #124 数据标注域五端点）")
+        assertThat(endpointPairCount).as("十六 controller 映射（路径×方法）对应为 97（spec #62 + #79 技能线 T1–T6 + #90 预检 + #92 草稿面 + #96 设计资产包取件 + #104 合同域三端点 + #105 合同六态推进写口 + #106 付款核验域五端点 + #107 生产承接域四端点 + #108 订单范围录入写口 + #110 模型供应商域七端点 + #111 模型档位域六端点 + #112 边缘调用点三端点 + #124 数据标注域五端点 + #129 一键回收两端点〔projects/{id}/reclaim＋workspaces/{id}/reclaim 同形回执〕）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
 
         JsonNode paths = objectMapper.readTree(response.getBody()).path("paths");
@@ -259,7 +262,7 @@ class AiplatformNorthboundSmokeIntegrationTest {
     }
 
     @Test
-    @DisplayName("权限注解复核：每映射方法恰一码、62 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read/payment:read/production:read/model-provider:read/model-tier:read/sediment-draft:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read、六态推进六写口各一码、付款计划详情＋凭证直出复用 payment:read 三写口各一码、生产承接详情读口一码三写口各一码、订单范围录入独立 scope 码与既有三写码互不串、模型供应商清单/单行/远端清单拉取/留痕四读端点复用 read 三写口各一码、模型档位清单/单行/留痕三读端点复用 read 三写口各一码、边缘调用点读/留痕读面复用 agent-config:read 写面复用 agent-config:update 零新码、数据标注队列/详情两读端点复用 sediment-draft:read 三键各一码）、注解计数=95")
+    @DisplayName("权限注解复核：每映射方法恰一码、64 码清单精确一致（含 account:read/skill:read/agent-config:read/agent-tool:read/skill-draft:read/contract:read/payment:read/production:read/model-provider:read/model-tier:read/sediment-draft:read——预检复用 skill:assign、草稿两读端点复用 skill-draft:read、design-package 复用 order:read、合同清单/详情复用 contract:read、六态推进六写口各一码、付款计划详情＋凭证直出复用 payment:read 三写口各一码、生产承接详情读口一码三写口各一码、订单范围录入独立 scope 码与既有三写码互不串、模型供应商清单/单行/远端清单拉取/留痕四读端点复用 read 三写口各一码、模型档位清单/单行/留痕三读端点复用 read 三写口各一码、边缘调用点读/留痕读面复用 agent-config:read 写面复用 agent-config:update 零新码、数据标注队列/详情两读端点复用 sediment-draft:read 三键各一码、一键回收项目级 project:reclaim 与工作区级 workspace:reclaim 两动刀写码互不串〔ADR-0045〕）、注解计数=97")
     void given_aiplatformControllers_when_scanPermissionAnnotations_then_codesMatchSpecList() {
         Set<String> codes = new TreeSet<>();
         int annotatedEndpointCount = 0;
@@ -280,10 +283,10 @@ class AiplatformNorthboundSmokeIntegrationTest {
         }
 
         assertThat(annotatedEndpointCount)
-                .as("带权限注解的端点计数应为 95（与 swagger 冒烟的映射计数同一事实源）")
+                .as("带权限注解的端点计数应为 97（与 swagger 冒烟的映射计数同一事实源）")
                 .isEqualTo(EXPECTED_ENDPOINT_COUNT);
         assertThat(codes)
-                .as("distinct 权限码集合应与权限码清单精确一致（十七读 + 四十五写，不缺不多）")
+                .as("distinct 权限码集合应与权限码清单精确一致（十七读 + 四十七写，不缺不多）")
                 .isEqualTo(EXPECTED_PERMISSION_CODES);
         // 显式点名（spec #72 验收）：account:read 有码（嵌抽屉用、无页面）
         assertThat(codes).contains("admin:aiplatform:account:read");
@@ -345,6 +348,11 @@ class AiplatformNorthboundSmokeIntegrationTest {
                 "admin:aiplatform:sediment-draft:activate",
                 "admin:aiplatform:sediment-draft:reject",
                 "admin:aiplatform:sediment-draft:relabel");
+        // 显式点名（issue #129 验收）：「一键回收」两写码齐备（项目级 project:reclaim＋工作区级
+        // workspace:reclaim——动刀类各一独立写码〔ADR-0045〕，与读码/其余写码互不串）
+        assertThat(codes).contains(
+                "admin:aiplatform:project:reclaim",
+                "admin:aiplatform:workspace:reclaim");
     }
 
     /**

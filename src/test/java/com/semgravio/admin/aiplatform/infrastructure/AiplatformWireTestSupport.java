@@ -315,6 +315,86 @@ final class AiplatformWireTestSupport {
     }
 
     /**
+     * 一键回收版（issue #129，aiplatform #490——项目级/工作区级 reclaim 同形回执、均走
+     * {@code post} 无请求体），按真实 {@link TypeReference} 反序列化；post 的 wireBodySink
+     * 原样记 null（钉死回收无请求体契约——同沙箱动作先例）；返回项目域 AppService
+     * （项目级 reclaim 经其出口）。
+     */
+    static AiplatformProjectAppService reclaimProjectAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformProjectAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 一键回收版（issue #129，aiplatform #490）——工作区级 reclaim 经沙箱域 AppService 出口；
+     * 余同 {@link #reclaimProjectAppServiceWithStubTransport}。
+     */
+    static AiplatformWorkspaceAppService reclaimWorkspaceAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformWorkspaceAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 一键回收版 {@link #accountAppServiceWithErrorTransport}（issue #129）——{@code post} 始终抛
+     * {@link OpenApiClientException}（框架对 ≥400 的行为复刻：项目不存在 404 PRJ_001、工作区
+     * 不存在〔含畸形 id〕404 WSP_001、销毁自身失败 500——未成不留痕可重试）；经项目域 AppService
+     * 出口。
+     */
+    static AiplatformProjectAppService reclaimProjectAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformProjectAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 一键回收版（issue #129）——工作区级 reclaim 错误信封经沙箱域 AppService 出口；
+     * 余同 {@link #reclaimProjectAppServiceWithErrorTransport}。
+     */
+    static AiplatformWorkspaceAppService reclaimWorkspaceAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformWorkspaceAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
      * 成本域版 {@link #accountAppServiceWithStubTransport}——四读口（总览/unpriced/项目成本清单/
      * 单项目下钻）全走 {@code get}，按真实 {@link TypeReference} 反序列化。
      */
