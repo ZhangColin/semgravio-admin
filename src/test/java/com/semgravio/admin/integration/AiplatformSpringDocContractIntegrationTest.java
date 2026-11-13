@@ -2094,6 +2094,87 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("swagger 契约：「时段规则」四端点 @Operation 描述镜像 provider（#130，窗不跨午夜 METER_013/一单 N 窗口＝一个版本/closed opened 双段/band 1=峰 2=谷/dayMask Mon=1…Sun=64/缺头落空/METER_015/016/008 数字码在场）")
+    void given_timeBandRuleEndpoints_when_operations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：含历史版本分页＋effectiveTo null＝当前行＋UTC 分钟 end 不含
+        JsonNode entries = paths.path("/api/admin/aiplatform/time-band-rules").path("get");
+        assertThat(entries.isMissingNode()).as("api-docs 应含时段规则清单端点").isFalse();
+        assertThat(entries.path("summary").asText(""))
+                .contains("时段规则行清单")
+                .contains("历史版本");
+        assertThat(entries.path("description").asText(""))
+                .contains("effectiveTo 为 null 即当前行")
+                .contains("end 不含")
+                .contains("周一至周五")
+                .contains("operatorId/operatorName");
+
+        // 开行：一单 N 窗口＝一个版本＋窗不跨午夜拆两行＋band/dayMask 编码口径
+        JsonNode open = paths.path("/api/admin/aiplatform/time-band-rules").path("post");
+        assertThat(open.isMissingNode()).as("api-docs 应含时段规则开行端点").isFalse();
+        assertThat(open.path("summary").asText(""))
+                .contains("开行")
+                .contains("一个规则版本");
+        assertThat(open.path("description").asText(""))
+                .contains("1=峰 2=谷")
+                .contains("Mon=1")
+                .contains("Sun=64")
+                .contains("跨午夜窗口 v1 不")
+                .contains("METER_013")
+                .contains("3013")
+                .contains("METER_008")
+                .contains("3008")
+                .contains("缺头落空");
+
+        // 原子改窗：closed/opened 双段＋被关行保留原操作者＋METER_014/016 在场
+        JsonNode rewindow = paths.path("/api/admin/aiplatform/time-band-rules/{id}/rewindow").path("post");
+        assertThat(rewindow.isMissingNode()).as("api-docs 应含时段规则改窗端点").isFalse();
+        assertThat(rewindow.path("summary").asText(""))
+                .contains("原子改窗")
+                .contains("closed/opened");
+        assertThat(rewindow.path("description").asText(""))
+                .contains("保留其原")
+                .contains("清单即终态")
+                .contains("METER_014")
+                .contains("3014")
+                .contains("METER_016")
+                .contains("3016")
+                .contains("METER_015")
+                .contains("3015")
+                .contains("缺头落空");
+
+        // 停用：关版本不接新行＋无请求体＋被关行是唯一落点
+        JsonNode deactivate = paths.path("/api/admin/aiplatform/time-band-rules/{id}/deactivate").path("post");
+        assertThat(deactivate.isMissingNode()).as("api-docs 应含时段规则停用端点").isFalse();
+        assertThat(deactivate.path("summary").asText(""))
+                .contains("停用")
+                .contains("不接新行");
+        assertThat(deactivate.path("description").asText(""))
+                .contains("钳到自身起点")
+                .contains("无请求体")
+                .contains("唯一")
+                .contains("落空");
+
+        // 行 schema 在场即契约未漂移（bandName/dayMaskName/effectiveTo——行形十二字段的
+        // 语义自描述在 @Operation 与窗口命令项 @Schema 上钉死，此处钉 ref 在场）；
+        // 窗口命令项 schema：跨午夜拆两行提示＋band/dayMask 编码口径
+        assertThat(property("AiplatformTimeBandRuleResponse", "bandName").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeBandRuleResponse", "dayMaskName").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeBandRuleResponse", "effectiveTo").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeWindowCommand", "endMinute")
+                .path("description").asText(""))
+                .contains("跨午夜窗口拆两行");
+        assertThat(property("AiplatformTimeWindowCommand", "dayMask")
+                .path("description").asText(""))
+                .contains("Mon=1")
+                .contains("Sun=64");
+        assertThat(property("AiplatformTimeWindowCommand", "band")
+                .path("description").asText(""))
+                .contains("1=峰 2=谷");
+    }
+
+    @Test
     @DisplayName("swagger 契约：「一键回收」两端点 @Operation 描述镜像 provider（#129，UNKNOWN 不算清/RESIDUE 如实红不报错重试/UNTOUCHED 如实分示/回收范围确认弹窗/PRJ_001/WSP_001 数字码在场）")
     void given_reclaimEndpoints_when_postOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");

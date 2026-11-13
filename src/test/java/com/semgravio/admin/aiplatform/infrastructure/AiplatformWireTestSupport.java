@@ -15,6 +15,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSkillAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSedimentDraftAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformTimeBandRuleAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.cartisan.openapi.client.BinaryResponse;
 import com.cartisan.openapi.client.OpenApiClient;
@@ -46,7 +47,9 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformPaymentClientContractTest}（#106 付款核验域）/
  * {@code AiplatformProductionClientContractTest}（#107 生产承接域）/
  * {@code AiplatformModelProviderClientContractTest}（#110 模型供应商域——spec #101 B 批）/
- * {@code AiplatformModelTierClientContractTest}（#111 模型档位域——spec #101 B 批 B2）复用；
+ * {@code AiplatformModelTierClientContractTest}（#111 模型档位域——spec #101 B 批 B2）/
+ * {@code AiplatformTimeBandRuleClientContractTest}（issue #130「时段规则」——aiplatform
+ * #497 清单/开行/原子改窗/停用四端点，改窗回执 closed/opened 双段）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
  *
  * @since 0.1.0
@@ -982,6 +985,65 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformSedimentDraftAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 「时段规则」域版（issue #130，aiplatform #497——清单读口走 {@code get} 分页信封、
+     * 开行/改窗写口走 {@code post} 带命令体、停用写口走 {@code post} 无请求体），均按真实
+     * {@code TypeReference} 反序列化；post 的 wireBodySink 原样记序列化后命令体（开行/改窗
+     * 出站 JSON 形状断言）或 null（钉死停用无请求体契约——同沙箱动作/手动清扫先例）。
+     */
+    static AiplatformTimeBandRuleAppService timeBandRuleAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformTimeBandRuleAppService(
+                new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 「时段规则」域版 {@link #accountAppServiceWithErrorTransport}——{@code get} 与
+     * {@code post} 都始终抛 {@link OpenApiClientException}（框架对 ≥400 的行为复刻：
+     * METER_013/014/015/016/008 错误信封与读口错误同形）。
+     */
+    static AiplatformTimeBandRuleAppService timeBandRuleAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformTimeBandRuleAppService(
+                new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     /**

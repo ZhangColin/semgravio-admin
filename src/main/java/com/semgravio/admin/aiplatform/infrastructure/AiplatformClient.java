@@ -70,6 +70,11 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDra
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRelabelWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleOpenWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
@@ -118,7 +123,9 @@ import org.springframework.stereotype.Component;
  * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
  * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
  * CRUD＋留痕）与沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层
- * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）共用本客户端——同一
+ * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）与「时段规则」域（issue #130——
+ * aiplatform #497／ADR-0044 峰谷 1/4 后台时段规则面：time-band-rules 清单/开行/原子
+ * 改窗/停用四端点，一单 N 窗口＝一个版本，回执改窗 closed/opened 双段）共用本客户端——同一
  * downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
@@ -305,6 +312,18 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSedimentDraftDetailWireResponse>> SEDIMENT_DRAFT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 「时段规则」域（#497 时段规则表与机机写口，issue #130）：清单 data 为 PageResponse（page 1-based、
+    // 含历史版本行——规则史全貌）；开行/停用回执为裸 List<TimeBandRuleResponse>（一单 N 窗口行＝一个版本）；
+    // 改窗回执 {closed, opened} 双段（对称单价表原子改价回执）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformTimeBandRuleWireResponse>>> TIME_BAND_RULE_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformTimeBandRuleWireResponse>>> TIME_BAND_RULE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformTimeBandRuleRewindowWireResponse>> TIME_BAND_RULE_REWINDOW_TYPEREF =
             new TypeReference<>() {};
 
     // 智能体配置域（#251 技能线 T5；#366 边缘四点收编 issue #112 B3）：GET 读面与 PUT 回执
@@ -2551,6 +2570,138 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
                     openApiClient.post(url, command, SEDIMENT_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 时段规则行清单（透传 aiplatform，「时段规则」域读口，issue #130——镜像 aiplatform
+     * #497／ADR-0044 峰谷 1/4：现行与历史行全量＝规则史全貌）。行形：通道 × 时段带
+     * （band Integer code 1=峰 2=谷＋bandName）× 星期口径（dayMask bitmask Mon=1…Sun=64
+     * ＋dayMaskName 连续段压缩）× UTC 窗口（startMinute/endMinute，end 不含）× 生效区间
+     * （effectiveTo null＝当前行）＋操作者两列（该行最近管理动作留痕；存量行/种子脚本种入行
+     * 落 null）。排序服务端定死＝生效起点倒序（新版本在前，同起点 id 倒序稳定）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/time-band-rules}（#497）：返回
+     * {@code ApiResponse<PageResponse<TimeBandRuleResponse>>}；provider 为匹配键＝精确等值
+     * 过滤、可缺省（缺省＝全量行）；机机签名五头 HMAC 类级强制（无签名 401 由 provider 裁决）。
+     * 错误信封原样透传（不做映射）。</p>
+     *
+     * <p>page 1-based 直传零换算（同订单/单价表），provider clamp（page≥1、size∈[1,100]
+     * 默认 20）行为透传、本客户端不重复夹取。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformTimeBandRuleQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（非法分页值 400 等，不做映射）
+     */
+    public PageResponse<AiplatformTimeBandRuleWireResponse> listTimeBandRules(
+            AiplatformTimeBandRuleListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/time-band-rules?page=").append(page)
+                .append("&size=").append(size);
+        appendParam(url, "provider", filter.provider());
+        log.debug("AiplatformClient.listTimeBandRules: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.get(url.toString(), TIME_BAND_RULE_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 开行（透传 aiplatform，「时段规则」域写口，issue #130）——空通道首开：一单 N 时段窗口行
+     * 原子落（每项＝规则表一行〔通道 × 生效区间 × 星期口径 × UTC 窗口〕，同单各窗口共享生效起点）
+     * ＝一个规则版本。effectiveFrom 可回溯（种子敞口覆盖存量事件）、可指定未来时点（预发布），
+     * 缺省即时（provider 裁决 null→now()，BFF 不代填时点）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules}（#497）：请求体
+     * {@code {provider, windows:[{band, dayMask, startMinute, endMinute}], effectiveFrom}}
+     * 逐字镜像（band Integer code 1=峰 2=谷——provider 侧 BaseEnum 从 code 反序列化；dayMask
+     * 星期口径 bitmask Mon=1…Sun=64 合法域 1..127；startMinute/endMinute UTC 分钟 end 不含、
+     * 须 start&lt;end——跨午夜窗口 v1 不支持、拆两行），返回 {@code ApiResponse<List<TimeBandRuleResponse>>}
+     * ＝新版本全部行。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（RequestContext→provider 落痕新行，缺头落空——种子脚本即落空口径）。</p>
+     *
+     * <p>窗口项字段不完整/星期口径越界/跨午夜窗口 400 METER_013（3013）；同通道区间重叠
+     * （跨区间或同起点）409 METER_008（3008）——均原样透传。</p>
+     *
+     * @param command 开行命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（METER_008/013 等，不做映射）
+     */
+    public List<AiplatformTimeBandRuleWireResponse> openTimeBandRule(
+            AiplatformTimeBandRuleOpenWireRequest command) {
+        String url = baseUrl + "/api/backoffice/time-band-rules";
+        log.debug("AiplatformClient.openTimeBandRule: {}", url);
+        try {
+            ApiResponse<List<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.post(url, command, TIME_BAND_RULE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 原子改窗（透传 aiplatform，「时段规则」域写口，issue #130）——单调用关当前版本全部行＋
+     * 开新版本（同事务，中途任一守卫失败两段都不动）：寻址行须当前版本成员（版本任一行皆可达——
+     * 关行在版本级非单行），被关版本全部行落 effectiveTo＝新版本起点（保留其原开行操作者，不被
+     * 改写）；新版本窗口清单整版本替换语义（清单即终态）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules/{id}/rewindow}（#497）：
+     * 请求体 {@code {windows:[…], effectiveFrom}} 逐字镜像（effectiveFrom 可空＝缺省即时、含
+     * 未来时点＝预发布——预发布与重叠校验语义由 provider 承担，BFF 不代填时点不预判），返回
+     * {@code ApiResponse<TimeBandRuleRewindowResponse>}——{@code {closed, opened}} 双段回执
+     * （被关行保留原操作者留痕，新行带本次操作者）。操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕新行，缺头落空）。</p>
+     *
+     * <p>行不存在（含畸形 id——provider 侧 lenient 解析）404 METER_015（3015）；窗口项字段
+     * 不完整/星期口径越界/跨午夜窗口 400 METER_013（3013）；起点早于被关版本起点 400
+     * METER_014（3014）；目标非当前行 409 METER_016（3016）；区间重叠（跨区间或同起点）409
+     * METER_008（3008）——均原样透传。</p>
+     *
+     * @param id      规则行标识（TSID 十进制字符串）
+     * @param command 改窗命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（METER_008/013/014/015/016 等，不做映射）
+     */
+    public AiplatformTimeBandRuleRewindowWireResponse rewindowTimeBandRule(
+            String id, AiplatformTimeBandRuleRewindowWireRequest command) {
+        String url = baseUrl + "/api/backoffice/time-band-rules/" + encode(id) + "/rewindow";
+        log.debug("AiplatformClient.rewindowTimeBandRule: {}", url);
+        try {
+            ApiResponse<AiplatformTimeBandRuleRewindowWireResponse> resp =
+                    openApiClient.post(url, command, TIME_BAND_RULE_REWINDOW_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 停用（透传 aiplatform，「时段规则」域写口，issue #130）——即时生效：关当前版本全部行
+     * （effectiveTo＝现在）不开新版本——此后该通道 ts 无窗口命中＝不归带（引擎归段票接线后
+     * 生效）。对未生效的预发布版本停用＝钳到自身起点成空区间（从未生效）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules/{id}/deactivate}（#497）：
+     * <strong>无请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数——同沙箱四动作/手动清扫先例），返回
+     * {@code ApiResponse<List<TimeBandRuleResponse>>}＝被关版本全部行。操作者透传头自动落痕
+     * 被关版本各行（停用不接新行，被关行是唯一落点；缺头落空）。行不存在（含畸形 id）
+     * 404 METER_015（3015）；目标非当前行 409 METER_016（3016）——均原样透传。</p>
+     *
+     * @param id 规则行标识（TSID 十进制字符串）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 METER_015、409 METER_016 等，不做映射）
+     */
+    public List<AiplatformTimeBandRuleWireResponse> deactivateTimeBandRule(String id) {
+        String url = baseUrl + "/api/backoffice/time-band-rules/" + encode(id) + "/deactivate";
+        log.debug("AiplatformClient.deactivateTimeBandRule: {}", url);
+        try {
+            ApiResponse<List<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.post(url, null, TIME_BAND_RULE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

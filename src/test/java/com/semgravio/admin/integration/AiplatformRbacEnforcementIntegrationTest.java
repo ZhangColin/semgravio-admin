@@ -113,6 +113,10 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleOpenWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTokenUsageWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
@@ -194,7 +198,12 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 〔通道/档位分权〕）+「数据标注」域四码
  * （{@code sediment-draft:read|activate|reject|relabel}——issue #124：标注队列/详情两读
  * 端点复用 read、三键各一码，读写不串、三写码互不串——激活权/拒绝权/分诊权独立授受，
- * 连知识域既有 material:read 也不放行）+「一键回收」两码
+ * 连知识域既有 material:read 也不放行）+「时段规则」四码
+ * （{@code time-band-rule:read|open|rewindow|deactivate}——issue #130 镜像 aiplatform
+ * #497／ADR-0044 峰谷 1/4：清单读口一码、开行/原子改窗/停用三写口各一码〔对称单价表域
+ * 读写分权、调窗权/停用权独立授受〕——一单 N 窗口＝一个版本、改窗回执 closed/opened
+ * 双段、被关行保留原操作者、十二字段行形北向断言＋METER_013/014/015/016/008 信封透传）
+ * +「一键回收」两码
  * （{@code project:reclaim|workspace:reclaim}——issue #129 镜像 aiplatform #490：项目级/工作区级
  * reclaim 同形回执、动刀类各一独立写码〔ADR-0045 动刀类走 admin 手动＋留痕〕——四面/三面
  * 逐面 CLEAN/RESIDUE/UNKNOWN 北向形状＋UNKNOWN 不算清 residueFree 判据＋UNTOUCHED 如实分示
@@ -209,7 +218,7 @@ import cn.dev33.satoken.config.SaTokenConfig;
  *
  * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域、#81 技能域同款必带）：订单三写
  * 操作（报价落痕价目行、取消/归档落痕订单行）、沙箱四干预动作、
- * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
+ * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）、时段规则三写口（issue #130——provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL）从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
  * 身份——框架 cartisan-openapi 自动从 {@code RequestContext} 带 {@code X-User-Id/X-User-Name}
  * 出站 header。本测试在 mocked {@link AiplatformClient} 边界用 {@code doAnswer} 在调用瞬间抓取
  * {@link RequestContext#getUserId()} / {@link RequestContext#getUserName()}，断言其 == 登录治理
@@ -493,6 +502,19 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SEDIMENT_DRAFT_REJECT_BODY =
             "{\"reason\":\"与已激活知识「排课冲突案例」内容重叠，无增量价值\"}";
     private static final String SEDIMENT_DRAFT_RELABEL_BODY = "{\"kind\":\"MODULE\"}";
+    // 「时段规则」（issue #130——aiplatform #497／ADR-0044 峰谷 1/4：time-band-rules
+    // 清单/开行/原子改窗/停用四端点，一单 N 窗口＝一个版本，改窗回执 closed/opened 双段）
+    private static final String TIME_BAND_RULE_READ_PERMISSION = "admin:aiplatform:time-band-rule:read";
+    private static final String TIME_BAND_RULE_OPEN_PERMISSION = "admin:aiplatform:time-band-rule:open";
+    private static final String TIME_BAND_RULE_REWINDOW_PERMISSION = "admin:aiplatform:time-band-rule:rewindow";
+    private static final String TIME_BAND_RULE_DEACTIVATE_PERMISSION = "admin:aiplatform:time-band-rule:deactivate";
+    private static final String TIME_BAND_RULES_ENDPOINT = "/api/admin/aiplatform/time-band-rules";
+    private static final String TIME_BAND_RULE_ID = "3829492007655001";
+    private static final String TIME_BAND_RULE_REWINDOW_ENDPOINT =
+            TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/rewindow";
+    private static final String TIME_BAND_RULE_DEACTIVATE_ENDPOINT =
+            TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/deactivate";
+
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -534,6 +556,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithModelTierWrite;
     private String usernameWithTierDeleteOnly;
     private String usernameWithSedimentDraftWrite;
+    private String usernameWithTimeBandRuleWrite;
     private String usernameWithReclaim;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
@@ -574,6 +597,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String modelTierWriteUserNickname;
     private Long sedimentDraftWriteUserId;
     private String sedimentDraftWriteUserNickname;
+    private Long timeBandRuleWriteUserId;
+    private String timeBandRuleWriteUserNickname;
     private Long reclaimUserId;
     private String reclaimUserNickname;
 
@@ -628,6 +653,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithModelTierWrite = "aiplatwr" + suffix;
         usernameWithTierDeleteOnly = "aiplatdel" + suffix;
         usernameWithSedimentDraftWrite = "aiplasdwrt" + suffix;
+        usernameWithTimeBandRuleWrite = "aiplatbrw" + suffix;
         usernameWithReclaim = "aiplarcl" + suffix;
 
         Long readRoleId = roleAppService.create(
@@ -641,7 +667,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
                         PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
                         MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION,
-                        SEDIMENT_DRAFT_READ_PERMISSION)));
+                        SEDIMENT_DRAFT_READ_PERMISSION, TIME_BAND_RULE_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -1016,6 +1042,24 @@ class AiplatformRbacEnforcementIntegrationTest {
                         sedimentDraftWriteUserNickname, null, null, null));
         userAppService.assignRoles(sedimentDraftWriteUserId,
                 new AssignRolesCommand(List.of(sedimentDraftWriteRoleId)));
+
+        // 「时段规则」三写码专用运营（time-band-rule:open/rewindow/deactivate，无读码——
+        // 调窗权/停用权最小授权，issue #130 对称单价表域读写分权先例）——操作者透传断言用其
+        // id/昵称（provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL 不拦）
+        Long timeBandRuleWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台时段调窗_" + suffix, "AIPLATBRW_" + suffix,
+                        "AI 平台时段规则开行/改窗/停用权限", 121, null));
+        roleAppService.assignPermissions(timeBandRuleWriteRoleId,
+                new AssignPermissionsCommand(List.of(
+                        TIME_BAND_RULE_OPEN_PERMISSION,
+                        TIME_BAND_RULE_REWINDOW_PERMISSION,
+                        TIME_BAND_RULE_DEACTIVATE_PERMISSION)));
+        timeBandRuleWriteUserNickname = "时段调窗运营_" + suffix;
+        timeBandRuleWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithTimeBandRuleWrite, PASSWORD,
+                        timeBandRuleWriteUserNickname, null, null, null));
+        userAppService.assignRoles(timeBandRuleWriteUserId,
+                new AssignRolesCommand(List.of(timeBandRuleWriteRoleId)));
 
         // 「一键回收」双写码专用运营（project:reclaim＋workspace:reclaim，无读码——动刀类最小授权
         // 照 ADR-0045，issue #129 镜像 aiplatform #490）——操作者透传断言用其 id/昵称（provider
@@ -1760,6 +1804,57 @@ class AiplatformRbacEnforcementIntegrationTest {
                     null, null, null, null);
         }).when(aiplatformClient).relabelSedimentDraft(
                 eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class));
+        // 「时段规则」mock（issue #130，aiplatform #497）：清单＝现行峰段两行＋历史谷段一行
+        // （分页回显 provider 原值）＋开行/改窗/停用回执（改窗 closed/opened 双段、被关行保留
+        // 原操作者）＋三写口抓取 RequestContext（操作者透传契约证据——provider 落痕新行/被关行，
+        // 缺头落空 NULL 不拦）
+        when(aiplatformClient.listTimeBandRules(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(
+                List.of(
+                        new AiplatformTimeBandRuleWireResponse(
+                                TIME_BAND_RULE_ID, "deepseek", 1, "峰", 31, "周一至周五",
+                                60, 240, Instant.parse("2026-08-16T00:00:00Z"), null,
+                                "700101", "运维·老张"),
+                        new AiplatformTimeBandRuleWireResponse(
+                                "3829492007655002", "deepseek", 1, "峰", 31, "周一至周五",
+                                360, 600, Instant.parse("2026-08-16T00:00:00Z"), null,
+                                "700101", "运维·老张"),
+                        new AiplatformTimeBandRuleWireResponse(
+                                "3829492007654990", "deepseek", 2, "谷", 31, "周一至周五",
+                                1200, 1320, Instant.parse("2026-05-01T00:00:00Z"),
+                                Instant.parse("2026-08-16T00:00:00Z"), null, null)),
+                3, 1, 20));
+        doAnswer(inv -> {
+            capture.run();
+            return List.of(new AiplatformTimeBandRuleWireResponse(
+                    "3829492007655011", "deepseek", 1, "峰", 31, "周一至周五",
+                    60, 240, Instant.parse("2026-11-14T00:00:00Z"), null,
+                    String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname),
+                    new AiplatformTimeBandRuleWireResponse(
+                            "3829492007655012", "deepseek", 1, "峰", 31, "周一至周五",
+                            360, 600, Instant.parse("2026-11-14T00:00:00Z"), null,
+                            String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname));
+        }).when(aiplatformClient).openTimeBandRule(any(AiplatformTimeBandRuleOpenWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformTimeBandRuleRewindowWireResponse(
+                    List.of(new AiplatformTimeBandRuleWireResponse(
+                            TIME_BAND_RULE_ID, "deepseek", 1, "峰", 31, "周一至周五",
+                            60, 240, Instant.parse("2026-08-16T00:00:00Z"),
+                            Instant.parse("2026-11-14T00:00:00Z"), "700101", "运维·老张")),
+                    List.of(new AiplatformTimeBandRuleWireResponse(
+                            "3829492007655021", "deepseek", 1, "峰", 31, "周一至周五",
+                            90, 270, Instant.parse("2026-11-14T00:00:00Z"), null,
+                            String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname)));
+        }).when(aiplatformClient).rewindowTimeBandRule(eq(TIME_BAND_RULE_ID),
+                any(AiplatformTimeBandRuleRewindowWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return List.of(new AiplatformTimeBandRuleWireResponse(
+                    "3829492007655011", "deepseek", 1, "峰", 31, "周一至周五",
+                    60, 240, Instant.parse("2026-11-14T00:00:00Z"),
+                    Instant.parse("2026-11-13T10:00:00Z"),
+                    String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname));
+        }).when(aiplatformClient).deactivateTimeBandRule(eq(TIME_BAND_RULE_ID));
         // 「一键回收」mock（issue #129，aiplatform #490）：项目级回执＝四面全 CLEAN＋runsStopped
         // true＋residueFree true；工作区级回执＝三面全 CLEAN＋项目面 UNTOUCHED＋runsStopped
         // false——均抓取 RequestContext（操作者透传契约证据——provider 落 append-only
@@ -4893,6 +4988,191 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("code").asInt()).isEqualTo(2012);
         assertThat(root.path("message").asText())
                 .isEqualTo("目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「时段规则」（time-band-rule:read / :open|rewindow|deactivate 四码，issue #130 镜像 aiplatform #497／ADR-0044 峰谷 1/4）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 time-band-rule:read → 时段规则清单 200，十二字段行形＋分页回显 provider 原值")
+    void given_nonSuperAdminWithTimeBandRuleRead_when_entries_then_200TwelveFieldsAndPageEchoed()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(TIME_BAND_RULES_ENDPOINT + "?provider=deepseek", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("size").asInt()).isEqualTo(20);
+        assertThat(data.path("total").asInt()).isEqualTo(3);
+        JsonNode first = data.path("items").get(0);
+        assertThat(first.path("id").asText()).isEqualTo(TIME_BAND_RULE_ID);
+        assertThat(first.path("provider").asText()).isEqualTo("deepseek");
+        assertThat(first.path("band").asInt()).isEqualTo(1);
+        assertThat(first.path("bandName").asText()).isEqualTo("峰");
+        assertThat(first.path("dayMask").asInt()).isEqualTo(31);
+        assertThat(first.path("dayMaskName").asText()).isEqualTo("周一至周五");
+        assertThat(first.path("startMinute").asInt()).isEqualTo(60);
+        assertThat(first.path("endMinute").asInt()).isEqualTo(240);
+        assertThat(first.path("effectiveFrom").asText()).isEqualTo("2026-08-16T00:00:00Z");
+        assertThat(first.path("effectiveTo").isNull()).isTrue();
+        assertThat(first.path("operatorId").asText()).isEqualTo("700101");
+        assertThat(first.path("operatorName").asText()).isEqualTo("运维·老张");
+        // 历史行区间两端在场＋种子/无头行操作者落空 NULL
+        JsonNode history = data.path("items").get(2);
+        assertThat(history.path("band").asInt()).isEqualTo(2);
+        assertThat(history.path("effectiveTo").asText()).isEqualTo("2026-08-16T00:00:00Z");
+        assertThat(history.path("operatorId").isNull()).isTrue();
+        assertThat(history.path("operatorName").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 开行 200 一单 N 窗口＝一个版本，RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_open_then_200SingleVersionRowsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":["
+                        + "{\"band\":1,\"dayMask\":31,\"startMinute\":60,\"endMinute\":240},"
+                        + "{\"band\":1,\"dayMask\":31,\"startMinute\":360,\"endMinute\":600}],"
+                        + "\"effectiveFrom\":\"2026-11-14T00:00:00Z\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.size()).isEqualTo(2);
+        assertThat(data.get(0).path("id").asText()).isEqualTo("3829492007655011");
+        assertThat(data.get(0).path("effectiveFrom").asText()).isEqualTo("2026-11-14T00:00:00Z");
+        assertThat(data.get(0).path("effectiveTo").isNull()).isTrue();
+        // 操作者两列＝透传头落痕回显（本次登录的时段调窗运营）
+        assertThat(data.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+        assertThat(data.get(0).path("operatorName").asText()).isEqualTo(timeBandRuleWriteUserNickname);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头落痕新行，缺头落空 NULL——issue #130 断言必带）
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 原子改窗 200 回执 closed/opened 双段，被关行保留原操作者＋RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_rewindow_then_200ClosedOpenedSegmentsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}],"
+                        + "\"effectiveFrom\":\"2026-11-14T00:00:00Z\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // closed 段：被关行区间两端落定＋保留原开行操作者（不被改写）
+        JsonNode closed = data.path("closed");
+        assertThat(closed.size()).isEqualTo(1);
+        assertThat(closed.get(0).path("id").asText()).isEqualTo(TIME_BAND_RULE_ID);
+        assertThat(closed.get(0).path("effectiveTo").asText()).isEqualTo("2026-11-14T00:00:00Z");
+        assertThat(closed.get(0).path("operatorId").asText()).isEqualTo("700101");
+        assertThat(closed.get(0).path("operatorName").asText()).isEqualTo("运维·老张");
+        // opened 段：新窗口行操作者取本次请求
+        JsonNode opened = data.path("opened");
+        assertThat(opened.size()).isEqualTo(1);
+        assertThat(opened.get(0).path("startMinute").asInt()).isEqualTo(90);
+        assertThat(opened.get(0).path("endMinute").asInt()).isEqualTo(270);
+        assertThat(opened.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 停用 200 被关版本全部行，操作者落被关行＋RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_deactivate_then_200ClosedRowsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.size()).isEqualTo(1);
+        assertThat(data.get(0).path("effectiveTo").asText()).isEqualTo("2026-11-13T10:00:00Z");
+        assertThat(data.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写四码不串：无 read → 清单 403（仅有三写码）；仅有 read → 开行/改窗/停用 403")
+    void given_readWriteCodesNotCrossed_when_timeBandRuleEndpoints_then_403OnTheOtherSide() {
+        // 三写码专用运营（无 time-band-rule:read）→ 清单读口 403：读写分权
+        String writer = login(usernameWithTimeBandRuleWrite);
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // time-band-rule:read（无三写码）→ 三写口 403：只读角色不得调窗
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 时段规则四端点 403；未登录 → 401（含三写口 POST）")
+    void given_noPermissionOrUnauthenticated_when_timeBandRuleEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("改窗下游 METER_015（行不存在）→ 北向 HTTP 404 + 信封 code=3015 + message 原文（不映射）")
+    void given_meter015FromDownstream_when_rewindow_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.rewindowTimeBandRule(eq("3829492007655999"),
+                any(AiplatformTimeBandRuleRewindowWireRequest.class))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":3015,\"message\":\"时段规则行不存在\",\"data\":null}")));
+
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(
+                TIME_BAND_RULES_ENDPOINT + "/3829492007655999/rewindow",
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 3015（METER_015＝METER 域码 3×1000＋15）——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(3015);
+        assertThat(root.path("message").asText()).isEqualTo("时段规则行不存在");
         assertThat(root.path("data").isNull()).isTrue();
     }
 
