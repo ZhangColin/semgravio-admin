@@ -2202,16 +2202,16 @@ class AiplatformBffIntegrationTest {
     void given_priceEntryQueryAndPage_when_list_then_wireRequestMappedAndPageEchoedFromProvider() {
         when(aiplatformClient.listPriceEntries(any(), eq(2), eq(50))).thenReturn(new PageResponse<>(List.of(
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", 1, "峰",
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), null, "700160", "运营·单价管理员"),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
                         null, null),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张", null, null,
                         "0.18", "CNY",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 50));
 
@@ -2235,16 +2235,22 @@ class AiplatformBffIntegrationTest {
         assertThat(current.id()).isEqualTo("3830100002222222");
         assertThat(current.tokenKind()).isEqualTo(1);
         assertThat(current.tokenKindName()).isEqualTo("输入");
+        assertThat(current.band()).isEqualTo(1);
+        assertThat(current.bandName()).isEqualTo("峰");
         assertThat(current.unitPrice()).isEqualTo("0.000002");
         assertThat(current.effectiveTo()).isNull();
         assertThat(current.operatorName()).isEqualTo("运营·单价管理员");
         var historical = page.items().get(1);
         assertThat(historical.effectiveTo()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
+        assertThat(historical.band()).isNull();
+        assertThat(historical.bandName()).isNull();
         assertThat(historical.operatorId()).isNull();
         var perImage = page.items().get(2);
         assertThat(perImage.provider()).isEqualTo("imgprov");
         assertThat(perImage.tokenKind()).isEqualTo(6);
         assertThat(perImage.tokenKindName()).isEqualTo("按张");
+        assertThat(perImage.band()).isNull();
+        assertThat(perImage.bandName()).isNull();
         assertThat(perImage.unitPrice()).isEqualTo("0.18");
         assertThat(perImage.currency()).isEqualTo("CNY");
     }
@@ -2256,12 +2262,12 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.repricePriceEntry(eq("3830100002222222"), any())).thenReturn(
                 new AiplatformUnitPriceEntryRepriceWireResponse(
                         new AiplatformUnitPriceEntryWireResponse(
-                                "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                                "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", 2, "谷",
                                 "0.000002", "USD",
                                 Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-20T00:00:00Z"),
                                 "700160", "运营·单价管理员"),
                         new AiplatformUnitPriceEntryWireResponse(
-                                "3830100003333333", "anthropic", "claude-fable-5", 1, "输入",
+                                "3830100003333333", "anthropic", "claude-fable-5", 1, "输入", 2, "谷",
                                 "0.0000018", "USD",
                                 Instant.parse("2026-09-20T00:00:00Z"), null,
                                 "3829492001234567", "调价运营")));
@@ -2277,12 +2283,17 @@ class AiplatformBffIntegrationTest {
         assertThat(commandCaptor.getValue()).isEqualTo(new AiplatformPriceEntryRepriceWireRequest(
                 new BigDecimal("0.0000018"), "USD", Instant.parse("2026-09-20T00:00:00Z")));
 
-        // wire → response 逐字段：closed 落 effectiveTo、保留原开行留痕；opened 新 id、敞口、带改价操作者
+        // wire → response 逐字段：closed 落 effectiveTo、保留原开行留痕；opened 新 id、敞口、带改价操作者；
+        // 两行 band=2 谷如实透传（改价新行沿用被关行 band——带是匹配键成分、不在改价命令内不漂移，#498）
         assertThat(receipt.closed().effectiveTo()).isEqualTo(Instant.parse("2026-09-20T00:00:00Z"));
         assertThat(receipt.closed().operatorId()).isEqualTo("700160");
+        assertThat(receipt.closed().band()).isEqualTo(2);
+        assertThat(receipt.closed().bandName()).isEqualTo("谷");
         assertThat(receipt.opened().id()).isEqualTo("3830100003333333");
         assertThat(receipt.opened().unitPrice()).isEqualTo("0.0000018");
         assertThat(receipt.opened().effectiveTo()).isNull();
+        assertThat(receipt.opened().band()).isEqualTo(2);
+        assertThat(receipt.opened().bandName()).isEqualTo("谷");
         assertThat(receipt.opened().operatorName()).isEqualTo("调价运营");
     }
 
@@ -2292,15 +2303,17 @@ class AiplatformBffIntegrationTest {
     void given_deactivateReceipt_when_deactivate_then_singleRowMapped() {
         when(aiplatformClient.deactivatePriceEntry("3830100002222222")).thenReturn(
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-16T10:30:00Z"),
                         "3829492001234567", "调价运营"));
 
         AiplatformUnitPriceEntryResponse closed = priceEntryAppService.deactivate("3830100002222222");
 
-        // 被关行单行回执：effectiveTo 已落、停用操作者落被关行（唯一落点）
+        // 被关行单行回执：effectiveTo 已落、停用操作者落被关行（唯一落点）；band null＝不区分时段如实透传
         assertThat(closed.effectiveTo()).isEqualTo(Instant.parse("2026-09-16T10:30:00Z"));
+        assertThat(closed.band()).isNull();
+        assertThat(closed.bandName()).isNull();
         assertThat(closed.operatorId()).isEqualTo("3829492001234567");
         assertThat(closed.operatorName()).isEqualTo("调价运营");
     }

@@ -10,7 +10,9 @@ import java.time.Instant;
  *
  * <p>{@code unitPrice} 为<strong>精确十进制串</strong>（provider 侧 {@code stripTrailingZeros().toPlainString()}
  * ——BigDecimal 直出 JSON 会落科学计数，单价契约按十进制原串交接；改价入参侧为 number，两侧类型
- * 有意不对称照实各自呈现）；{@code effectiveTo} 为 null
+ * 有意不对称照实各自呈现）；{@code band} 为时段带 Integer code（1=峰 2=谷，#498/ADR-0044 峰谷
+ * 2/4——带是匹配键成分、改价新行沿用被关行不漂移）＋{@code bandName} 中文名随行，null＝不区分时段
+ * （两列同 null 落空——无峰谷通道与按张行存量语义零变动）；{@code effectiveTo} 为 null
  * 即当前行，历史行含区间两端。行操作者两列＝该行最近管理动作（开行或停用）的留痕；存量行/
  * 无头请求（含种子脚本种入行）为 null。</p>
  *
@@ -20,6 +22,8 @@ import java.time.Instant;
  * @param tokenKind      档位 code（1=输入 2=输出 3=缓存读 4=缓存写 5=推理 6=按张——#288 图片生成
  *                       按张计价档，开行/改价/关行对六档同一套语义）
  * @param tokenKindName  档位名（直读展示；按张档＝「按张」）
+ * @param band           时段带 code（1=峰 2=谷——#498/ADR-0044；null＝不区分时段，两列同 null）
+ * @param bandName       时段带名（直读展示；同上落空口径）
  * @param unitPrice      档位单价（token 档每 token、按张档每张；精确十进制串）
  * @param currency       币种（ISO 4217）
  * @param effectiveFrom  生效起点（含）
@@ -33,6 +37,8 @@ public record AiplatformUnitPriceEntryWireResponse(
         String model,
         Integer tokenKind,
         String tokenKindName,
+        Integer band,
+        String bandName,
         String unitPrice,
         String currency,
         Instant effectiveFrom,

@@ -23,7 +23,7 @@ import com.cartisan.web.response.PageResponse;
  * {@code UnitPriceEntryResponse} / {@code UnitPriceEntryRepriceResponse} /
  * {@code RepricePriceEntryCommand} / {@code MeteringMessage} / {@code BackofficePriceEntrySeamTest}
  * 核实；2026-10-08 对照 {@code TokenKind}（IMAGE(6,"按张")）/{@code MeteringImagePricingTest}
- * 补第 6 档）：</p>
+ * 补第 6 档；2026-11-13 对照 aiplatform #498（时段带列）补 band/bandName 两列）：</p>
  * <ul>
  *   <li>三端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}；清单 data 为
  *       {@code PageResponse{items,total,page,size}}（page 1-based、total JSON string——cartisan-web
@@ -31,10 +31,15 @@ import com.cartisan.web.response.PageResponse;
  *       data 为被关行单行。</li>
  *   <li>行字段：{@code id} String（TSID 十进制串）；{@code tokenKind} Integer code（1=输入 2=输出
  *       3=缓存读 4=缓存写 5=推理 <strong>6=按张</strong>——#288 图片生成按张计价档，开行/改价/关行
- *       对六档同一套语义）+ {@code tokenKindName} 中文名随行；{@code unitPrice} String 精确
+ *       对六档同一套语义）+ {@code tokenKindName} 中文名随行；<strong>{@code band} Integer code
+ *       （1=峰 2=谷，#498/ADR-0044 峰谷 2/4）+ {@code bandName} 中文名随行——null＝不区分时段
+ *       （两列同 null 落空，存量行/按张行零变动）</strong>；{@code unitPrice} String 精确
  *       十进制串（provider {@code stripTrailingZeros().toPlainString()}——直出 JSON 数值会落科学
  *       计数；token 档每 token、按张档每张，同一字段承载）；{@code effectiveTo} null＝当前行；
  *       {@code operatorId/operatorName} 留痕（存量行/种子脚本种入行为 null）。</li>
+ *   <li>改价新行<strong>沿用被关行 band</strong>（带是匹配键成分、不在改价命令内、不随改价
+ *       漂移——#498）；命令体仍 {@code {unitPrice, currency, effectiveFrom}} 三字段零加戏。
+ *       METER_008 语义同步带维度：同键<strong>同带</strong>同起点 409 拒、不同带不误拒。</li>
  *   <li>清单 provider/model 精确等值过滤、均可缺省；排序定死生效起点倒序；page 1-based 直传，
  *       provider clamp（page≥1、size∈[1,100] 默认 20）行为透传。</li>
  *   <li>改价命令体 {@code {unitPrice, currency, effectiveFrom}}：unitPrice BigDecimal→JSON 明文
@@ -59,10 +64,12 @@ class AiplatformPriceEntryClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/price-entries 的真实成功响应形状（信封 + PageResponse）：
-     * 生效起点倒序三行——首行当前行（effectiveTo=null、带开行操作者留痕），次行历史行（区间两端
-     * 俱全、存量形制操作者 null），第三行按张档当前行（tokenKind=6，#288——实值对照 provider
+     * 生效起点倒序三行——首行当前行（effectiveTo=null、带开行操作者留痕、band=1 峰——#498
+     * 时段带维度现行行），次行历史行（区间两端俱全、存量形制操作者 null 且 band null＝
+     * 不区分时段），第三行按张档当前行（tokenKind=6，#288——实值对照 provider
      * {@code MeteringImagePricingTest} fixture 源码兜底：imgprov/qwen-image 每张 ¥0.18、
-     * 种子脚本口径 effectiveFrom 回溯敞口、无头落空操作者 null）；total 为 JSON string。
+     * 种子脚本口径 effectiveFrom 回溯敞口、无头落空操作者 null、band null——按张行无
+     * 峰谷通道）；total 为 JSON string。
      */
     private static final String PRICE_ENTRY_PAGE_ENVELOPE = """
             {
@@ -76,6 +83,8 @@ class AiplatformPriceEntryClientContractTest {
                     "model": "claude-fable-5",
                     "tokenKind": 1,
                     "tokenKindName": "输入",
+                    "band": 1,
+                    "bandName": "峰",
                     "unitPrice": "0.000002",
                     "currency": "USD",
                     "effectiveFrom": "2026-08-01T00:00:00Z",
@@ -89,6 +98,8 @@ class AiplatformPriceEntryClientContractTest {
                     "model": "claude-fable-5",
                     "tokenKind": 1,
                     "tokenKindName": "输入",
+                    "band": null,
+                    "bandName": null,
                     "unitPrice": "0.00000132",
                     "currency": "USD",
                     "effectiveFrom": "2026-07-01T00:00:00Z",
@@ -102,6 +113,8 @@ class AiplatformPriceEntryClientContractTest {
                     "model": "qwen-image",
                     "tokenKind": 6,
                     "tokenKindName": "按张",
+                    "band": null,
+                    "bandName": null,
                     "unitPrice": "0.18",
                     "currency": "CNY",
                     "effectiveFrom": "2026-01-01T00:00:00Z",
@@ -122,7 +135,8 @@ class AiplatformPriceEntryClientContractTest {
     /**
      * aiplatform POST /api/backoffice/price-entries/{id}/reprice 的真实成功响应形状：
      * {closed, opened} 双行回执——closed 落 effectiveTo＝新起点、保留原开行留痕（不被改写）；
-     * opened 沿用匹配键、新单价、敞口、带改价操作者。
+     * opened 沿用匹配键（含 band——带是匹配键成分，改价新行沿用被关行 band 不可漂移，#498）、
+     * 新单价、敞口、带改价操作者。两行同 band=2 谷（opened 沿用被关行）。
      */
     private static final String REPRICE_ENVELOPE = """
             {
@@ -135,6 +149,8 @@ class AiplatformPriceEntryClientContractTest {
                   "model": "claude-fable-5",
                   "tokenKind": 1,
                   "tokenKindName": "输入",
+                  "band": 2,
+                  "bandName": "谷",
                   "unitPrice": "0.000002",
                   "currency": "USD",
                   "effectiveFrom": "2026-08-01T00:00:00Z",
@@ -148,6 +164,8 @@ class AiplatformPriceEntryClientContractTest {
                   "model": "claude-fable-5",
                   "tokenKind": 1,
                   "tokenKindName": "输入",
+                  "band": 2,
+                  "bandName": "谷",
                   "unitPrice": "0.0000018",
                   "currency": "USD",
                   "effectiveFrom": "2026-09-20T00:00:00Z",
@@ -163,7 +181,8 @@ class AiplatformPriceEntryClientContractTest {
 
     /**
      * aiplatform POST /api/backoffice/price-entries/{id}/deactivate 的真实成功响应形状：
-     * 被关行单行回执——effectiveTo 已落（≈现在）、停用操作者落被关行（唯一落点）。
+     * 被关行单行回执——effectiveTo 已落（≈现在）、停用操作者落被关行（唯一落点）；
+     * 存量行 band null＝不区分时段（停用语义不变、band 如实透传）。
      */
     private static final String DEACTIVATE_ENVELOPE = """
             {
@@ -175,6 +194,8 @@ class AiplatformPriceEntryClientContractTest {
                 "model": "claude-fable-5",
                 "tokenKind": 1,
                 "tokenKindName": "输入",
+                "band": null,
+                "bandName": null,
                 "unitPrice": "0.000002",
                 "currency": "USD",
                 "effectiveFrom": "2026-08-01T00:00:00Z",
@@ -255,13 +276,16 @@ class AiplatformPriceEntryClientContractTest {
         assertThat(page.size()).isEqualTo(20);
 
         // 首行：当前行（effectiveTo=null）——tokenKind Integer code + tokenKindName 随行、
-        // unitPrice String 精确十进制串、操作者留痕两肢
+        // unitPrice String 精确十进制串、操作者留痕两肢；band=1 峰 Integer code + bandName
+        // 「峰」随行（#498 时段带维度现行行）
         var current = page.items().get(0);
         assertThat(current.id()).isEqualTo(ENTRY_ID);
         assertThat(current.provider()).isEqualTo("anthropic");
         assertThat(current.model()).isEqualTo("claude-fable-5");
         assertThat(current.tokenKind()).isEqualTo(1);
         assertThat(current.tokenKindName()).isEqualTo("输入");
+        assertThat(current.band()).isEqualTo(1);
+        assertThat(current.bandName()).isEqualTo("峰");
         assertThat(current.unitPrice()).isEqualTo("0.000002");
         assertThat(current.currency()).isEqualTo("USD");
         assertThat(current.effectiveFrom()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
@@ -269,10 +293,13 @@ class AiplatformPriceEntryClientContractTest {
         assertThat(current.operatorId()).isEqualTo("700160");
         assertThat(current.operatorName()).isEqualTo("运营·单价管理员");
 
-        // 次行：历史行（区间两端俱全）——存量形制操作者两列 null 如实绑定
+        // 次行：历史行（区间两端俱全）——存量形制操作者两列 null、band 两列 null
+        // （null＝不区分时段——存量语义零变动，#498）如实绑定
         var historical = page.items().get(1);
         assertThat(historical.id()).isEqualTo("3830100001111111");
         assertThat(historical.unitPrice()).isEqualTo("0.00000132");
+        assertThat(historical.band()).isNull();
+        assertThat(historical.bandName()).isNull();
         assertThat(historical.effectiveFrom()).isEqualTo(Instant.parse("2026-07-01T00:00:00Z"));
         assertThat(historical.effectiveTo()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(historical.operatorId()).isNull();
@@ -280,12 +307,15 @@ class AiplatformPriceEntryClientContractTest {
 
         // 第三行：按张档当前行（#288 第 6 档实值）——tokenKind=6 Integer code 直通 + tokenKindName
         // 「按张」随行（既有口径零枚举改造）、unitPrice 为每张单价（0.18——token 档每 token/按张档
-        // 每张同一字段承载，响应侧恒十进制串）、种子脚本口径回溯起点敞口、无头操作者 null
+        // 每张同一字段承载，响应侧恒十进制串）、种子脚本口径回溯起点敞口、无头操作者 null、
+        // band null（按张行无峰谷通道，#498）
         var perImage = page.items().get(2);
         assertThat(perImage.provider()).isEqualTo("imgprov");
         assertThat(perImage.model()).isEqualTo("qwen-image");
         assertThat(perImage.tokenKind()).isEqualTo(6);
         assertThat(perImage.tokenKindName()).isEqualTo("按张");
+        assertThat(perImage.band()).isNull();
+        assertThat(perImage.bandName()).isNull();
         assertThat(perImage.unitPrice()).isEqualTo("0.18");
         assertThat(perImage.currency()).isEqualTo("CNY");
         assertThat(perImage.effectiveFrom()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
@@ -338,20 +368,26 @@ class AiplatformPriceEntryClientContractTest {
                 new AiplatformPriceEntryRepriceCommand(
                         new BigDecimal("0.0000018"), "USD", Instant.parse("2026-09-20T00:00:00Z")));
 
-        // closed：被关旧行——effectiveTo 落＝新行起点；保留原开行留痕（不被改写为改价者）
+        // closed：被关旧行——effectiveTo 落＝新行起点；保留原开行留痕（不被改写为改价者）；
+        // band=2 谷保留（被关行带维度如实回显）
         var closed = receipt.closed();
         assertThat(closed.id()).isEqualTo(ENTRY_ID);
         assertThat(closed.unitPrice()).isEqualTo("0.000002");
+        assertThat(closed.band()).isEqualTo(2);
+        assertThat(closed.bandName()).isEqualTo("谷");
         assertThat(closed.effectiveFrom()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(closed.effectiveTo()).isEqualTo(Instant.parse("2026-09-20T00:00:00Z"));
         assertThat(closed.operatorId()).isEqualTo("700160");
 
-        // opened：所开新行——新 id、沿用匹配键、新单价、敞口（effectiveTo=null）、带改价操作者
+        // opened：所开新行——新 id、沿用匹配键、新单价、敞口（effectiveTo=null）、带改价操作者；
+        // band 沿用被关行（带是匹配键成分，改价命令不含 band、不可漂移——#498 钉死）
         var opened = receipt.opened();
         assertThat(opened.id()).isEqualTo("3830100003333333");
         assertThat(opened.provider()).isEqualTo("anthropic");
         assertThat(opened.model()).isEqualTo("claude-fable-5");
         assertThat(opened.tokenKind()).isEqualTo(1);
+        assertThat(opened.band()).isEqualTo(2);
+        assertThat(opened.bandName()).isEqualTo("谷");
         assertThat(opened.unitPrice()).isEqualTo("0.0000018");
         assertThat(opened.effectiveFrom()).isEqualTo(Instant.parse("2026-09-20T00:00:00Z"));
         assertThat(opened.effectiveTo()).isNull();
@@ -383,9 +419,12 @@ class AiplatformPriceEntryClientContractTest {
 
         AiplatformUnitPriceEntryResponse closed = appService.deactivate(ENTRY_ID);
 
-        // 被关行单行回执：effectiveTo 已落（≈现在）、停用操作者落被关行（唯一落点）
+        // 被关行单行回执：effectiveTo 已落（≈现在）、停用操作者落被关行（唯一落点）；
+        // band null＝不区分时段（存量行如实透传，#498）
         assertThat(closed.id()).isEqualTo(ENTRY_ID);
         assertThat(closed.effectiveTo()).isEqualTo(Instant.parse("2026-09-16T10:30:00Z"));
+        assertThat(closed.band()).isNull();
+        assertThat(closed.bandName()).isNull();
         assertThat(closed.operatorId()).isEqualTo("3829492001234567");
         assertThat(closed.operatorName()).isEqualTo("调价运营");
     }

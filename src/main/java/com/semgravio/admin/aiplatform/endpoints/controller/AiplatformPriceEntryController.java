@@ -28,7 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code /api/backoffice/price-entries/**}（#160 成本运营＋#165 写口唯一化）——查询参数名、
  * 缺省值、分页基准（page 1-based，缺省 1/20）与 provider controller 同形。<strong>provider 的
  * 「开行」端点（POST /price-entries，种子脚本通道）不建北向</strong>（spec #62）——web 改价只走
- * 原子 reprice。错误经 {@code AiplatformUpstreamErrorAdvice} 原样透传（如 400 METER_009→3009、
+ * 原子 reprice（#498 起 provider 开行命令体新增可选 band 时段带〔1=峰 2=谷，缺省＝不区分时段〕
+ * 与响应 band/bandName 两列，本面逐字镜像响应两列；开行仍归种子脚本签名通道，北向不加端点）。错误经 {@code AiplatformUpstreamErrorAdvice} 原样透传（如 400 METER_009→3009、
  * 404 METER_006→3006、409 METER_007→3007、409 METER_008→3008）。</p>
  *
  * <p>权限码（spec #62）：读 {@code price-entry:read} 一码；写操作各自独立成码
@@ -65,7 +66,9 @@ public class AiplatformPriceEntryController {
                     + "均可缺省（缺省＝全量行）；effectiveTo 为 null 即当前行。行字段：tokenKind Integer"
                     + " code（1=输入 2=输出 3=缓存读 4=缓存写 5=推理 6=按张——第 6 档为图片生成按张"
                     + "计价行〔aiplatform #288〕，开行/改价/停用对六档同一套语义）+ tokenKindName 中文名"
-                    + "随行（按张档＝「按张」）；unitPrice 为档位单价（token 档每 token、按张档每张）——"
+                    + "随行（按张档＝「按张」）；band 时段带两列（1=峰 2=谷＋bandName「峰/谷」随行，"
+                    + "#498/ADR-0044 峰谷 2/4——null＝不区分时段，两列同 null 落空：无峰谷通道与"
+                    + "按张行存量语义零变动）；unitPrice 为档位单价（token 档每 token、按张档每张）——"
                     + "本端读回为 String 精确十进制串（BigDecimal 语义；改价入参侧为 number，两侧类型"
                     + "有意不对称、照实各自呈现）；operatorId/operatorName 留痕"
                     + "（该行最近管理动作——开行或停用；存量行/种子脚本种入行为 null）。page 1 基"
@@ -91,17 +94,20 @@ public class AiplatformPriceEntryController {
     )
     @Operation(summary = "原子改价（单调用关当前行＋开新行，可预发布）——透传 aiplatform",
             description = "同事务两步：被关行落 effectiveTo＝新起点（保留其原开行操作者，不被改写），"
-                    + "新行沿用匹配键（含 tokenKind——按张行改价同语义，unitPrice 即每张价）、"
-                    + "单价/币种取命令、敞口生效。命令体逐字镜像 {unitPrice, currency,"
+                    + "新行沿用匹配键（含 tokenKind——按张行改价同语义，unitPrice 即每张价；含 band"
+                    + "时段带——带是匹配键成分，不在改价命令内、新行沿用被关行 band 不可漂移，"
+                    + "#498/ADR-0044）、单价/币种取命令、敞口生效。命令体逐字镜像 {unitPrice, currency,"
                     + " effectiveFrom}：unitPrice 入参侧为 JSON number（BigDecimal 语义明文小数，"
                     + "响应侧读回为十进制字符串——两侧类型有意不对称、照实各自呈现）；effectiveFrom"
                     + " ISO-8601 Instant（UTC 带 Z）可空＝缺省即时，含未来时点＝预发布（对齐供应商凌晨"
-                    + "调价，窗口前旧价仍生效）——预发布与同键区间重叠校验语义由 provider 承担，BFF 不"
-                    + "代填时点不预判。回执 {closed, opened} 双行（库内事实）。X-User-Id/X-User-Name"
-                    + " 透传头自动落痕新行（缺头落空）。行不存在（含畸形 id）404 METER_006（3006）；"
+                    + "调价，窗口前旧价仍生效）——预发布与同键同带区间重叠校验语义由 provider 承担，BFF 不"
+                    + "代填时点不预判。回执 {closed, opened} 双行（库内事实，两行 band 如实回显且相等"
+                    + "——新行沿用被关行）。X-User-Id/X-User-Name"
+                    + "透传头自动落痕新行（缺头落空）。行不存在（含畸形 id）404 METER_006（3006）；"
                     + "字段不完整/单价负数 400 METER_004（3004）；币种非 ISO 4217 400 METER_010（3010）；"
                     + "起点早于被关行起点 400 METER_005（3005）；目标非当前行 409 METER_007（3007）；"
-                    + "区间重叠（跨区间或同起点）409 METER_008（3008）。")
+                    + "区间重叠 409 METER_008（3008）——#498 起语义同步带维度：同键同带同起点拒、"
+                    + "不同带不误拒（峰/谷价目行可同起点共存）。")
     public ApiResponse<AiplatformUnitPriceEntryRepriceResponse> reprice(
             @PathVariable String id, @RequestBody AiplatformPriceEntryRepriceCommand command) {
         return ApiResponse.ok(priceEntryAppService.reprice(id, command));
@@ -117,7 +123,8 @@ public class AiplatformPriceEntryController {
     @Operation(summary = "停用（即时生效，关行不接新行）——透传 aiplatform",
             description = "关当前行（effectiveTo＝现在），不开新行——此后该匹配键用量进 unpriced"
                     + "（缺价不伪装 0、不阻断聚合），成本警示面可据此发现缺口。对未生效的预发布行停用＝"
-                    + "钳到自身起点成空区间（从未生效）。无请求体。X-User-Id/X-User-Name 透传头自动落痕"
+                    + "钳到自身起点成空区间（从未生效）。无请求体。回执被关行单行——band 时段带如实"
+                    + "回显（停用语义不变，#498）。X-User-Id/X-User-Name 透传头自动落痕"
                     + "被关行（停用不接新行，被关行是唯一落点；缺头落空）。行不存在（含畸形 id）"
                     + " 404 METER_006（3006）；目标非当前行 409 METER_007（3007）。")
     public ApiResponse<AiplatformUnitPriceEntryResponse> deactivate(@PathVariable String id) {

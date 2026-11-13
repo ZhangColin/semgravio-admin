@@ -1749,7 +1749,8 @@ public class AiplatformClient {
 
     /**
      * 分页查询单价行清单（透传 aiplatform，含历史行——价史全貌）。tokenKind 六档
-     * （1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价）。
+     * （1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价）；band 时段带两列
+     * （1=峰 2=谷＋bandName 随行，#498/ADR-0044——null＝不区分时段两列同 null，存量/按张行零变动）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/price-entries}（#160 已冻结）：返回
      * {@code ApiResponse<PageResponse<UnitPriceEntryResponse>>}。provider/model 均为匹配键成分＝
@@ -1786,21 +1787,24 @@ public class AiplatformClient {
 
     /**
      * 原子改价（透传 aiplatform）——单调用关当前行＋开新行（同事务，中途任一守卫失败两行都不动）。
-     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价）。
+     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价；
+     * 含 band 时段带——带是匹配键成分，改价命令不含 band、新行沿用被关行不可漂移，#498）。
      *
      * <p>对接 aiplatform {@code POST /api/backoffice/price-entries/{id}/reprice}（#160）：请求体
      * {@code {unitPrice, currency, effectiveFrom}} 逐字镜像（unitPrice BigDecimal→JSON 明文小数
      * ——入参侧 number，响应侧读回十进制字符串，两侧类型有意不对称照实各自呈现；
-     * effectiveFrom 可空＝缺省即时、含未来时点＝预发布——预发布与重叠校验语义由 provider 承担，
-     * BFF 不代填时点不预判），返回 {@code ApiResponse<UnitPriceEntryRepriceResponse>}——
+     * effectiveFrom 可空＝缺省即时、含未来时点＝预发布——预发布与同键同带重叠校验语义由 provider
+     * 承担，BFF 不代填时点不预判），返回 {@code ApiResponse<UnitPriceEntryRepriceResponse>}——
      * {@code {closed, opened}} 双行回执（被关行落 effectiveTo＝新起点且保留其原开行留痕，新行
-     * 沿用匹配键、带改价操作者）。操作者身份经框架 {@code OpenApiClient} 自动带
+     * 沿用匹配键、带改价操作者；两行 band 如实回显且相等——新行沿用被关行）。操作者身份经框架
+     * {@code OpenApiClient} 自动带
      * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕新行，缺头落空）。</p>
      *
      * <p>行不存在（含畸形 id——provider 侧 lenient 解析）404 METER_006（3006）；字段不完整/
      * 单价负数 400 METER_004（3004）；币种非 ISO 4217 400 METER_010（3010）；起点早于被关行起点
-     * 400 METER_005（3005）；目标非当前行 409 METER_007（3007）；区间重叠（跨区间或同起点）
-     * 409 METER_008（3008）——均原样透传。</p>
+     * 400 METER_005（3005）；目标非当前行 409 METER_007（3007）；区间重叠
+     * 409 METER_008（3008）——#498 起语义同步带维度（同键同带同起点拒、不同带不误拒）——
+     * 均原样透传。</p>
      *
      * @param id      单价行标识（TSID 十进制字符串）
      * @param command 改价命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
@@ -1826,7 +1830,8 @@ public class AiplatformClient {
      *
      * <p>对接 aiplatform {@code POST /api/backoffice/price-entries/{id}/deactivate}（#160）：<strong>无
      * 请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，provider 端只读路径参数——
-     * 同沙箱四动作先例），返回 {@code ApiResponse<UnitPriceEntryResponse>}（被关行单行回执）。操作者
+     * 同沙箱四动作先例），返回 {@code ApiResponse<UnitPriceEntryResponse>}（被关行单行回执，band
+     * 时段带如实回显、停用语义不变——#498）。操作者
      * 透传头自动落痕被关行（停用不接新行，被关行是唯一落点；缺头落空）。行不存在（含畸形 id）
      * 404 METER_006（3006）；目标非当前行 409 METER_007（3007）——均原样透传。</p>
      *

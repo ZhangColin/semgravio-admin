@@ -1423,28 +1423,28 @@ class AiplatformRbacEnforcementIntegrationTest {
         // RequestContext——操作者透传契约证据，同沙箱四动作）/ 停用单行回执
         when(aiplatformClient.listPriceEntries(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformUnitPriceEntryWireResponse(
-                        PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                        PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), null, "700160", "运营·单价管理员"),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
                         null, null),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张", null, null,
                         "0.18", "CNY",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 20));
         doAnswer(inv -> {
             capture.run();
             return new AiplatformUnitPriceEntryRepriceWireResponse(
                     new AiplatformUnitPriceEntryWireResponse(
-                            PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                            PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                             "0.000002", "USD",
                             Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-20T00:00:00Z"),
                             "700160", "运营·单价管理员"),
                     new AiplatformUnitPriceEntryWireResponse(
-                            "3830100003333333", "anthropic", "claude-fable-5", 1, "输入",
+                            "3830100003333333", "anthropic", "claude-fable-5", 1, "输入", null, null,
                             "0.0000018", "USD",
                             Instant.parse("2026-09-20T00:00:00Z"), null,
                             String.valueOf(priceWriteUserId), priceWriteUserNickname));
@@ -1452,7 +1452,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         doAnswer(inv -> {
             capture.run();
             return new AiplatformUnitPriceEntryWireResponse(
-                    PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                    PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                     "0.000002", "USD",
                     Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-16T10:30:00Z"),
                     String.valueOf(priceWriteUserId), priceWriteUserNickname);

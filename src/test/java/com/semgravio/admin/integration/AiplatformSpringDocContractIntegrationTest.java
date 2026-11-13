@@ -284,6 +284,22 @@ class AiplatformSpringDocContractIntegrationTest {
                 .as("tokenKind 应附示例")
                 .isNotBlank();
 
+        // 时段带 band：#498/ADR-0044 峰谷 2/4——1=峰 2=谷、null＝不区分时段自描述（带是匹配键
+        // 成分、改价新行沿用被关行不可漂移），Integer code 直通零 typed enum（bandName 随行）
+        JsonNode band = property("AiplatformUnitPriceEntryResponse", "band");
+        assertThat(band.path("description").asText(""))
+                .as("band 应自描述时段带（1=峰 2=谷、null＝不区分时段，#498）")
+                .contains("1=峰")
+                .contains("2=谷")
+                .contains("不区分时段");
+        assertThat(exampleText(band))
+                .as("band 应附示例")
+                .isNotBlank();
+        // bandName 中文名随行列在场（null＝不区分时段两列同 null 落空）
+        assertThat(property("AiplatformUnitPriceEntryResponse", "bandName").isMissingNode())
+                .as("AiplatformUnitPriceEntryResponse 应含 bandName 随行列")
+                .isFalse();
+
         JsonNode paths = apiDocs().path("paths");
 
         // 单价行清单 @Operation：六档枚举在场＋unitPrice 档位单价语义（token 档每 token/按张档每张）
