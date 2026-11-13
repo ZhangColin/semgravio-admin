@@ -24,6 +24,9 @@ import java.util.Map;
  * @param cost        平台成本（币种分桶；含图片生成成本同桶混算；全未配价/无事件时为空 Map）
  * @param byModel     分模型聚合（provider + model 为单价表匹配键）
  * @param byAgentKind 分智能体聚合（dims.agentKind 原值 + agentKindName 随行——aiplatform#186 已落）
+ * @param byModelCost 分模型金额按带拆（#499 峰谷维度：band/bandName 随附，null＝不区分时段
+ *                    分量——无规则行通道与按张行恒落此桶；cost 按币种分桶与全局 cost 同源
+ *                    互补不重叠）
  */
 public record AiplatformCostOverviewWireResponse(
         Instant from,
@@ -31,7 +34,8 @@ public record AiplatformCostOverviewWireResponse(
         AiplatformTokenUsageWireResponse total,
         Map<String, BigDecimal> cost,
         List<ModelUsage> byModel,
-        List<AgentKindUsage> byAgentKind
+        List<AgentKindUsage> byAgentKind,
+        List<ModelBandCost> byModelCost
 ) {
 
     /**
@@ -46,5 +50,20 @@ public record AiplatformCostOverviewWireResponse(
      * naming/classify 等辅助标记为 null，消费端落「—」桶）。
      */
     public record AgentKindUsage(String agentKind, String agentKindName, AiplatformTokenUsageWireResponse tokens) {
+    }
+
+    /**
+     * 分模型金额按带拆项（#499 峰谷维度，ADR-0044 读时归段）：band 为 Integer code＋bandName
+     * 随附（1=峰 2=谷，tokenKind 房规同款 Integer code 直通；{@code null}＝不区分时段分量——
+     * 无规则行通道与按张行恒落此桶）；cost＝该 (provider, model, 带) 已配价分量按币种分桶，
+     * 与全局 cost 同源互补不重叠。
+     */
+    public record ModelBandCost(
+            String provider,
+            String model,
+            Integer band,
+            String bandName,
+            Map<String, BigDecimal> cost
+    ) {
     }
 }

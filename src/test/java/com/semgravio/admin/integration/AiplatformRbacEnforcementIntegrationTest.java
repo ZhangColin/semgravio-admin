@@ -3,6 +3,7 @@ package com.semgravio.admin.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -100,12 +101,24 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdate
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRelabelWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectCostWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFileContentWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceOverviewWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceSweepWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleOpenWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTokenUsageWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
@@ -184,7 +197,22 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 读写不串、三写码互不串）+ 模型档位域四码
  * （{@code model-tier:read|create|update|delete}——#111 B2：清单/单行/留痕三读端点复用
  * read〔traces 留痕读面〕、三写口各一码，读写不串、三写码互不串、与通道四码互不串
- * 〔通道/档位分权〕）对未登录（401）/
+ * 〔通道/档位分权〕）+「数据标注」域四码
+ * （{@code sediment-draft:read|activate|reject|relabel}——issue #124：标注队列/详情两读
+ * 端点复用 read、三键各一码，读写不串、三写码互不串——激活权/拒绝权/分诊权独立授受，
+ * 连知识域既有 material:read 也不放行）+「资源面」两码
+ * （{@code resource:read|sweep}——issue #128 镜像 aiplatform #489：大盘读口一码、
+ * 手动清扫动刀写码一码——观测权与动刀权分权〔ADR-0045 动刀类走 admin 手动＋留痕〕，
+ * 逐项处置报告北向形状＋操作者透传断言＋WSP_002 信封透传）+「时段规则」四码
+ * （{@code time-band-rule:read|open|rewindow|deactivate}——issue #130 镜像 aiplatform
+ * #497／ADR-0044 峰谷 1/4：清单读口一码、开行/原子改窗/停用三写口各一码〔对称单价表域
+ * 读写分权、调窗权/停用权独立授受〕——一单 N 窗口＝一个版本、改窗回执 closed/opened
+ * 双段、被关行保留原操作者、十二字段行形北向断言＋METER_013/014/015/016/008 信封透传）
+ * +「一键回收」两码
+ * （{@code project:reclaim|workspace:reclaim}——issue #129 镜像 aiplatform #490：项目级/工作区级
+ * reclaim 同形回执、动刀类各一独立写码〔ADR-0045 动刀类走 admin 手动＋留痕〕——四面/三面
+ * 逐面 CLEAN/RESIDUE/UNKNOWN 北向形状＋UNKNOWN 不算清 residueFree 判据＋UNTOUCHED 如实分示
+ * ＋操作者透传断言＋PRJ_001/WSP_001 信封透传）对未登录（401）/
  * 无权者（403）/ 有权者（200）的行为，
  * 并钉死北向出口形状、二进制透传与 provider 错误信封透传。成本域另钉死时间窗 from/to 北向必填
  * （缺参 400 / 非 Instant 404 均在本服务绑定层裁决、不到 provider，issue #67：不设默认窗口）。
@@ -195,7 +223,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  *
  * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域、#81 技能域同款必带）：订单三写
  * 操作（报价落痕价目行、取消/归档落痕订单行）、沙箱四干预动作、
- * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
+ * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）、资源面手动清扫
+ * （issue #128——provider 落 append-only 留痕行＋报告 JSON 落档，缺头落空 NULL）、时段规则
+ * 三写口（issue #130——provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL）从
+ * {@code RequestContext} 读 operator 审计，admin 不在 body 塞
  * 身份——框架 cartisan-openapi 自动从 {@code RequestContext} 带 {@code X-User-Id/X-User-Name}
  * 出站 header。本测试在 mocked {@link AiplatformClient} 边界用 {@code doAnswer} 在调用瞬间抓取
  * {@link RequestContext#getUserId()} / {@link RequestContext#getUserName()}，断言其 == 登录治理
@@ -294,6 +325,10 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String HIBERNATE_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/hibernate";
     private static final String REBUILD_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/rebuild";
     private static final String SEAL_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/seal";
+    private static final String WORKSPACE_RECLAIM_ENDPOINT = WORKSPACE_DETAIL_ENDPOINT + "/reclaim";
+    private static final String PROJECT_RECLAIM_PERMISSION = "admin:aiplatform:project:reclaim";
+    private static final String WORKSPACE_RECLAIM_PERMISSION = "admin:aiplatform:workspace:reclaim";
+    private static final String PROJECT_RECLAIM_ENDPOINT = PROJECT_DETAIL_ENDPOINT + "/reclaim";
     private static final String COST_READ_PERMISSION = "admin:aiplatform:cost:read";
     private static final String COSTS_ENDPOINT = "/api/admin/aiplatform/costs";
     private static final String COST_FROM = "2026-09-01T00:00:00Z";
@@ -357,7 +392,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String AGENT_CONFIG_UPDATE_BODY =
             "{\"systemPrompt\":\"你是英语学习助手的主智能体：先判意图，再编排执行体。\","
                     + "\"modelId\":\"pro\",\"webSearchEnabled\":true,\"fetchUrlEnabled\":false,"
-                    + "\"routingStrongModelId\":\"doubao-flagship\"}";
+                    + "\"routingStrongModelId\":\"doubao-flagship\","
+                    + "\"verificationPresenceGateEnabled\":true,\"proofOfOutputGateEnabled\":false,"
+                    + "\"finalVerificationGateEnabled\":true,\"singleSessionGenerationEnabled\":false,"
+                    + "\"parallelSliceMachineEnabled\":true,\"decisionHintsEnabled\":false,"
+                    + "\"decisionHintErrorStreak\":5,\"decisionHintStackCap\":2,"
+                    + "\"decisionHintDisabled\":[\"anti_mock\",\"parallel_tools\"],"
+                    + "\"verifySelfDecisionEnabled\":false}";
     /** 边缘点稳定键（AgentEdgePoint 四把之一）：naming=项目取名——字符串路径参数透传不预校验。 */
     private static final String EDGE_KEY = "naming";
     private static final String EDGE_MODEL_CONFIG_ENDPOINT = AGENT_CONFIGS_ENDPOINT + "/edge/" + EDGE_KEY;
@@ -453,6 +494,41 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String MODEL_TIER_UPDATE_BODY =
             "{\"providerKey\":\"volcengine\",\"modelName\":\"deepseek-v4-flash-ga-261031\","
                     + "\"displayName\":null,\"enabled\":null}";
+    // 沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层人审口，知识域第二面：
+    // 标注队列＋激活/拒绝/改标签三键，沉淀草稿归 base.knowledge）
+    private static final String SEDIMENT_DRAFT_READ_PERMISSION = "admin:aiplatform:sediment-draft:read";
+    private static final String SEDIMENT_DRAFT_ACTIVATE_PERMISSION = "admin:aiplatform:sediment-draft:activate";
+    private static final String SEDIMENT_DRAFT_REJECT_PERMISSION = "admin:aiplatform:sediment-draft:reject";
+    private static final String SEDIMENT_DRAFT_RELABEL_PERMISSION = "admin:aiplatform:sediment-draft:relabel";
+    /** 沉淀草稿 TSID 十进制串柄（透传不解析不预校验——畸形/未寻址由 provider 判 404 KNW_008）。 */
+    private static final String SEDIMENT_DRAFT_ID = "3853000001111111";
+    private static final String SEDIMENT_DRAFTS_ENDPOINT = "/api/admin/aiplatform/sediment-drafts";
+    private static final String SEDIMENT_DRAFT_DETAIL_ENDPOINT = SEDIMENT_DRAFTS_ENDPOINT + "/" + SEDIMENT_DRAFT_ID;
+    private static final String SEDIMENT_DRAFT_ACTIVATE_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/activate";
+    private static final String SEDIMENT_DRAFT_REJECT_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/reject";
+    private static final String SEDIMENT_DRAFT_RELABEL_ENDPOINT = SEDIMENT_DRAFT_DETAIL_ENDPOINT + "/relabel";
+    private static final String SEDIMENT_DRAFT_REJECT_BODY =
+            "{\"reason\":\"与已激活知识「排课冲突案例」内容重叠，无增量价值\"}";
+    private static final String SEDIMENT_DRAFT_RELABEL_BODY = "{\"kind\":\"MODULE\"}";
+    // 「资源面」（issue #128——aiplatform #489 资源回收通道观测与手动处置面：resources/overview
+    // 大盘＋resources/sweep 手动清扫，回执逐项处置报告）
+    private static final String RESOURCE_READ_PERMISSION = "admin:aiplatform:resource:read";
+    private static final String RESOURCE_SWEEP_PERMISSION = "admin:aiplatform:resource:sweep";
+    private static final String RESOURCES_ENDPOINT = "/api/admin/aiplatform/resources";
+    private static final String RESOURCES_OVERVIEW_ENDPOINT = RESOURCES_ENDPOINT + "/overview";
+    private static final String RESOURCES_SWEEP_ENDPOINT = RESOURCES_ENDPOINT + "/sweep";
+    // 「时段规则」（issue #130——aiplatform #497／ADR-0044 峰谷 1/4：time-band-rules
+    // 清单/开行/原子改窗/停用四端点，一单 N 窗口＝一个版本，改窗回执 closed/opened 双段）
+    private static final String TIME_BAND_RULE_READ_PERMISSION = "admin:aiplatform:time-band-rule:read";
+    private static final String TIME_BAND_RULE_OPEN_PERMISSION = "admin:aiplatform:time-band-rule:open";
+    private static final String TIME_BAND_RULE_REWINDOW_PERMISSION = "admin:aiplatform:time-band-rule:rewindow";
+    private static final String TIME_BAND_RULE_DEACTIVATE_PERMISSION = "admin:aiplatform:time-band-rule:deactivate";
+    private static final String TIME_BAND_RULES_ENDPOINT = "/api/admin/aiplatform/time-band-rules";
+    private static final String TIME_BAND_RULE_ID = "3829492007655001";
+    private static final String TIME_BAND_RULE_REWINDOW_ENDPOINT =
+            TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/rewindow";
+    private static final String TIME_BAND_RULE_DEACTIVATE_ENDPOINT =
+            TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/deactivate";
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -493,6 +569,10 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithProviderDeleteOnly;
     private String usernameWithModelTierWrite;
     private String usernameWithTierDeleteOnly;
+    private String usernameWithSedimentDraftWrite;
+    private String usernameWithResourceSweep;
+    private String usernameWithTimeBandRuleWrite;
+    private String usernameWithReclaim;
 
     // 在 mocked client 调用瞬间抓取 RequestContext——证明 operator 身份抵达出站调用点
     // （供 OpenApiClient 带 X-User-Id/X-User-Name 出站头，issue #66/#69/#70 断言必带）
@@ -530,6 +610,14 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String modelProviderWriteUserNickname;
     private Long modelTierWriteUserId;
     private String modelTierWriteUserNickname;
+    private Long sedimentDraftWriteUserId;
+    private String sedimentDraftWriteUserNickname;
+    private Long resourceSweepUserId;
+    private String resourceSweepUserNickname;
+    private Long timeBandRuleWriteUserId;
+    private String timeBandRuleWriteUserNickname;
+    private Long reclaimUserId;
+    private String reclaimUserNickname;
 
     @Autowired
     AiplatformRbacEnforcementIntegrationTest(
@@ -581,6 +669,10 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithProviderDeleteOnly = "aiplapdel" + suffix;
         usernameWithModelTierWrite = "aiplatwr" + suffix;
         usernameWithTierDeleteOnly = "aiplatdel" + suffix;
+        usernameWithSedimentDraftWrite = "aiplasdwrt" + suffix;
+        usernameWithResourceSweep = "aiplarswp" + suffix;
+        usernameWithTimeBandRuleWrite = "aiplatbrw" + suffix;
+        usernameWithReclaim = "aiplarcl" + suffix;
 
         Long readRoleId = roleAppService.create(
                 new CreateRoleCommand("AI平台读权限_" + suffix, "AIPLAREAD_" + suffix,
@@ -592,7 +684,9 @@ class AiplatformRbacEnforcementIntegrationTest {
                         AGENT_CONFIG_READ_PERMISSION, AGENT_TOOL_READ_PERMISSION,
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
                         PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
-                        MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION)));
+                        MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION,
+                        SEDIMENT_DRAFT_READ_PERMISSION, RESOURCE_READ_PERMISSION,
+                        TIME_BAND_RULE_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -952,6 +1046,71 @@ class AiplatformRbacEnforcementIntegrationTest {
         userAppService.assignRoles(tierDeleteOnlyUserId,
                 new AssignRolesCommand(List.of(tierDeleteOnlyRoleId)));
 
+        // 「数据标注」三写码专用运营（activate+reject+relabel，无读码——读写不串，#124
+        // 照 skill-draft 先例每写操作一码）——操作者透传断言用其 id/昵称（provider 标注
+        // 动作必留痕、缺头 400 KNW_006 拦，无落空通道）
+        Long sedimentDraftWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台数据标注写操作_" + suffix, "AIPLASEDWR_" + suffix,
+                        "AI 平台沉淀草稿激活 + 拒绝 + 改标签权限", 119, null));
+        roleAppService.assignPermissions(sedimentDraftWriteRoleId, new AssignPermissionsCommand(List.of(
+                SEDIMENT_DRAFT_ACTIVATE_PERMISSION, SEDIMENT_DRAFT_REJECT_PERMISSION,
+                SEDIMENT_DRAFT_RELABEL_PERMISSION)));
+        sedimentDraftWriteUserNickname = "数据标注运营_" + suffix;
+        sedimentDraftWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithSedimentDraftWrite, PASSWORD,
+                        sedimentDraftWriteUserNickname, null, null, null));
+        userAppService.assignRoles(sedimentDraftWriteUserId,
+                new AssignRolesCommand(List.of(sedimentDraftWriteRoleId)));
+
+        // 「资源面」清扫写码专用运营（resource:sweep，无读码——观测权与动刀权分权，issue #128
+        // 动刀类最小授权照 ADR-0045）——操作者透传断言用其 id/昵称（provider 落 append-only
+        // 留痕行＋报告 JSON 落档，缺头落空 NULL 不拦）
+        Long resourceSweepRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台资源清扫_" + suffix, "AIPLARSWP_" + suffix,
+                        "AI 平台资源面手动清扫权限", 120, null));
+        roleAppService.assignPermissions(resourceSweepRoleId,
+                new AssignPermissionsCommand(List.of(RESOURCE_SWEEP_PERMISSION)));
+        resourceSweepUserNickname = "资源治理运营_" + suffix;
+        resourceSweepUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithResourceSweep, PASSWORD,
+                        resourceSweepUserNickname, null, null, null));
+        userAppService.assignRoles(resourceSweepUserId,
+                new AssignRolesCommand(List.of(resourceSweepRoleId)));
+
+        // 「时段规则」三写码专用运营（time-band-rule:open/rewindow/deactivate，无读码——
+        // 调窗权/停用权最小授权，issue #130 对称单价表域读写分权先例）——操作者透传断言用其
+        // id/昵称（provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL 不拦）
+        Long timeBandRuleWriteRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台时段调窗_" + suffix, "AIPLATBRW_" + suffix,
+                        "AI 平台时段规则开行/改窗/停用权限", 121, null));
+        roleAppService.assignPermissions(timeBandRuleWriteRoleId,
+                new AssignPermissionsCommand(List.of(
+                        TIME_BAND_RULE_OPEN_PERMISSION,
+                        TIME_BAND_RULE_REWINDOW_PERMISSION,
+                        TIME_BAND_RULE_DEACTIVATE_PERMISSION)));
+        timeBandRuleWriteUserNickname = "时段调窗运营_" + suffix;
+        timeBandRuleWriteUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithTimeBandRuleWrite, PASSWORD,
+                        timeBandRuleWriteUserNickname, null, null, null));
+        userAppService.assignRoles(timeBandRuleWriteUserId,
+                new AssignRolesCommand(List.of(timeBandRuleWriteRoleId)));
+
+        // 「一键回收」双写码专用运营（project:reclaim＋workspace:reclaim，无读码——动刀类最小授权
+        // 照 ADR-0045，issue #129 镜像 aiplatform #490）——操作者透传断言用其 id/昵称（provider
+        // 落 append-only wsp_reclaim_actions 留痕行，缺头落空 NULL 不拦）
+        Long reclaimRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台一键回收_" + suffix, "AIPLARCL_" + suffix,
+                        "AI 平台项目级/工作区级一键回收权限", 120, null));
+        roleAppService.assignPermissions(reclaimRoleId,
+                new AssignPermissionsCommand(List.of(
+                        PROJECT_RECLAIM_PERMISSION, WORKSPACE_RECLAIM_PERMISSION)));
+        reclaimUserNickname = "回收专员_" + suffix;
+        reclaimUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithReclaim, PASSWORD,
+                        reclaimUserNickname, null, null, null));
+        userAppService.assignRoles(reclaimUserId,
+                new AssignRolesCommand(List.of(reclaimRoleId)));
+
         // 200 用例：aiplatform 下游 mock，证明通路接通（不依赖真实 aiplatform 服务）
         when(aiplatformClient.getAccountProfile(eq(EXTERNAL_ID))).thenReturn(
                 new AiplatformAccountProfileWireResponse(
@@ -1059,7 +1218,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         WORKSPACE_ID, "ws-" + WORKSPACE_ID,
                         1, "开发", 2, "就绪", 1, "运行", 3, "无容器",
                         LocalDateTime.of(2026, 9, 14, 22, 10, 0),
-                        2147483648L, null, null,
+                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0), null, null, null,
                         new AiplatformWorkspaceSummaryWireResponse.ProjectRef(
                                 PROJECT_ID, "英语学习助手", false))), 17, 2, 20));
         when(aiplatformClient.getWorkspace(eq(WORKSPACE_ID))).thenReturn(
@@ -1263,14 +1422,17 @@ class AiplatformRbacEnforcementIntegrationTest {
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
                         List.of(new AiplatformCostOverviewWireResponse.AgentKindUsage(
                                 "naming", null,
-                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0)))));
+                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0))),
+                        List.of(new AiplatformCostOverviewWireResponse.ModelBandCost(
+                                "anthropic", "claude-fable-5", 1, "峰",
+                                Map.of("CNY", new BigDecimal("3.0"))))));
         when(aiplatformClient.getUnpricedUsage(eq(new AiplatformCostWindowWireRequest(costFrom, costTo))))
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         costFrom, costTo,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700),
+                                "openai", "gpt-5.2", 1, "输入", null, null, 700),
                                 new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                        "imgprov", "qwen-image", 6, "按张", 3))));
+                                        "imgprov", "qwen-image", 6, "按张", null, null, 3))));
         when(aiplatformClient.listProjectCosts(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectCostWireResponse(
                         PROJECT_ID,
@@ -1287,7 +1449,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800),
                         Map.of("CNY", new BigDecimal("12.3456")),
                         List.of(new AiplatformProjectCostDetailWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入")),
+                                "openai", "gpt-5.2", 1, "输入", null, null)),
                         List.of(new AiplatformProjectCostDetailWireResponse.ModelUsage(
                                 "anthropic", "claude-fable-5",
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
@@ -1298,28 +1460,28 @@ class AiplatformRbacEnforcementIntegrationTest {
         // RequestContext——操作者透传契约证据，同沙箱四动作）/ 停用单行回执
         when(aiplatformClient.listPriceEntries(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformUnitPriceEntryWireResponse(
-                        PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                        PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), null, "700160", "运营·单价管理员"),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
                         null, null),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张", null, null,
                         "0.18", "CNY",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 20));
         doAnswer(inv -> {
             capture.run();
             return new AiplatformUnitPriceEntryRepriceWireResponse(
                     new AiplatformUnitPriceEntryWireResponse(
-                            PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                            PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                             "0.000002", "USD",
                             Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-20T00:00:00Z"),
                             "700160", "运营·单价管理员"),
                     new AiplatformUnitPriceEntryWireResponse(
-                            "3830100003333333", "anthropic", "claude-fable-5", 1, "输入",
+                            "3830100003333333", "anthropic", "claude-fable-5", 1, "输入", null, null,
                             "0.0000018", "USD",
                             Instant.parse("2026-09-20T00:00:00Z"), null,
                             String.valueOf(priceWriteUserId), priceWriteUserNickname));
@@ -1327,7 +1489,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         doAnswer(inv -> {
             capture.run();
             return new AiplatformUnitPriceEntryWireResponse(
-                    PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入",
+                    PRICE_ENTRY_ID, "anthropic", "claude-fable-5", 1, "输入", null, null,
                     "0.000002", "USD",
                     Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-16T10:30:00Z"),
                     String.valueOf(priceWriteUserId), priceWriteUserNickname);
@@ -1487,26 +1649,50 @@ class AiplatformRbacEnforcementIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003333333",
                         null, "flash", true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "pro", true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700210", "运营·智能体管理员",
                         LocalDateTime.of(2026, 11, 1, 10, 15, 0)),
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003222222",
                         null, null, true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "flash", true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 10, 22, 16, 40, 0))));
         when(aiplatformClient.listAgentConfigTraces(eq(AGENT_KEY))).thenReturn(List.of(
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000002222222",
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true,
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         null, null, true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         String.valueOf(agentConfigUpdateUserId), agentConfigUpdateUserNickname,
                         LocalDateTime.of(2026, 9, 22, 14, 30, 0)),
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000001111111",
                         null, null, true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true,
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         "700100", "运营·平台管理员",
                         LocalDateTime.of(2026, 9, 10, 9, 5, 0))));
         // 工具面域 mock（issue #85，aiplatform #252 技能线 T6）：清单＝三槽位代表面（main 槽
@@ -1582,6 +1768,183 @@ class AiplatformRbacEnforcementIntegrationTest {
                     LocalDateTime.of(2026, 9, 29, 11, 20, 0),
                     "正文与现有技能 prd-writing 方法论重叠，解消方向不明");
         }).when(aiplatformClient).rejectSkillDraft(eq(DRAFT_ID), any(AiplatformSkillDraftRejectWireRequest.class));
+        // 「数据标注」域 mock（issue #124，aiplatform #464 采集层人审口）：标注队列两行（在途
+        // SAFE＋已激活终态——队列缺省含终态行、自荐时间倒序）/ 详情＝在途态（payload 一期恒
+        // 空面＋findings untyped map 代表面＋终态留痕四 null）；三键抓取 RequestContext（操作者
+        // 透传契约证据，provider 标注动作必留痕、缺头必拦 KNW_006，断言必带）——activate/reject
+        // 回终态详情（留痕回填、在途名额释放 inflightSlot=null）、relabel 回现值详情（新类别
+        // 直读、不翻终态）
+        when(aiplatformClient.listSedimentDrafts(
+                any(AiplatformSedimentDraftListWireRequest.class), anyInt(), anyInt()))
+                .thenReturn(new PageResponse<>(List.of(
+                        new AiplatformSedimentDraftSummaryWireResponse(
+                                SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                                "两名教师同时段占用同一教室的冲突调解流程",
+                                "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                                1, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30)),
+                        new AiplatformSedimentDraftSummaryWireResponse(
+                                "3853000002222222", "RULE", "退款审批业务规则",
+                                "超过 7 天的退款须二级审批",
+                                "main", "3829492005555444", "run-9f22e1", "CAUTION",
+                                2, 2, "已激活", LocalDateTime.of(2026, 11, 8, 14, 0, 0))),
+                        2L, 1, 20));
+        when(aiplatformClient.getSedimentDraft(eq(SEDIMENT_DRAFT_ID)))
+                .thenReturn(new AiplatformSedimentDraftDetailWireResponse(
+                        SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                        "两名教师同时段占用同一教室的冲突调解流程",
+                        "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                        1, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                        "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                        Map.of(),
+                        List.of(Map.of(
+                                "patternId", "secret-like-token", "severity", "CAUTION",
+                                "category", "security", "file", "CASE.md",
+                                "line", 42, "matchText", "sk-***",
+                                "description", "疑似密钥形态字符串")),
+                        null, null, null, null));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    null, 2, "已激活", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    String.valueOf(sedimentDraftWriteUserId), sedimentDraftWriteUserNickname,
+                    LocalDateTime.of(2026, 11, 12, 10, 0, 0),
+                    null);
+        }).when(aiplatformClient).activateSedimentDraft(eq(SEDIMENT_DRAFT_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "CASE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    null, 3, "已拒绝", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    String.valueOf(sedimentDraftWriteUserId), sedimentDraftWriteUserNickname,
+                    LocalDateTime.of(2026, 11, 12, 10, 30, 0),
+                    "与已激活知识「排课冲突案例」内容重叠，无增量价值");
+        }).when(aiplatformClient).rejectSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRejectWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformSedimentDraftDetailWireResponse(
+                    SEDIMENT_DRAFT_ID, "MODULE", "排课冲突处理案例",
+                    "两名教师同时段占用同一教室的冲突调解流程",
+                    "executor", PROJECT_ID, "run-7c31ab", "SAFE",
+                    2, 1, "在途", LocalDateTime.of(2026, 11, 10, 9, 15, 30),
+                    "# 排课冲突处理\n\n当两名教师同时段占用同一教室时……",
+                    Map.of(), List.of(),
+                    null, null, null, null);
+        }).when(aiplatformClient).relabelSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class));
+        // 「资源面」mock（issue #128，aiplatform #489）：大盘读口＝采样帧全量面（主机盘/docker
+        // 四类/无主计数/失联计数/sampledAt/最近清扫留痕直读）＋清扫写口回执＝逐项处置报告
+        //（SWEPT/SKIPPED 两类原因代表面）＋抓取 RequestContext（操作者透传契约证据——provider
+        // 落 append-only 留痕行＋报告 JSON 落档，缺头落空 NULL 不拦）
+        when(aiplatformClient.getResourceOverview()).thenReturn(new AiplatformResourceOverviewWireResponse(
+                new AiplatformResourceOverviewWireResponse.HostFace(
+                        "/var/lib/docker", 494384795648L, 301989888000L, 192394907648L),
+                new AiplatformResourceOverviewWireResponse.DockerFace(
+                        12L, 4442639553L, 8L, 2147483648L,
+                        9L, 12884901888L, 20L, 3221225472L),
+                new AiplatformResourceOverviewWireResponse.OrphanFace(1L, 1L),
+                2L,
+                LocalDateTime.of(2026, 11, 13, 10, 30, 0),
+                new AiplatformResourceOverviewWireResponse.LastSweep(
+                        LocalDateTime.of(2026, 11, 13, 9, 0, 0),
+                        "700101", "运维·老张", true, 1, 1, 3, 0)));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformResourceSweepWireResponse(
+                    LocalDateTime.of(2026, 11, 13, 9, 5, 0),
+                    String.valueOf(resourceSweepUserId), resourceSweepUserNickname,
+                    true, LocalDateTime.of(2026, 11, 13, 8, 55, 0),
+                    1, 0, 2, 0,
+                    List.of(
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "CONTAINER", "ws-3829492007654321", "SWEPT", null,
+                                    LocalDateTime.of(2026, 11, 13, 8, 40, 0)),
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "CONTAINER", "ws-730101", "SKIPPED", "REGISTERED", null),
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "VOLUME", "vol-ws-3829492007654999", "SKIPPED", "GRACE_WINDOW",
+                                    LocalDateTime.of(2026, 11, 13, 9, 1, 0))));
+        }).when(aiplatformClient).sweepResources();
+        // 「时段规则」mock（issue #130，aiplatform #497）：清单＝现行峰段两行＋历史谷段一行
+        // （分页回显 provider 原值）＋开行/改窗/停用回执（改窗 closed/opened 双段、被关行保留
+        // 原操作者）＋三写口抓取 RequestContext（操作者透传契约证据——provider 落痕新行/被关行，
+        // 缺头落空 NULL 不拦）
+        when(aiplatformClient.listTimeBandRules(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(
+                List.of(
+                        new AiplatformTimeBandRuleWireResponse(
+                                TIME_BAND_RULE_ID, "deepseek", 1, "峰", 31, "周一至周五",
+                                60, 240, Instant.parse("2026-08-16T00:00:00Z"), null,
+                                "700101", "运维·老张"),
+                        new AiplatformTimeBandRuleWireResponse(
+                                "3829492007655002", "deepseek", 1, "峰", 31, "周一至周五",
+                                360, 600, Instant.parse("2026-08-16T00:00:00Z"), null,
+                                "700101", "运维·老张"),
+                        new AiplatformTimeBandRuleWireResponse(
+                                "3829492007654990", "deepseek", 2, "谷", 31, "周一至周五",
+                                1200, 1320, Instant.parse("2026-05-01T00:00:00Z"),
+                                Instant.parse("2026-08-16T00:00:00Z"), null, null)),
+                3, 1, 20));
+        doAnswer(inv -> {
+            capture.run();
+            return List.of(new AiplatformTimeBandRuleWireResponse(
+                    "3829492007655011", "deepseek", 1, "峰", 31, "周一至周五",
+                    60, 240, Instant.parse("2026-11-14T00:00:00Z"), null,
+                    String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname),
+                    new AiplatformTimeBandRuleWireResponse(
+                            "3829492007655012", "deepseek", 1, "峰", 31, "周一至周五",
+                            360, 600, Instant.parse("2026-11-14T00:00:00Z"), null,
+                            String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname));
+        }).when(aiplatformClient).openTimeBandRule(any(AiplatformTimeBandRuleOpenWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformTimeBandRuleRewindowWireResponse(
+                    List.of(new AiplatformTimeBandRuleWireResponse(
+                            TIME_BAND_RULE_ID, "deepseek", 1, "峰", 31, "周一至周五",
+                            60, 240, Instant.parse("2026-08-16T00:00:00Z"),
+                            Instant.parse("2026-11-14T00:00:00Z"), "700101", "运维·老张")),
+                    List.of(new AiplatformTimeBandRuleWireResponse(
+                            "3829492007655021", "deepseek", 1, "峰", 31, "周一至周五",
+                            90, 270, Instant.parse("2026-11-14T00:00:00Z"), null,
+                            String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname)));
+        }).when(aiplatformClient).rewindowTimeBandRule(eq(TIME_BAND_RULE_ID),
+                any(AiplatformTimeBandRuleRewindowWireRequest.class));
+        doAnswer(inv -> {
+            capture.run();
+            return List.of(new AiplatformTimeBandRuleWireResponse(
+                    "3829492007655011", "deepseek", 1, "峰", 31, "周一至周五",
+                    60, 240, Instant.parse("2026-11-14T00:00:00Z"),
+                    Instant.parse("2026-11-13T10:00:00Z"),
+                    String.valueOf(timeBandRuleWriteUserId), timeBandRuleWriteUserNickname));
+        }).when(aiplatformClient).deactivateTimeBandRule(eq(TIME_BAND_RULE_ID));
+        // 「一键回收」mock（issue #129，aiplatform #490）：项目级回执＝四面全 CLEAN＋runsStopped
+        // true＋residueFree true；工作区级回执＝三面全 CLEAN＋项目面 UNTOUCHED＋runsStopped
+        // false——均抓取 RequestContext（操作者透传契约证据——provider 落 append-only
+        // wsp_reclaim_actions 留痕行，缺头落空 NULL 不拦）
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformReclaimWireResponse(
+                    "PROJECT", PROJECT_ID, WORKSPACE_ID, true,
+                    "CLEAN", "CLEAN", "CLEAN", "CLEAN", true,
+                    String.valueOf(reclaimUserId), reclaimUserNickname,
+                    LocalDateTime.of(2026, 11, 13, 9, 30, 0));
+        }).when(aiplatformClient).reclaimProject(eq(PROJECT_ID));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformReclaimWireResponse(
+                    "WORKSPACE", PROJECT_ID, WORKSPACE_ID, false,
+                    "CLEAN", "CLEAN", "CLEAN", "UNTOUCHED", true,
+                    String.valueOf(reclaimUserId), reclaimUserNickname,
+                    LocalDateTime.of(2026, 11, 13, 9, 35, 0));
+        }).when(aiplatformClient).reclaimWorkspace(eq(WORKSPACE_ID));
     }
 
     /**
@@ -1598,6 +1961,12 @@ class AiplatformRbacEnforcementIntegrationTest {
                 "你是主智能体。（枚举默认全文）", "flash",
                 true, false,
                 "doubao-flagship", true, "pro",
+                true, false,
+                true, false, true, false, true, false,
+                5, true, 3,
+                2, true, 3,
+                List.of("anti_mock", "parallel_tools"), true,
+                false,
                 operatorId, operatorName, updatedAt);
     }
 
@@ -1968,6 +2337,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                 1, "开发", 2, "就绪", null,
                 desiredState, desiredStateName, containerState, containerStateName,
                 LocalDateTime.of(2026, 9, 16, 9, 0, 0), 1073741824L,
+                LocalDateTime.of(2026, 9, 16, 9, 1, 0),
+                null,
                 archivePath == null ? null : LocalDateTime.of(2026, 9, 16, 9, 0, 0),
                 archivePath, archiveSizeBytes,
                 LocalDateTime.of(2026, 9, 8, 10, 0, 0), LocalDateTime.of(2026, 9, 16, 9, 0, 0),
@@ -2560,14 +2931,17 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(row.path("desiredStateName").asText()).isEqualTo("运行");
         assertThat(row.path("containerState").asInt()).isEqualTo(3);
         assertThat(row.path("containerStateName").asText()).isEqualTo("无容器");
-        // 卷用量 Long（JSON string）+ 项目引用三字段（跳转项目详情的锚）
+        // 卷用量 Long（JSON string）+ 实态列采样时刻 sampledAt（#487 新鲜度标注）+ 项目引用三字段（跳转项目详情的锚）
         assertThat(row.path("volumeSizeBytes").asLong()).isEqualTo(2147483648L);
+        assertThat(row.path("sampledAt").asText()).isEqualTo("2026-09-14T22:11:00");
         assertThat(row.path("project").path("projectId").asText()).isEqualTo(PROJECT_ID);
         assertThat(row.path("project").path("name").asText()).isEqualTo("英语学习助手");
         assertThat(row.path("project").path("archived").asBoolean()).isFalse();
         // 未封存字段如实出 JSON null（全局 Jackson 含 null）
         assertThat(row.path("sealedAt").isNull()).isTrue();
         assertThat(row.path("archiveSizeBytes").isNull()).isTrue();
+        // 未失联字段如实出 JSON null（#488 在册失联标记增量列，issue #127——失联行此列非 null 为判定时刻）
+        assertThat(row.path("lostAt").isNull()).isTrue();
     }
 
     @Test
@@ -2586,6 +2960,10 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 封存包寻址键 + 包大小（Long JSON string）
         assertThat(data.path("archivePath").asText()).isEqualTo("workspace-archives/" + WORKSPACE_ID + ".tar.gz");
         assertThat(data.path("archiveSizeBytes").asLong()).isEqualTo(89128960L);
+        // 实态列采样快照（#487）：sampledAt 新鲜度标注在场（封存行 volumeSizeBytes 恒 null）
+        assertThat(data.path("sampledAt").asText()).isEqualTo("2026-09-16T09:01:00");
+        // 未失联字段如实出 JSON null（#488 在册失联标记增量列，issue #127）
+        assertThat(data.path("lostAt").isNull()).isTrue();
         // 中间件资源清单：kind Integer code（provider 出口无 *Name——忠实镜像）+ 连接串原文
         JsonNode pg = data.path("resources").get(0);
         assertThat(pg.path("kind").asInt()).isEqualTo(1);
@@ -3743,6 +4121,23 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("routingStrongModelId").asText()).isEqualTo("doubao-flagship");
         assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
         assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
+        // #432 提速批次十五件（issue #122——读面含十件生效值＋决策注入三件的 Overridden 标志
+        // 与 defaultDecisionHint* 代码缺省预览 3）
+        assertThat(data.path("verificationPresenceGateEnabled").asBoolean()).isTrue();
+        assertThat(data.path("proofOfOutputGateEnabled").asBoolean()).isFalse();
+        assertThat(data.path("finalVerificationGateEnabled").asBoolean()).isTrue();
+        assertThat(data.path("singleSessionGenerationEnabled").asBoolean()).isFalse();
+        assertThat(data.path("parallelSliceMachineEnabled").asBoolean()).isTrue();
+        assertThat(data.path("decisionHintsEnabled").asBoolean()).isFalse();
+        assertThat(data.path("decisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(data.path("decisionHintErrorStreakOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultDecisionHintErrorStreak").asInt()).isEqualTo(3);
+        assertThat(data.path("decisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(data.path("decisionHintStackCapOverridden").asBoolean()).isTrue();
+        assertThat(data.path("defaultDecisionHintStackCap").asInt()).isEqualTo(3);
+        assertThat(data.path("decisionHintDisabled").get(0).asText()).isEqualTo("anti_mock");
+        assertThat(data.path("decisionHintDisabledOverridden").asBoolean()).isTrue();
+        assertThat(data.path("verifySelfDecisionEnabled").asBoolean()).isFalse();
         // 增强工具开关存储态（一开一关代表面）
         assertThat(data.path("webSearchEnabled").asBoolean()).isTrue();
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
@@ -3778,6 +4173,24 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(latest.path("newWebSearchEnabled").asBoolean()).isTrue();
         assertThat(latest.path("newFetchUrlEnabled").asBoolean()).isTrue();
         assertThat(latest.path("newRoutingStrongModelId").isNull()).isTrue();
+        // 提速批次二十件（issue #122）：首条＝清空提速批次变更——old 快照呈覆盖态（回滚写回
+        // 依据），new 回落缺省态（七开关恒有值、两阈值/禁用集 null）
+        assertThat(latest.path("oldVerificationPresenceGateEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("oldSingleSessionGenerationEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("oldParallelSliceMachineEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("oldDecisionHintsEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("oldDecisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(latest.path("oldDecisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(latest.path("oldDecisionHintDisabled").asText()).isEqualTo("anti_mock,parallel_tools");
+        assertThat(latest.path("oldVerifySelfDecisionEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newVerificationPresenceGateEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newSingleSessionGenerationEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newParallelSliceMachineEnabled").asBoolean()).isFalse();
+        assertThat(latest.path("newDecisionHintsEnabled").asBoolean()).isTrue();
+        assertThat(latest.path("newDecisionHintErrorStreak").isNull()).isTrue();
+        assertThat(latest.path("newDecisionHintStackCap").isNull()).isTrue();
+        assertThat(latest.path("newDecisionHintDisabled").isNull()).isTrue();
+        assertThat(latest.path("newVerifySelfDecisionEnabled").asBoolean()).isTrue();
         assertThat(latest.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(latest.path("operatedAt").asText()).isEqualTo("2026-09-22T14:30:00");
 
@@ -3813,6 +4226,11 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("routingStrongModelIdOverridden").asBoolean()).isTrue();
         assertThat(data.path("defaultRoutingStrongModelId").asText()).isEqualTo("pro");
         assertThat(data.path("fetchUrlEnabled").asBoolean()).isFalse();
+        // 提速批次十五件（issue #122）随行回执
+        assertThat(data.path("decisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(data.path("decisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(data.path("decisionHintDisabled").get(0).asText()).isEqualTo("anti_mock");
+        assertThat(data.path("verifySelfDecisionEnabled").asBoolean()).isFalse();
         assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(agentConfigUpdateUserId));
         assertThat(data.path("operatorName").asText()).isEqualTo(agentConfigUpdateUserNickname);
 
@@ -4428,6 +4846,650 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("code").asInt()).isEqualTo(7018);
         assertThat(root.path("message").asText()).isEqualTo("拒绝理由不能为空（终态留档，拒绝须有据）");
         assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「数据标注」域（sediment-draft:read 读面 / :activate、:reject、:relabel 写面，issue #124）· 权限三态 + 回执形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 sediment-draft:read → 标注队列 200，三过滤透传 wire＋分页回显 provider 值＋行形状镜像 provider（含终态行）")
+    void given_nonSuperAdminWithSedimentDraftRead_when_queue_then_200AndRowsMirrorProvider() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(
+                SEDIMENT_DRAFTS_ENDPOINT + "?projectId=" + PROJECT_ID + "&kind=CASE&status=1&page=1&size=20",
+                token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 三过滤维度 query→wire 逐字映射（projectId 宽松串/kind 串/status Integer）＋分页 1-based 直传
+        verify(aiplatformClient).listSedimentDrafts(
+                argThat(wire -> PROJECT_ID.equals(wire.projectId()) && "CASE".equals(wire.kind())
+                        && Integer.valueOf(1).equals(wire.status())),
+                eq(1), eq(20));
+
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // PageResponse 形状：items/total/page/size——回显 provider 回报值（1-based 原值）
+        assertThat(data.path("total").asLong()).isEqualTo(2L);
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("size").asInt()).isEqualTo(20);
+        assertThat(data.path("items").size()).isEqualTo(2);
+
+        // 首行（在途待审）：kind/title/summary＋血统三件＋扫描判定＋在途序号 inflightSlot（结构性
+        // 承载——队列拥挤度可视化锚）＋status Integer code＋statusName 中文名随行＋createdAt
+        JsonNode pending = data.path("items").get(0);
+        assertThat(pending.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(pending.path("kind").asText()).isEqualTo("CASE");
+        assertThat(pending.path("title").asText()).isEqualTo("排课冲突处理案例");
+        assertThat(pending.path("summary").asText()).isEqualTo("两名教师同时段占用同一教室的冲突调解流程");
+        assertThat(pending.path("slot").asText()).isEqualTo("executor");
+        assertThat(pending.path("projectId").asText()).isEqualTo(PROJECT_ID);
+        assertThat(pending.path("runId").asText()).isEqualTo("run-7c31ab");
+        assertThat(pending.path("scanVerdict").asText()).isEqualTo("SAFE");
+        assertThat(pending.path("inflightSlot").isNumber()).isTrue();
+        assertThat(pending.path("inflightSlot").asInt()).isEqualTo(1);
+        assertThat(pending.path("status").asInt()).isEqualTo(1);
+        assertThat(pending.path("statusName").asText()).isEqualTo("在途");
+        assertThat(pending.path("createdAt").asText()).isEqualTo("2026-11-10T09:15:30");
+
+        // 次行（终态行代表面）：队列缺省含终态行——status=2 已激活照常绑定（终态留档可查）
+        JsonNode activated = data.path("items").get(1);
+        assertThat(activated.path("status").asInt()).isEqualTo(2);
+        assertThat(activated.path("statusName").asText()).isEqualTo("已激活");
+        assertThat(activated.path("inflightSlot").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 sediment-draft:read → 标注详情 200，正文全文＋payload 恒空面＋findings untyped＋终态留痕四 null")
+    void given_nonSuperAdminWithSedimentDraftRead_when_getSedimentDraftDetail_then_200DetailMirrorsProvider()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(data.path("status").asInt()).isEqualTo(1);
+        assertThat(data.path("statusName").asText()).isEqualTo("在途");
+        // 正文全文原样到达（激活原样升格不改稿——审核面所见即入库内容）
+        assertThat(data.path("content").asText()).startsWith("# 排课冲突处理");
+        // payload 一期恒空面（untyped 逐字透传）
+        assertThat(data.path("payload").isObject()).isTrue();
+        assertThat(data.path("payload").size()).isZero();
+        // findings untyped map 逐条留档：line 为数字（Object 绑定混合类型在场）
+        JsonNode finding = data.path("scanFindings").get(0);
+        assertThat(finding.path("patternId").asText()).isEqualTo("secret-like-token");
+        assertThat(finding.path("line").asInt()).isEqualTo(42);
+        // 终态留痕四字段在途恒 null（如实出 JSON null——全局 Jackson 含 null）
+        assertThat(data.path("operatorId").isNull()).isTrue();
+        assertThat(data.path("operatorName").isNull()).isTrue();
+        assertThat(data.path("reviewedAt").isNull()).isTrue();
+        assertThat(data.path("rejectReason").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 激活/拒绝/改标签 200，回执＝终态/现值详情且 RequestContext 透传登录 operator")
+    void given_nonSuperAdminWithSedimentDraftWriteCodes_when_threeKeys_then_200_andRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithSedimentDraftWrite);
+
+        // 激活（无请求体）：回执＝终态详情——status=2 已激活、留痕回填（操作者/时刻）、在途名额
+        // 已释放（inflightSlot null——队列拥挤度下降）、rejectReason null（拒绝理由不适用）
+        ResponseEntity<String> activate = postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token);
+        assertThat(activate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode activated = objectMapper.readTree(activate.getBody()).path("data");
+        assertThat(activated.path("id").asText()).isEqualTo(SEDIMENT_DRAFT_ID);
+        assertThat(activated.path("status").asInt()).isEqualTo(2);
+        assertThat(activated.path("statusName").asText()).isEqualTo("已激活");
+        assertThat(activated.path("operatorId").asText())
+                .isEqualTo(String.valueOf(sedimentDraftWriteUserId));
+        assertThat(activated.path("operatorName").asText()).isEqualTo(sedimentDraftWriteUserNickname);
+        assertThat(activated.path("reviewedAt").asText()).isEqualTo("2026-11-12T10:00:00");
+        assertThat(activated.path("inflightSlot").isNull()).isTrue();
+        assertThat(activated.path("rejectReason").isNull()).isTrue();
+
+        // 拒绝（带 reason 命令体）：回执＝终态详情——status=3 已拒绝、留痕四字段回填直读
+        //（操作者/时刻/理由随行留档）
+        ResponseEntity<String> reject =
+                postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, token);
+        assertThat(reject.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rejected = objectMapper.readTree(reject.getBody()).path("data");
+        assertThat(rejected.path("status").asInt()).isEqualTo(3);
+        assertThat(rejected.path("statusName").asText()).isEqualTo("已拒绝");
+        assertThat(rejected.path("operatorId").asText())
+                .isEqualTo(String.valueOf(sedimentDraftWriteUserId));
+        assertThat(rejected.path("reviewedAt").asText()).isEqualTo("2026-11-12T10:30:00");
+        assertThat(rejected.path("rejectReason").asText())
+                .isEqualTo("与已激活知识「排课冲突案例」内容重叠，无增量价值");
+
+        // 改标签（带 kind 命令体）：回执＝现值详情——kind=MODULE 新类别直读、不翻终态
+        //（status=1 在途、终态留痕四 null、inflightSlot 仍占位 2＝跨类别占目标类别在途名额）
+        ResponseEntity<String> relabel =
+                postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token);
+        assertThat(relabel.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode relabeled = objectMapper.readTree(relabel.getBody()).path("data");
+        assertThat(relabeled.path("kind").asText()).isEqualTo("MODULE");
+        assertThat(relabeled.path("status").asInt()).isEqualTo(1);
+        assertThat(relabeled.path("inflightSlot").asInt()).isEqualTo(2);
+        assertThat(relabeled.path("operatorId").isNull()).isTrue();
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 标注动作必留痕、缺头必拦 KNW_006
+        // ——issue #124 断言必带）：== 登录数据标注运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(sedimentDraftWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(sedimentDraftWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写两码不串：无 sediment-draft:read → 两读口 403；仅有 read（无写码）→ 三写口 403")
+    void given_readCodesOnly_when_sedimentDraftEndpoints_then_403OnTheOtherSide() {
+        // 三写码专用运营（无 sediment-draft:read）→ 两读口 403：sediment-draft 独立成码
+        //（连知识域既有 material:read 也不放行——#124 四码分权）
+        String writer = login(usernameWithSedimentDraftWrite);
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // sediment-draft:read（无写码）→ 三写口 403：审阅只读角色不得激活/拒绝/改标签
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, reader)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, reader)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 数据标注五端点 403；未登录 → 401（含三键 POST）")
+    void given_noPermissionOrUnauthenticated_when_sedimentDraftEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(getWithToken(SEDIMENT_DRAFT_DETAIL_ENDPOINT, token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_REJECT_ENDPOINT, SEDIMENT_DRAFT_REJECT_BODY, token)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(SEDIMENT_DRAFTS_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("激活下游 KNW_008（沉淀草稿不存在，含畸形 id）→ 北向 HTTP 404 + 信封 code=2008 + message 原文（不映射）")
+    void given_knw008FromDownstream_when_activateSedimentDraft_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.activateSedimentDraft(eq(SEDIMENT_DRAFT_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":2008,\"message\":\"沉淀草稿不存在\",\"data\":null}")));
+
+        String token = login(usernameWithSedimentDraftWrite);
+        ResponseEntity<String> response = postWithToken(SEDIMENT_DRAFT_ACTIVATE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 2008（KNW_008＝域码 2×1000＋8），而非映射后的 404——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(2008);
+        assertThat(root.path("message").asText()).isEqualTo("沉淀草稿不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("改标签下游 KNW_012（目标类别在途满 3）→ 北向 HTTP 409 + 信封 code=2012 + message 原文（不映射）")
+    void given_knw012FromDownstream_when_relabelSedimentDraft_then_errorEnvelopePassedThrough() throws Exception {
+        // 改标签跨类别占目标类别在途名额——结构性约束跨类别生效，满员由 provider 裁决
+        //（前端提示「目标类别在途已满，先审结该类别草稿」）
+        when(aiplatformClient.relabelSedimentDraft(
+                eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class)))
+                .thenThrow(AiplatformUpstreamException.from(new OpenApiClientException(409,
+                        "{\"code\":2012,\"message\":\"目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithSedimentDraftWrite);
+        ResponseEntity<String> response =
+                postWithToken(SEDIMENT_DRAFT_RELABEL_ENDPOINT, SEDIMENT_DRAFT_RELABEL_BODY, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 2012（KNW_012＝域码 2×1000＋12），而非映射后的 409——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(2012);
+        assertThat(root.path("message").asText())
+                .isEqualTo("目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「资源面」（resource:read 读面 / :sweep 写面，issue #128 镜像 aiplatform #489）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 resource:read → 资源大盘 200，六面齐备＋null≠零两态＋失联计数＋最近清扫留痕直读")
+    void given_nonSuperAdminWithResourceRead_when_overview_then_200AndSixFacesMirrored() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(RESOURCES_OVERVIEW_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+
+        // 主机盘面：锚路径＋三字节（北向出口 Long→JSON string）＋docker 四类＋无主计数
+        JsonNode host = data.path("host");
+        assertThat(host.path("path").asText()).isEqualTo("/var/lib/docker");
+        assertThat(host.path("totalBytes").asText()).isEqualTo("494384795648");
+        assertThat(host.path("usableBytes").asText()).isEqualTo("301989888000");
+        assertThat(host.path("usedBytes").asText()).isEqualTo("192394907648");
+        JsonNode docker = data.path("docker");
+        assertThat(docker.path("imageCount").asText()).isEqualTo("12");
+        assertThat(docker.path("imageSizeBytes").asText()).isEqualTo("4442639553");
+        assertThat(docker.path("containerCount").asText()).isEqualTo("8");
+        assertThat(docker.path("containerSizeBytes").asText()).isEqualTo("2147483648");
+        assertThat(docker.path("volumeCount").asText()).isEqualTo("9");
+        assertThat(docker.path("volumeSizeBytes").asText()).isEqualTo("12884901888");
+        assertThat(docker.path("buildCacheCount").asText()).isEqualTo("20");
+        assertThat(docker.path("buildCacheSizeBytes").asText()).isEqualTo("3221225472");
+        assertThat(data.path("orphans").path("containerCount").asText()).isEqualTo("1");
+        assertThat(data.path("orphans").path("volumeCount").asText()).isEqualTo("1");
+        // lostWorkspaceCount primitive long 北向出 JSON string（全局 Long→ToStringSerializer
+        // 覆盖包装与 primitive 同源——asLong 对齐出口口径）
+        assertThat(data.path("lostWorkspaceCount").asText()).isEqualTo("2");
+        assertThat(data.path("lostWorkspaceCount").asLong()).isEqualTo(2L);
+        assertThat(data.path("sampledAt").asText()).isEqualTo("2026-11-13T10:30:00");
+        // 最近手动清扫留痕直读（收编结果面）
+        JsonNode lastSweep = data.path("lastSweep");
+        assertThat(lastSweep.path("sweptAt").asText()).isEqualTo("2026-11-13T09:00:00");
+        assertThat(lastSweep.path("operatorId").asText()).isEqualTo("700101");
+        assertThat(lastSweep.path("operatorName").asText()).isEqualTo("运维·老张");
+        assertThat(lastSweep.path("registryReachable").asBoolean()).isTrue();
+        assertThat(lastSweep.path("sweptContainers").asInt()).isEqualTo(1);
+        assertThat(lastSweep.path("sweptVolumes").asInt()).isEqualTo(1);
+        assertThat(lastSweep.path("skippedCount").asInt()).isEqualTo(3);
+        assertThat(lastSweep.path("failedCount").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 resource:sweep → 手动清扫 200，逐项处置报告＋计数面＋操作者回显且 RequestContext 透传")
+    void given_nonSuperAdminWithResourceSweep_when_sweep_then_200ItemizedReportAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithResourceSweep);
+        ResponseEntity<String> response = postWithToken(RESOURCES_SWEEP_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("sweptAt").asText()).isEqualTo("2026-11-13T09:05:00");
+        // 操作者两列＝透传头落痕回显（本次登录的资源治理运营）
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(resourceSweepUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(resourceSweepUserNickname);
+        assertThat(data.path("registryReachable").asBoolean()).isTrue();
+        assertThat(data.path("graceLine").asText()).isEqualTo("2026-11-13T08:55:00");
+        // 计数面一源＝域报告
+        assertThat(data.path("sweptContainers").asInt()).isEqualTo(1);
+        assertThat(data.path("sweptVolumes").asInt()).isZero();
+        assertThat(data.path("skippedCount").asInt()).isEqualTo(2);
+        assertThat(data.path("failedCount").asInt()).isZero();
+        // 逐项处置三行：SWEPT（skipReason null）/SKIPPED REGISTERED（在册不动）/SKIPPED GRACE_WINDOW
+        assertThat(data.path("items").size()).isEqualTo(3);
+        JsonNode swept = data.path("items").get(0);
+        assertThat(swept.path("kind").asText()).isEqualTo("CONTAINER");
+        assertThat(swept.path("identifier").asText()).isEqualTo("ws-3829492007654321");
+        assertThat(swept.path("disposition").asText()).isEqualTo("SWEPT");
+        assertThat(swept.path("skipReason").isNull()).isTrue();
+        assertThat(swept.path("resourceCreatedAt").asText()).isEqualTo("2026-11-13T08:40:00");
+        JsonNode registered = data.path("items").get(1);
+        assertThat(registered.path("disposition").asText()).isEqualTo("SKIPPED");
+        assertThat(registered.path("skipReason").asText()).isEqualTo("REGISTERED");
+        assertThat(registered.path("resourceCreatedAt").isNull()).isTrue();
+        JsonNode grace = data.path("items").get(2);
+        assertThat(grace.path("kind").asText()).isEqualTo("VOLUME");
+        assertThat(grace.path("skipReason").asText()).isEqualTo("GRACE_WINDOW");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 落留痕行＋报告 JSON 落档，缺头落空 NULL
+        // ——issue #128 断言必带）：== 登录资源治理运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(resourceSweepUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(resourceSweepUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写两码不串：无 resource:read → 大盘 403（仅有 sweep 写码）；仅有 read → 清扫 403")
+    void given_readCodesOnly_when_resourceEndpoints_then_403OnTheOtherSide() {
+        // 清扫写码专用运营（无 resource:read）→ 大盘读口 403：观测权与动刀权分权
+        String sweeper = login(usernameWithResourceSweep);
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, sweeper).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // resource:read（无 sweep 写码）→ 清扫写口 403：只读角色不得动刀
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 资源面两端点 403；未登录 → 401（含清扫 POST）")
+    void given_noPermissionOrUnauthenticated_when_resourceEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("清扫下游 WSP_002（docker CLI 失败）→ 北向 HTTP 500 + 信封 code=1002 + message 原文（不映射）")
+    void given_wsp002FromDownstream_when_sweep_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.sweepResources()).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(500,
+                        "{\"code\":1002,\"message\":\"docker CLI 调用失败（docker system df 非零退出）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithResourceSweep);
+        ResponseEntity<String> response = postWithToken(RESOURCES_SWEEP_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 1002（WSP_002＝域码 1×1000＋2），而非映射后的 500——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(1002);
+        assertThat(root.path("message").asText())
+                .isEqualTo("docker CLI 调用失败（docker system df 非零退出）");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「时段规则」（time-band-rule:read / :open|rewindow|deactivate 四码，issue #130 镜像 aiplatform #497／ADR-0044 峰谷 1/4）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 time-band-rule:read → 时段规则清单 200，十二字段行形＋分页回显 provider 原值")
+    void given_nonSuperAdminWithTimeBandRuleRead_when_entries_then_200TwelveFieldsAndPageEchoed()
+            throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(TIME_BAND_RULES_ENDPOINT + "?provider=deepseek", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("size").asInt()).isEqualTo(20);
+        assertThat(data.path("total").asInt()).isEqualTo(3);
+        JsonNode first = data.path("items").get(0);
+        assertThat(first.path("id").asText()).isEqualTo(TIME_BAND_RULE_ID);
+        assertThat(first.path("provider").asText()).isEqualTo("deepseek");
+        assertThat(first.path("band").asInt()).isEqualTo(1);
+        assertThat(first.path("bandName").asText()).isEqualTo("峰");
+        assertThat(first.path("dayMask").asInt()).isEqualTo(31);
+        assertThat(first.path("dayMaskName").asText()).isEqualTo("周一至周五");
+        assertThat(first.path("startMinute").asInt()).isEqualTo(60);
+        assertThat(first.path("endMinute").asInt()).isEqualTo(240);
+        assertThat(first.path("effectiveFrom").asText()).isEqualTo("2026-08-16T00:00:00Z");
+        assertThat(first.path("effectiveTo").isNull()).isTrue();
+        assertThat(first.path("operatorId").asText()).isEqualTo("700101");
+        assertThat(first.path("operatorName").asText()).isEqualTo("运维·老张");
+        // 历史行区间两端在场＋种子/无头行操作者落空 NULL
+        JsonNode history = data.path("items").get(2);
+        assertThat(history.path("band").asInt()).isEqualTo(2);
+        assertThat(history.path("effectiveTo").asText()).isEqualTo("2026-08-16T00:00:00Z");
+        assertThat(history.path("operatorId").isNull()).isTrue();
+        assertThat(history.path("operatorName").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 开行 200 一单 N 窗口＝一个版本，RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_open_then_200SingleVersionRowsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":["
+                        + "{\"band\":1,\"dayMask\":31,\"startMinute\":60,\"endMinute\":240},"
+                        + "{\"band\":1,\"dayMask\":31,\"startMinute\":360,\"endMinute\":600}],"
+                        + "\"effectiveFrom\":\"2026-11-14T00:00:00Z\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.size()).isEqualTo(2);
+        assertThat(data.get(0).path("id").asText()).isEqualTo("3829492007655011");
+        assertThat(data.get(0).path("effectiveFrom").asText()).isEqualTo("2026-11-14T00:00:00Z");
+        assertThat(data.get(0).path("effectiveTo").isNull()).isTrue();
+        // 操作者两列＝透传头落痕回显（本次登录的时段调窗运营）
+        assertThat(data.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+        assertThat(data.get(0).path("operatorName").asText()).isEqualTo(timeBandRuleWriteUserNickname);
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头落痕新行，缺头落空 NULL——issue #130 断言必带）
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 原子改窗 200 回执 closed/opened 双段，被关行保留原操作者＋RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_rewindow_then_200ClosedOpenedSegmentsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}],"
+                        + "\"effectiveFrom\":\"2026-11-14T00:00:00Z\"}", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // closed 段：被关行区间两端落定＋保留原开行操作者（不被改写）
+        JsonNode closed = data.path("closed");
+        assertThat(closed.size()).isEqualTo(1);
+        assertThat(closed.get(0).path("id").asText()).isEqualTo(TIME_BAND_RULE_ID);
+        assertThat(closed.get(0).path("effectiveTo").asText()).isEqualTo("2026-11-14T00:00:00Z");
+        assertThat(closed.get(0).path("operatorId").asText()).isEqualTo("700101");
+        assertThat(closed.get(0).path("operatorName").asText()).isEqualTo("运维·老张");
+        // opened 段：新窗口行操作者取本次请求
+        JsonNode opened = data.path("opened");
+        assertThat(opened.size()).isEqualTo(1);
+        assertThat(opened.get(0).path("startMinute").asInt()).isEqualTo(90);
+        assertThat(opened.get(0).path("endMinute").asInt()).isEqualTo(270);
+        assertThat(opened.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有三写码 → 停用 200 被关版本全部行，操作者落被关行＋RequestContext 透传")
+    void given_timeBandRuleWriteCodes_when_deactivate_then_200ClosedRowsAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.size()).isEqualTo(1);
+        assertThat(data.get(0).path("effectiveTo").asText()).isEqualTo("2026-11-13T10:00:00Z");
+        assertThat(data.get(0).path("operatorId").asText())
+                .isEqualTo(String.valueOf(timeBandRuleWriteUserId));
+
+        assertThat(capturedOperatorId.get()).isEqualTo(timeBandRuleWriteUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(timeBandRuleWriteUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写四码不串：无 read → 清单 403（仅有三写码）；仅有 read → 开行/改窗/停用 403")
+    void given_readWriteCodesNotCrossed_when_timeBandRuleEndpoints_then_403OnTheOtherSide() {
+        // 三写码专用运营（无 time-band-rule:read）→ 清单读口 403：读写分权
+        String writer = login(usernameWithTimeBandRuleWrite);
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, writer).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // time-band-rule:read（无三写码）→ 三写口 403：只读角色不得调窗
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 时段规则四端点 403；未登录 → 401（含三写口 POST）")
+    void given_noPermissionOrUnauthenticated_when_timeBandRuleEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(TIME_BAND_RULES_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULES_ENDPOINT,
+                "{\"provider\":\"deepseek\",\"windows\":[{\"band\":1,\"dayMask\":31,"
+                        + "\"startMinute\":60,\"endMinute\":240}]}", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULE_REWINDOW_ENDPOINT,
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(TIME_BAND_RULE_DEACTIVATE_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("改窗下游 METER_015（行不存在）→ 北向 HTTP 404 + 信封 code=3015 + message 原文（不映射）")
+    void given_meter015FromDownstream_when_rewindow_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.rewindowTimeBandRule(eq("3829492007655999"),
+                any(AiplatformTimeBandRuleRewindowWireRequest.class))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":3015,\"message\":\"时段规则行不存在\",\"data\":null}")));
+
+        String token = login(usernameWithTimeBandRuleWrite);
+        ResponseEntity<String> response = postWithToken(
+                TIME_BAND_RULES_ENDPOINT + "/3829492007655999/rewindow",
+                "{\"windows\":[{\"band\":1,\"dayMask\":31,\"startMinute\":90,\"endMinute\":270}]}",
+                token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 3015（METER_015＝METER 域码 3×1000＋15）——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(3015);
+        assertThat(root.path("message").asText()).isEqualTo("时段规则行不存在");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「一键回收」（project:reclaim / workspace:reclaim 两写码，issue #129 镜像 aiplatform #490）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 project:reclaim → 项目级回收 200，四面全 CLEAN＋runsStopped＋residueFree＋操作者回显且 RequestContext 透传")
+    void given_nonSuperAdminWithReclaimCodes_when_projectReclaim_then_200FourFacesAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> response = postWithToken(PROJECT_RECLAIM_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 项目级同形回执：scope＋双 id＋在飞 run 级联停止＋四面全 CLEAN＋零残留判据
+        assertThat(data.path("scope").asText()).isEqualTo("PROJECT");
+        assertThat(data.path("projectId").asText()).isEqualTo(PROJECT_ID);
+        assertThat(data.path("workspaceId").asText()).isEqualTo(WORKSPACE_ID);
+        assertThat(data.path("runsStopped").asBoolean()).isTrue();
+        assertThat(data.path("container").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("volume").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("registryRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("projectRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("residueFree").asBoolean()).isTrue();
+        // 操作者两列＝透传头落痕回显（本次登录的回收专员）
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(reclaimUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(reclaimUserNickname);
+        assertThat(data.path("reclaimedAt").asText()).isEqualTo("2026-11-13T09:30:00");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头落 append-only wsp_reclaim_actions，缺头落空 NULL
+        // ——issue #129 断言必带）：== 登录回收专员的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(reclaimUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(reclaimUserNickname);
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 workspace:reclaim → 工作区级回收 200，三面全 CLEAN＋项目面 UNTOUCHED 如实分示＋runsStopped false＋RequestContext 透传")
+    void given_nonSuperAdminWithReclaimCodes_when_workspaceReclaim_then_200UntouchedFaceAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> response = postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        // 工作区级同形回执：三面全 CLEAN＋项目面 UNTOUCHED（单台三清不动项目行——非清非残留）
+        //＋无所属无停止面可挂 runsStopped false
+        assertThat(data.path("scope").asText()).isEqualTo("WORKSPACE");
+        assertThat(data.path("container").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("volume").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("registryRow").asText()).isEqualTo("CLEAN");
+        assertThat(data.path("projectRow").asText()).isEqualTo("UNTOUCHED");
+        assertThat(data.path("runsStopped").asBoolean()).isFalse();
+        assertThat(data.path("residueFree").asBoolean()).isTrue();
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(reclaimUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(reclaimUserNickname);
+
+        assertThat(capturedOperatorId.get()).isEqualTo(reclaimUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(reclaimUserNickname);
+    }
+
+    @Test
+    @DisplayName("仅有 read 码（无 reclaim 写码）→ 项目级/工作区级回收 403（动刀写码独立于读码，最小授权）")
+    void given_readCodesOnly_when_reclaimEndpoints_then_403() {
+        String token = login(usernameWithReadPermission);
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 回收两端点 403；未登录 → 401")
+    void given_noPermissionOrUnauthenticated_when_reclaimEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(postWithToken(PROJECT_RECLAIM_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(WORKSPACE_RECLAIM_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("回收下游 PRJ_001/WSP_001 → 北向 HTTP 404 + 信封 code=4001/1001 + message 原文（不映射）")
+    void given_notFoundFromDownstream_when_reclaim_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.reclaimProject(eq(PROJECT_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":4001,\"message\":\"项目不存在\",\"data\":null}")));
+        when(aiplatformClient.reclaimWorkspace(eq(WORKSPACE_ID))).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(404,
+                        "{\"code\":1001,\"message\":\"工作区不存在\",\"data\":null}")));
+
+        String token = login(usernameWithReclaim);
+        ResponseEntity<String> projectResponse = postWithToken(PROJECT_RECLAIM_ENDPOINT, token);
+        assertThat(projectResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode projectRoot = objectMapper.readTree(projectResponse.getBody());
+        // 信封 code＝数字业务码 4001（PRJ_001＝域码 4×1000＋1）——前端比对 aiplatform 业务码的分支活
+        assertThat(projectRoot.path("code").asInt()).isEqualTo(4001);
+        assertThat(projectRoot.path("message").asText()).isEqualTo("项目不存在");
+        assertThat(projectRoot.path("data").isNull()).isTrue();
+
+        ResponseEntity<String> workspaceResponse = postWithToken(WORKSPACE_RECLAIM_ENDPOINT, token);
+        assertThat(workspaceResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode workspaceRoot = objectMapper.readTree(workspaceResponse.getBody());
+        assertThat(workspaceRoot.path("code").asInt()).isEqualTo(1001);
+        assertThat(workspaceRoot.path("message").asText()).isEqualTo("工作区不存在");
+        assertThat(workspaceRoot.path("data").isNull()).isTrue();
     }
 
     // ========== 合同域（contract:read/create 两码）· 权限三态 + 北向出口形状 + 操作者透传 ==========

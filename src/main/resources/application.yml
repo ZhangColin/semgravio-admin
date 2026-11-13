@@ -46,6 +46,10 @@ sa-token:
   token-prefix: Bearer
 
 admin:
+  # CORS 放行名单（#121）：allowCredentials(true) 下禁 *，显式名单逗号分隔；
+  # 生产经服务器 .env.production 的 CORS_ALLOWED_ORIGINS 注入 https://admin.semgravio.com
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001,http://127.0.0.1:3001}
   app-registry:
     base-url: ${APP_REGISTRY_URL:http://localhost:8088}
   # payment 能力域地址（联调前默认值占位，真实部署经 PAYMENT_SERVICE_URL 覆盖）

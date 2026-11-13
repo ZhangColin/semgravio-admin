@@ -96,3 +96,6 @@ logs/
 
 # Backup files
 *.bak
+
+# 发布连接参数本机正本（现网值不进仓库）
+deploy/release.env

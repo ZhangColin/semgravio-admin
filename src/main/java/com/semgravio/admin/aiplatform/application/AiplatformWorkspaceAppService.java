@@ -3,8 +3,10 @@ package com.semgravio.admin.aiplatform.application;
 import java.util.List;
 
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformWorkspaceSummaryWireResponse;
@@ -21,7 +23,9 @@ import org.springframework.stereotype.Service;
  * （provider 信封原样透传，spec #62 定稿：aiplatform 不做映射），本层不再 try/catch。</p>
  *
  * <p>四干预动作的回执＝详情 DTO（动作后的观测详情、新事实），与详情读同一映射；操作者身份经框架
- * {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传（identity 同款，AppService 不经手）。</p>
+ * {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传（identity 同款，AppService 不经手）。
+ * 动作回执的实态列是动作前采样帧（#487：desiredState/status 即时生效，containerState 等下轮
+ * 采样刷新）——动作后立即轮询看到旧实态属预期。</p>
  *
  * <p>分页（spec #62 平台分页统一决议目标态）：北向请求 page <strong>1-based</strong>，出站直传
  * 零换算；回显取 provider 回报的 page/size 原值（含 provider clamp 后的值），BFF 不重复夹取。</p>
@@ -40,7 +44,9 @@ public class AiplatformWorkspaceAppService {
     /**
      * 沙箱清单（两维过滤，透传 aiplatform）——期望态/实态分示发现漂移：desired（1=运行 2=休眠
      * 3=封存）/actual（1=运行中 2=已停止 3=无容器 4=未知）均单选、可组合、可缺省；新沙箱在前
-     * （provider 定死 TSID 倒序）。实态与卷大小逐行现场探查（docker 子进程）——观测页不必贪大。
+     * （provider 定死 TSID 倒序）。实态列与卷大小为采样快照（aiplatform #487，issue #126）：
+     * 扫描轮采样落库约 5 分钟新鲜度，sampledAt 标注采样时刻——未采样三字段全 null。另带在册失联
+     * 标记 lostAt（aiplatform #488，issue #127，纯透传不改语义）：非 null＝项目行已删而物理资源仍在。
      */
     public PageResponse<AiplatformWorkspaceSummaryResponse> list(AiplatformWorkspaceQuery query, int page, int size) {
         PageResponse<AiplatformWorkspaceSummaryWireResponse> wirePage = aiplatformClient.listWorkspaces(
@@ -94,13 +100,34 @@ public class AiplatformWorkspaceAppService {
         return toDetail(aiplatformClient.sealWorkspace(id));
     }
 
+    /**
+     * 工作区级一键回收（透传 aiplatform，issue #129 镜像 aiplatform #490）——单台三清（容器/
+     * 卷/注册表行），项目行与其余资产不动（回执 projectRow＝UNTOUCHED）；#488 在册失联行的
+     * 人工裁决出口。回执＝同形回收报告：三面逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留
+     * 判据（UNKNOWN 不算清——回执如实红不报错重试，残留归收编通道）＋runsStopped。操作者经
+     * 框架 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传落痕（AppService 不
+     * 经手，缺头落空 NULL——照沙箱动作面口径）；错误（404 WSP_001〔含畸形 id〕、销毁自身失败
+     * 500〔未成不留痕可重试〕）经 {@link AiplatformClient} 原样透传，本层不 try/catch。
+     */
+    public AiplatformReclaimResponse reclaim(String id) {
+        return toReclaim(aiplatformClient.reclaimWorkspace(id));
+    }
+
+    private static AiplatformReclaimResponse toReclaim(AiplatformReclaimWireResponse wire) {
+        return new AiplatformReclaimResponse(
+                wire.scope(), wire.projectId(), wire.workspaceId(), wire.runsStopped(),
+                wire.container(), wire.volume(), wire.registryRow(), wire.projectRow(),
+                wire.residueFree(), wire.operatorId(), wire.operatorName(), wire.reclaimedAt());
+    }
+
     private static AiplatformWorkspaceSummaryResponse toSummary(AiplatformWorkspaceSummaryWireResponse wire) {
         return new AiplatformWorkspaceSummaryResponse(
                 wire.workspaceId(), wire.containerName(),
                 wire.kind(), wire.kindName(), wire.status(), wire.statusName(),
                 wire.desiredState(), wire.desiredStateName(),
                 wire.containerState(), wire.containerStateName(),
-                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sealedAt(), wire.archiveSizeBytes(),
+                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(), wire.lostAt(),
+                wire.sealedAt(), wire.archiveSizeBytes(),
                 wire.project() == null ? null : toProjectRef(wire.project()));
     }
 
@@ -110,7 +137,7 @@ public class AiplatformWorkspaceAppService {
                 wire.kind(), wire.kindName(), wire.status(), wire.statusName(), wire.provisionError(),
                 wire.desiredState(), wire.desiredStateName(),
                 wire.containerState(), wire.containerStateName(),
-                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sealedAt(),
+                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(), wire.lostAt(), wire.sealedAt(),
                 wire.archivePath(), wire.archiveSizeBytes(), wire.createdAt(), wire.updatedAt(),
                 wire.resources() == null ? null : wire.resources().stream()
                         .map(AiplatformWorkspaceAppService::toMiddlewareResource)

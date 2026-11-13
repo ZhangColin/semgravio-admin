@@ -44,25 +44,25 @@ import cn.dev33.satoken.config.SaTokenConfig;
 
 /**
  * AI 平台菜单种子（V15 六域＋V17/V18/V19 技能线三叶＋V20 草稿审核叶＋V22 合同管理叶＋
- * V23 模型供应商/模型档位两叶）可见性与权限汇总集成断言
+ * V23 模型供应商/模型档位两叶＋V24 数据标注叶＋V25 资源面叶＋V26 时段规则叶）可见性与权限汇总集成断言
  * （issue #72 T10 六域收口、#80/#82/#84 技能线 T1/T3/T5 逐叶种入、#86 七域收口、#92 草稿审核叶、
  * #104 合同管理叶——spec #102 A 批 A1、#110 模型供应商/模型档位两叶——spec #101 B 批 B1、
- * #111 档位四码随票生效——spec #101 B 批 B2）。
+ * #111 档位四码随票生效——spec #101 B 批 B2、#124 数据标注叶——aiplatform #464 采集层人审口）。
  *
  * <p><b>为什么跑在独立 Flyway schema 上</b>：常规测试库 {@code flyway.enabled=false} +
  * {@code ddl-auto=create}（空表、无种子），种子可见性在常规环境不可达；本类照
  * {@code RoleAssignmentFlywaySchemaIntegrationTest} 先例在独立 schema
- * {@code aiplatform_seed_flyway} 全量跑 Flyway 链（V1–V23）+ {@code ddl-auto=none}，
+ * {@code aiplatform_seed_flyway} 全量跑 Flyway 链（V1–V26）+ {@code ddl-auto=none}，
  * 复刻生产 schema 后以 HTTP 外部行为断言消费面事实。与「不写种子快照测试」口径
  * （V12 教训）不冲突：不比对种子行快照，断言的是<b>运营登录即可见</b>的行为——
- * {@code /menus/my} 下发 AI 平台目录与十三叶子菜单（六域 + 技能管理 + 指派配置 + 智能体配置 + 草稿审核 + 合同管理 + 模型供应商 + 模型档位，Soybean 元数据齐备）、
+ * {@code /menus/my} 下发 AI 平台目录与十六叶子菜单（六域 + 技能管理 + 指派配置 + 智能体配置 + 草稿审核 + 合同管理 + 模型供应商 + 模型档位 + 数据标注 + 资源面 + 时段规则，Soybean 元数据齐备）、
  * 位于支付管理之后账号管理之前（sort_order=3 与 payment 同序、id 82&gt;80 兜底排其后——spec #62 字面值）；
- * 账号读口不种页面（children 恰十三叶——嵌订单/项目详情抽屉用；工具面并入智能体配置页区块、不单独种页——
+ * 账号读口不种页面（children 恰十六叶——嵌订单/项目详情抽屉用；工具面并入智能体配置页区块、不单独种页——
  * spec #79）；非超管经角色分配（只配
- * 叶子 id，目录由祖先补全出现）+ 58 权限码（spec #62 + #79 技能线 T1–T6 + #91 草稿审核面三码 + #104 合同域 read/create 两码 + #105 合同六态推进六写码 + #106 付款核验域 read/update-plan/verify/reject 四码 + #107 生产承接域 read/update/advance/supplement 四码 + #108 订单范围录入 scope 一码 + #110 模型供应商域 read/create/update/delete 四码 + #111 模型档位域 read/create/update/delete 四码）既见菜单又汇总权限；禁用角色后
+ * 叶子 id，目录由祖先补全出现）+ 70 权限码（spec #62 + #79 技能线 T1–T6 + #91 草稿审核面三码 + #104 合同域 read/create 两码 + #105 合同六态推进六写码 + #106 付款核验域 read/update-plan/verify/reject 四码 + #107 生产承接域 read/update/advance/supplement 四码 + #108 订单范围录入 scope 一码 + #110 模型供应商域 read/create/update/delete 四码 + #111 模型档位域 read/create/update/delete 四码 + #124 数据标注域 read/activate/reject/relabel 四码 + #128 资源面 read/sweep 两码 + #130 时段规则 read/open/rewindow/deactivate 四码（清单读口一码、三写口各一码）+ #129 一键回收 project:reclaim/workspace:reclaim 两码〔无菜单叶——回收按钮挂项目/沙箱详情页〕）既见菜单又汇总权限；禁用角色后
  * 菜单与权限贡献均剔除（CONTEXT.md「RBAC」既定口径在新种子上不回归）。</p>
  *
- * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220/230/240/250/260/270/280。
+ * <p>种子 ID 为迁移契约确定性常量（同破窗 ID=1 先例）：directory=82、leaves=160/170/180/190/200/210/220/230/240/250/260/270/280/290/300/310。
  * 超管用例不新建 SUPER_ADMIN code 角色（V2 已种 id=1、code 唯一），为新建运营挂种子角色。
  * HTTP 基建同 {@code MyMenusNavigationIntegrationTest}：{@code RANDOM_PORT} +
  * {@link TestRestTemplate} 走真实过滤器链；UUID 后缀保证类内用例互不冲突。</p>
@@ -86,18 +86,19 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     /** V2 种子 SUPER_ADMIN 角色 id（code 唯一约束——超管用例挂种子角色而非新建）。 */
     private static final long SEEDED_SUPER_ADMIN_ROLE_ID = 1L;
 
-    /** V15+V17+V18+V19+V20+V22+V23 种子确定性 ID：十三叶（订单/项目/沙箱/成本/单价表/知识素材 + 技能管理 + 指派配置 + 智能体配置 + 草稿审核 + 合同管理 + 模型供应商 + 模型档位，sort 1-13；目录 82 由祖先补全）。 */
-    private static final List<Long> AIPLATFORM_LEAF_IDS = List.of(160L, 170L, 180L, 190L, 200L, 210L, 220L, 230L, 240L, 250L, 260L, 270L, 280L);
+    /** V15+V17+V18+V19+V20+V22+V23+V24+V25+V26 种子确定性 ID：十六叶（订单/项目/沙箱/成本/单价表/知识素材 + 技能管理 + 指派配置 + 智能体配置 + 草稿审核 + 合同管理 + 模型供应商 + 模型档位 + 数据标注 + 资源面 + 时段规则，sort 1-16；目录 82 由祖先补全）。 */
+    private static final List<Long> AIPLATFORM_LEAF_IDS = List.of(160L, 170L, 180L, 190L, 200L, 210L, 220L, 230L, 240L, 250L, 260L, 270L, 280L, 290L, 300L, 310L);
 
     private static final String AIPLATFORM_ROUTE = "aiplatform";
-    /** 十三叶 route_name 顺序 = sortOrder 顺序（spec #62 六域 + #79 技能线 T1 技能管理/T3 指派配置/T5 智能体配置 + #92 草稿审核 + #104 合同管理 + #101 B 批模型供应商/模型档位两新叶——B 批唯一菜单迁移 V23）。 */
-    private static final List<String> THIRTEEN_LEAF_ROUTES = List.of(
+    /** 十六叶 route_name 顺序 = sortOrder 顺序（spec #62 六域 + #79 技能线 T1 技能管理/T3 指派配置/T5 智能体配置 + #92 草稿审核 + #104 合同管理 + #101 B 批模型供应商/模型档位两新叶 + #124 数据标注 + #128 资源面 + #130 时段规则——V26）。 */
+    private static final List<String> SIXTEEN_LEAF_ROUTES = List.of(
             "aiplatform_order", "aiplatform_project", "aiplatform_workspace",
             "aiplatform_cost", "aiplatform_price_entry", "aiplatform_material", "aiplatform_skill",
             "aiplatform_skill_assignment", "aiplatform_agent_config", "aiplatform_skill_draft",
-            "aiplatform_contract", "aiplatform_model_provider", "aiplatform_model_tier");
+            "aiplatform_contract", "aiplatform_model_provider", "aiplatform_model_tier",
+            "aiplatform_sediment_draft", "aiplatform_resource", "aiplatform_time_band_rule");
 
-    /** 权限码清单（58）：十六读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位）＋四十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#112 B3 边缘调用点三端点复用 agent-config 两码零新码〔58 不变〕；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read〔嵌订单详情无独立页面〕、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码〔嵌项目详情无独立页面〕、三写口各一码；#108 订单域 scope 一码；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read、三写口各一码〔remote-models 只读探测不动库〕；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码）。 */
+    /** 权限码清单（70）：十九读码（七域＋智能体配置＋工具面＋account＋草稿＋合同＋付款＋生产承接＋模型供应商＋模型档位＋数据标注＋资源面）＋五十二写码（spec #62＋#79 技能线 T1 read/T2 四写码/T3 assign/T4 update/T5 agent-config:update/T6 agent-tool:read+toggle——工具面并入智能体配置页区块不单独种页；#112 B3 边缘调用点三端点复用 agent-config 两码零新码；#91 草稿面 read/promote/reject 三码——两读端点复用 read；#104 合同域 read/create——清单/详情复用 read、创建重建独立 create；#105 合同域六态推进六写码——每写操作一码；#106 付款核验域 read/update-plan/verify/reject 四码——计划详情＋凭证直出复用 read〔嵌订单详情无独立页面〕、三写口各一码；#107 生产承接域 read/update/advance/supplement 四码——详情读口一码〔嵌项目详情无独立页面〕、三写口各一码；#108 订单域 scope 一码；#110 模型供应商域 read/create/update/delete 四码——清单/单行/远端清单拉取/留痕四读端点复用 read、三写口各一码〔remote-models 只读探测不动库〕；#111 模型档位域 read/create/update/delete 四码——清单/单行/留痕三读端点复用 read、三写口各一码；#124 数据标注域 read/activate/reject/relabel 四码——队列/详情两读端点复用 read、三键各一码〔激活权/拒绝权/分诊权独立授受〕；#128 资源面 resource:read/sweep 两码——大盘读口/清扫动刀分权；#130 时段规则 time-band-rule:read/open/rewindow/deactivate 四码——清单读口一码、三写口各一码〔对称单价表域〕；#129 一键回收 project:reclaim/workspace:reclaim 两码——动刀类各一独立写码〔ADR-0045，无菜单叶配项目/沙箱详情页按钮〕）。 */
     private static final List<String> ALL_AIPLATFORM_PERMISSIONS = List.of(
             "admin:aiplatform:order:read",
             "admin:aiplatform:project:read",
@@ -156,7 +157,19 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             "admin:aiplatform:model-tier:read",
             "admin:aiplatform:model-tier:create",
             "admin:aiplatform:model-tier:update",
-            "admin:aiplatform:model-tier:delete");
+            "admin:aiplatform:model-tier:delete",
+            "admin:aiplatform:sediment-draft:read",
+            "admin:aiplatform:sediment-draft:activate",
+            "admin:aiplatform:sediment-draft:reject",
+            "admin:aiplatform:sediment-draft:relabel",
+            "admin:aiplatform:resource:read",
+            "admin:aiplatform:resource:sweep",
+            "admin:aiplatform:time-band-rule:read",
+            "admin:aiplatform:time-band-rule:open",
+            "admin:aiplatform:time-band-rule:rewindow",
+            "admin:aiplatform:time-band-rule:deactivate",
+            "admin:aiplatform:project:reclaim",
+            "admin:aiplatform:workspace:reclaim");
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -198,7 +211,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("超管：/menus/my 见 AI 平台目录 + 十三叶（Soybean 元数据齐、十三叶有序、无账号页面）")
+    @DisplayName("超管：/menus/my 见 AI 平台目录 + 十六叶（Soybean 元数据齐、十六叶有序、无账号页面）")
     void given_superAdmin_when_my_then_aiplatformTreeVisibleWithSevenLeaves() {
         // 超管不新建 SUPER_ADMIN code（V2 已种 id=1、code 唯一）——新建运营挂种子超管角色
         String superUsername = "aiplatmenu" + suffix;
@@ -218,11 +231,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         assertThat(directory.path("icon").asText()).isEqualTo("carbon:machine-learning-model");
         assertThat(directory.path("status").asInt()).isEqualTo(1);
 
-        // 十三叶：恰好十三叶（账号读口不种页面、工具面并入智能体配置页区块——无第十四叶）、顺序 = sortOrder 1-13、Soybean 元数据齐
+        // 十六叶：恰好十六叶（账号读口不种页面、工具面并入智能体配置页区块——无第十七叶）、顺序 = sortOrder 1-16、Soybean 元数据齐
         JsonNode children = directory.path("children");
         assertThat(stringList(children, "routeName"))
-                .as("十三叶子菜单恰十三叶且按 sortOrder 排序；账号读口不种页面")
-                .containsExactlyElementsOf(THIRTEEN_LEAF_ROUTES);
+                .as("十六叶子菜单恰十六叶且按 sortOrder 排序；账号读口不种页面")
+                .containsExactlyElementsOf(SIXTEEN_LEAF_ROUTES);
         for (JsonNode leaf : children) {
             assertThat(leaf.path("menuType").asInt()).isEqualTo(2);
             assertThat(leaf.path("routePath").asText()).startsWith("/aiplatform/");
@@ -231,7 +244,7 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
             assertThat(leaf.path("icon").asText()).isNotBlank();
             assertThat(leaf.path("iconType").asInt()).isEqualTo(1);
             assertThat(leaf.path("status").asInt()).isEqualTo(1);
-            assertThat(leaf.path("sortOrder").asInt()).isBetween(1, 13);
+            assertThat(leaf.path("sortOrder").asInt()).isBetween(1, 16);
         }
 
         // 侧边栏位置：应用管理之后、系统管理之前（spec #62 字面 sort_order=3——与 payment 同序，
@@ -247,11 +260,11 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
     }
 
     @Test
-    @DisplayName("非超管：角色配十三叶种子（祖先补全出目录）+ 58 码 → 菜单与权限均汇总可见")
+    @DisplayName("非超管：角色配十六叶种子（祖先补全出目录）+ 70 码 → 菜单与权限均汇总可见")
     void given_roleWithSeedMenusAndAllPermissions_when_my_then_treeVisibleAndPermissionsAggregated() {
         Long roleId = roleAppService.create(
                 new CreateRoleCommand("AI平台运营_" + suffix, "AIPLAMENU_" + suffix,
-                        "AI 平台十三叶菜单 + 全量 58 权限码", 88, null));
+                        "AI 平台十六叶菜单 + 全量 70 权限码", 88, null));
         // 只分配叶子 id——目录经祖先链补全出现（MenuTreeAssembler 既定行为在真种子上复证）
         roleAppService.assignMenus(roleId, new AssignMenusCommand(AIPLATFORM_LEAF_IDS));
         roleAppService.assignPermissions(roleId, new AssignPermissionsCommand(ALL_AIPLATFORM_PERMISSIONS));
@@ -261,19 +274,20 @@ class AiplatformMenuSeedVisibilityIntegrationTest {
         userAppService.assignRoles(userId, new AssignRolesCommand(List.of(roleId)));
         String token = login(username);
 
-        // 菜单：十三叶 + 补全出的目录（消费面下发即运营登录可见）
+        // 菜单：十六叶 + 补全出的目录（消费面下发即运营登录可见）
         JsonNode menus = myData(token).path("menus");
         JsonNode directory = findRootByRouteName(menus, AIPLATFORM_ROUTE);
-        assertThat(directory).as("分配十三叶后目录应经祖先补全出现").isNotNull();
+        assertThat(directory).as("分配十六叶后目录应经祖先补全出现").isNotNull();
         assertThat(stringList(directory.path("children"), "routeName"))
-                .containsExactlyElementsOf(THIRTEEN_LEAF_ROUTES);
+                .containsExactlyElementsOf(SIXTEEN_LEAF_ROUTES);
 
-        // 权限汇总：/auth/current permissions = 58 码全集（account:read 配抽屉用、agent-tool:read
+        // 权限汇总：/auth/current permissions = 70 码全集（account:read 配抽屉用、agent-tool:read
         // 配智能体配置页区块用——均有码无独立页面；skill-draft 三码配草稿审核页；contract 两码配合同
         // 管理页；payment 四码嵌订单详情付款核验区、production 四码嵌项目详情承接区〔V22 已一次记账零
         // 迁移零新菜单〕；model-provider 四码配模型供应商页〔remote-models/traces 复用 read〕、
         // model-tier 四码配模型档位页〔traces 复用 read〕——V23 已一次记账 B 批 8 码，
-        // #110 落通道四码＋本票 #111 落档位四码均生效）
+        // #110 落通道四码＋本票 #111 落档位四码均生效；sediment-draft 四码配数据标注页
+        // 〔队列/详情复用 read〕——V24 随票 #124 生效；resource:read/sweep 两码配资源面页〔大盘读口/清扫动刀分权〕——V25 随票 #128 生效；time-band-rule 四码配时段规则页〔清单读口一码、三写口各一码，对称单价表域〕——V26 随票 #130 生效；project:reclaim/workspace:reclaim 两码配项目/沙箱详情页回收按钮〔动刀类独立写码 ADR-0045〕——随票 #129 生效、无菜单叶无迁移）
         JsonNode current = okData(getWithToken("/api/admin/auth/current", token));
         assertThat(plainStringList(current.path("permissions")))
                 .containsExactlyInAnyOrderElementsOf(ALL_AIPLATFORM_PERMISSIONS);

@@ -45,7 +45,8 @@ public class AiplatformPriceEntryAppService {
      * （可缺省＝全量行）；排序服务端定死＝生效起点倒序（新段在前）；effectiveTo 为 null 即
      * 当前行。行带操作者两列（最近管理动作留痕；存量行/种子脚本种入行落 null）。tokenKind
      * 六档（1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价；Integer code
-     * 直通零 typed enum，tokenKindName 中文名随行）。
+     * 直通零 typed enum，tokenKindName 中文名随行）；band 时段带两列（1=峰 2=谷＋bandName
+     * 随行，#498/ADR-0044——null＝不区分时段两列同 null，存量/按张行零变动）。
      */
     public PageResponse<AiplatformUnitPriceEntryResponse> list(AiplatformPriceEntryQuery query,
                                                                int page, int size) {
@@ -60,10 +61,11 @@ public class AiplatformPriceEntryAppService {
 
     /**
      * 原子改价（透传 aiplatform）——单调用关当前行＋开新行（同事务，中途任一守卫失败两行都不动）。
-     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价）。
+     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价；
+     * 含 band 时段带——带是匹配键成分、不在改价命令内、不随改价漂移，#498）。
      * effectiveFrom 可空＝缺省即时、含未来时点＝预发布（对齐供应商凌晨调价，窗口前旧价仍生效）；
-     * 预发布与重叠校验语义归 provider。回执 {@code {closed, opened}} 双行（被关行保留原开行留痕，
-     * 新行带改价操作者）。
+     * 预发布与同键同带重叠校验语义归 provider。回执 {@code {closed, opened}} 双行（被关行保留
+     * 原开行留痕，新行带改价操作者，两行 band 如实回显且相等——新行沿用被关行）。
      */
     public AiplatformUnitPriceEntryRepriceResponse reprice(String id,
                                                            AiplatformPriceEntryRepriceCommand command) {
@@ -76,7 +78,7 @@ public class AiplatformPriceEntryAppService {
     /**
      * 停用单价行（透传 aiplatform）——即时生效：关当前行不接新行，此后该匹配键用量进 unpriced
      * （缺价不伪装 0）；对未生效的预发布行停用＝钳到自身起点成空区间（从未生效）。回执＝被关行
-     * 单行（停用操作者落被关行——唯一落点）。
+     * 单行（停用操作者落被关行——唯一落点；band 如实回显、停用语义不变，#498）。
      */
     public AiplatformUnitPriceEntryResponse deactivate(String id) {
         return toEntry(aiplatformClient.deactivatePriceEntry(id));
@@ -85,6 +87,7 @@ public class AiplatformPriceEntryAppService {
     private static AiplatformUnitPriceEntryResponse toEntry(AiplatformUnitPriceEntryWireResponse wire) {
         return new AiplatformUnitPriceEntryResponse(
                 wire.id(), wire.provider(), wire.model(), wire.tokenKind(), wire.tokenKindName(),
+                wire.band(), wire.bandName(),
                 wire.unitPrice(), wire.currency(), wire.effectiveFrom(), wire.effectiveTo(),
                 wire.operatorId(), wire.operatorName());
     }

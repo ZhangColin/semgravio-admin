@@ -14,7 +14,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * {@code stripTrailingZeros().toPlainString()} 精确十进制串交接——直出 JSON 数值会落科学计数，
  * 单价契约按十进制原串交接）；{@code tokenKind} 为 Integer code + {@code tokenKindName} 中文名
  * 随行（1=输入 2=输出 3=缓存读 4=缓存写 5=推理 6=按张——#288 图片生成按张计价档，档位单价
- * 语义：token 档每 token、按张档每张，同一字段承载）；{@code effectiveTo} 为 null 即当前行。
+ * 语义：token 档每 token、按张档每张，同一字段承载）；{@code band} 为时段带 Integer code +
+ * {@code bandName} 中文名随行（1=峰 2=谷，#498/ADR-0044 峰谷 2/4——带是匹配键成分、改价新行
+ * 沿用被关行不可漂移），null＝不区分时段（两列同 null 落空——无峰谷通道与按张行存量语义零
+ * 变动）；{@code effectiveTo} 为 null 即当前行。
  * 操作者两肢为 admin 侧管理员标识（X-User-Id/X-User-Name 透传落痕）；存量行/种子脚本种入行
  * 如实出 JSON null。</p>
  *
@@ -39,6 +42,15 @@ public record AiplatformUnitPriceEntryResponse(
 
         /** 档位名（直读展示；按张档＝「按张」） */
         String tokenKindName,
+
+        /** 时段带 code（1=峰 2=谷；null＝不区分时段） */
+        @Schema(description = "时段带（1=峰 2=谷；null＝不区分时段——无峰谷通道与按张行存量语义"
+                + "零变动，#498/ADR-0044 峰谷 2/4；带是匹配键成分、改价新行沿用被关行不可漂移，"
+                + "bandName 中文名随行直读）", example = "1")
+        Integer band,
+
+        /** 时段带名（直读展示；同上落空口径） */
+        String bandName,
 
         /** 档位单价（token 档每 token、按张档每张；精确十进制串） */
         @Schema(description = "档位单价（token 档每 token、按张档每张；响应侧为 string——精确十进制串"

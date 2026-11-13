@@ -1434,7 +1434,7 @@ class AiplatformBffIntegrationTest {
 
     // ========== 智能体配置域＋边缘调用点（#112 B3）· routingStrongModelId 字段对映射 + edge 读/写/留痕映射 + 错误信封透传 ==========
 
-    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）。 */
+    /** 智能体配置 wire 工厂：读面/回执共形——含路由强档三件（库覆盖 doubao-flagship、代码缺省 pro）＋#454 信号开关两枚（issue #123：文件面开/规模标签关）＋提速批次十五件（issue #122 覆盖行代表面）。 */
     private static AiplatformAgentConfigWireResponse agentConfigWire() {
         return new AiplatformAgentConfigWireResponse(
                 "main", "主智能体",
@@ -1443,6 +1443,12 @@ class AiplatformBffIntegrationTest {
                 "你是主智能体。（枚举默认全文）", "flash",
                 true, false,
                 "doubao-flagship", true, "pro",
+                true, false,
+                true, false, true, false, true, false,
+                5, true, 3,
+                2, true, 3,
+                List.of("anti_mock", "parallel_tools"), true,
+                false,
                 "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0));
     }
 
@@ -1456,42 +1462,75 @@ class AiplatformBffIntegrationTest {
     }
 
     @Test
-    void given_agentConfigWireWithStrongTier_when_getConfig_then_sixteenFacetsMirrored() {
+    void given_agentConfigWireWithStrongTier_when_getConfig_then_thirtyThreeFacetsMirrored() {
         when(aiplatformClient.getAgentConfig("main")).thenReturn(agentConfigWire());
 
         var config = agentConfigAppService.getConfig("main");
 
-        // wire → 北向逐字段（16 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
-        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）
+        // wire → 北向逐字段（33 件）：路由强档三件（B3 忠实跟随）与 modelId 同范式——
+        // 生效值＝库覆盖 doubao-flagship、覆盖标记 true、代码缺省预览 pro（对照知来源）；
+        // #454 信号开关两枚（issue #123）——文件面开/规模标签关生效值镜像；
+        // 提速批次十五件（issue #122）——三闸生效值＋单会话/并行/注入/自决＋决策注入三键
+        // 生效值＋Overridden 标志＋defaultDecisionHint* 预览 3 全镜像
         assertThat(config.agentKey()).isEqualTo("main");
         assertThat(config.modelId()).isEqualTo("pro");
         assertThat(config.defaultModelId()).isEqualTo("flash");
         assertThat(config.routingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(config.routingStrongModelIdOverridden()).isTrue();
         assertThat(config.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(config.routingFileCountSignalEnabled()).isTrue();
+        assertThat(config.routingSizeLabelSignalEnabled()).isFalse();
+        assertThat(config.verificationPresenceGateEnabled()).isTrue();
+        assertThat(config.proofOfOutputGateEnabled()).isFalse();
+        assertThat(config.finalVerificationGateEnabled()).isTrue();
+        assertThat(config.singleSessionGenerationEnabled()).isFalse();
+        assertThat(config.parallelSliceMachineEnabled()).isTrue();
+        assertThat(config.decisionHintsEnabled()).isFalse();
+        assertThat(config.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(config.decisionHintErrorStreakOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintErrorStreak()).isEqualTo(3);
+        assertThat(config.decisionHintStackCap()).isEqualTo(2);
+        assertThat(config.decisionHintStackCapOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintStackCap()).isEqualTo(3);
+        assertThat(config.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(config.decisionHintDisabledOverridden()).isTrue();
+        assertThat(config.verifySelfDecisionEnabled()).isFalse();
         assertThat(config.fetchUrlEnabled()).isFalse();
         assertThat(config.operatorName()).isEqualTo("运营·技能管理员");
     }
 
     @Test
-    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredFiveFields() {
+    void given_updateCommandWithStrongTier_when_updateConfig_then_wireCommandMirroredSeventeenFields() {
         when(aiplatformClient.updateAgentConfig(eq("main"), any(AiplatformAgentConfigUpdateWireRequest.class)))
                 .thenReturn(agentConfigWire());
 
-        // 北向五字段（含路由强档——主档/强档同范式管理）→ wire 五字段逐字段映射；缺省肢
-        // null 透传（清空回落语义），档位键合法性（PRJ_074/075）归 provider 即时校验
+        // 北向 17 字段（含路由强档、#454 信号开关两枚与提速批次十件）→ wire 17 字段逐字段
+        // 映射；缺省肢 null 透传（清空回落语义），档位键合法性（PRJ_074/075）与提速批次越界值
+        // （PRJ_081/082/083）归 provider 即时校验
         var receipt = agentConfigAppService.updateConfig("main",
-                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship"));
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship",
+                        true, false,
+                        true, false, true, false, true, false, 5, 2,
+                        List.of("anti_mock", "parallel_tools"), false));
 
         ArgumentCaptor<AiplatformAgentConfigUpdateWireRequest> captor =
                 ArgumentCaptor.forClass(AiplatformAgentConfigUpdateWireRequest.class);
         verify(aiplatformClient).updateAgentConfig(eq("main"), captor.capture());
         assertThat(captor.getValue()).isEqualTo(new AiplatformAgentConfigUpdateWireRequest(
-                "新 prompt", "pro", true, false, "doubao-flagship"));
+                "新 prompt", "pro", true, false, "doubao-flagship",
+                true, false,
+                true, false, true, false, true, false, 5, 2,
+                List.of("anti_mock", "parallel_tools"), false));
 
-        // 回执映射（与 GET 同形——强档三件随行）
+        // 回执映射（与 GET 同形——强档三件、信号开关两枚与提速批次十五件随行）
         assertThat(receipt.routingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(receipt.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(receipt.routingFileCountSignalEnabled()).isTrue();
+        assertThat(receipt.routingSizeLabelSignalEnabled()).isFalse();
+        assertThat(receipt.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(receipt.decisionHintStackCap()).isEqualTo(2);
+        assertThat(receipt.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(receipt.verifySelfDecisionEnabled()).isFalse();
     }
 
     @Test
@@ -1500,17 +1539,41 @@ class AiplatformBffIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000002222222",
                         "首次覆盖 prompt 全文", "pro", true, false, "doubao-flagship",
+                        true, true,
+                        true, true, false, false, true, false,
+                        5, 2, "anti_mock,parallel_tools", false,
                         null, null, true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700200", "运营·技能管理员", LocalDateTime.of(2026, 11, 3, 9, 0, 0))));
 
         var traces = agentConfigAppService.listTraces("main");
 
-        // 留痕行映射（含强档 old/new 两件——读面可改就必须可回滚）：old 快照＝回滚写回依据
+        // 留痕行映射（含强档、#454 信号开关四枚与提速批次二十件——issue #122/#123：读面
+        // 可改就必须可回滚）：old 快照＝回滚写回依据；首条＝清空提速批次变更（new 七开关
+        // 回落缺省态、两阈值/禁用集 null）＋清空信号开关（new false×2）
         assertThat(traces).hasSize(1);
         assertThat(traces.get(0).oldModelId()).isEqualTo("pro");
         assertThat(traces.get(0).oldRoutingStrongModelId()).isEqualTo("doubao-flagship");
+        assertThat(traces.get(0).oldRoutingFileCountSignalEnabled()).isTrue();
+        assertThat(traces.get(0).oldRoutingSizeLabelSignalEnabled()).isTrue();
         assertThat(traces.get(0).newModelId()).isNull();
         assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+        assertThat(traces.get(0).newRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(traces.get(0).newRoutingSizeLabelSignalEnabled()).isFalse();
+        assertThat(traces.get(0).oldDecisionHintsEnabled()).isFalse();
+        assertThat(traces.get(0).oldDecisionHintErrorStreak()).isEqualTo(5);
+        assertThat(traces.get(0).oldDecisionHintStackCap()).isEqualTo(2);
+        assertThat(traces.get(0).oldDecisionHintDisabled()).isEqualTo("anti_mock,parallel_tools");
+        assertThat(traces.get(0).newVerificationPresenceGateEnabled()).isFalse();
+        assertThat(traces.get(0).newSingleSessionGenerationEnabled()).isTrue();
+        assertThat(traces.get(0).newParallelSliceMachineEnabled()).isFalse();
+        assertThat(traces.get(0).newDecisionHintsEnabled()).isTrue();
+        assertThat(traces.get(0).newDecisionHintErrorStreak()).isNull();
+        assertThat(traces.get(0).newDecisionHintStackCap()).isNull();
+        assertThat(traces.get(0).newDecisionHintDisabled()).isNull();
+        assertThat(traces.get(0).newVerifySelfDecisionEnabled()).isTrue();
     }
 
     @Test
@@ -1558,19 +1621,36 @@ class AiplatformBffIntegrationTest {
                 new AiplatformAgentConfigTraceWireResponse(
                         "3900000003333333",
                         null, "flash", true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         null, "pro", true, true, null,
+                        false, false,
+                        false, false, false, true, false, true,
+                        null, null, null, true,
                         "700210", "运营·智能体管理员", LocalDateTime.of(2026, 11, 1, 10, 15, 0))));
 
         var traces = agentConfigAppService.listEdgeModelTraces("naming");
 
         // 边缘留痕与三座同形映射：只有档位列在动（升档 flash→pro），prompt/强档 null＝
-        // 边缘行结构性缺省态、开关恒 true
+        // 边缘行结构性缺省态、开关恒 true；#454 信号开关四枚恒 false（issue #123——边缘写
+        // 把非档位覆盖列结构性归缺省）；提速批次二十件恒代码缺省态（issue #122）
         assertThat(traces).hasSize(1);
         assertThat(traces.get(0).oldModelId()).isEqualTo("flash");
         assertThat(traces.get(0).newModelId()).isEqualTo("pro");
         assertThat(traces.get(0).oldSystemPrompt()).isNull();
         assertThat(traces.get(0).newRoutingStrongModelId()).isNull();
+        assertThat(traces.get(0).oldRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(traces.get(0).oldRoutingSizeLabelSignalEnabled()).isFalse();
+        assertThat(traces.get(0).newRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(traces.get(0).newRoutingSizeLabelSignalEnabled()).isFalse();
         assertThat(traces.get(0).oldWebSearchEnabled()).isTrue();
+        assertThat(traces.get(0).oldVerificationPresenceGateEnabled()).isFalse();
+        assertThat(traces.get(0).oldSingleSessionGenerationEnabled()).isTrue();
+        assertThat(traces.get(0).oldDecisionHintsEnabled()).isTrue();
+        assertThat(traces.get(0).oldDecisionHintErrorStreak()).isNull();
+        assertThat(traces.get(0).oldDecisionHintDisabled()).isNull();
+        assertThat(traces.get(0).oldVerifySelfDecisionEnabled()).isTrue();
     }
 
     @Test
@@ -1839,9 +1919,18 @@ class AiplatformBffIntegrationTest {
                         "3829492009999999", "ws-3829492009999999",
                         1, "开发", 2, "就绪", 1, "运行", 3, "无容器",
                         LocalDateTime.of(2026, 9, 14, 22, 10, 0),
-                        2147483648L, null, null,
+                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0),
+                        null, null, null,
                         new AiplatformWorkspaceSummaryWireResponse.ProjectRef(
-                                "3829492007654321", "英语学习助手", false))), 17, 2, 20));
+                                "3829492007654321", "英语学习助手", false)),
+                // 在册失联行（#488，issue #127）：项目行已删而物理资源仍在——lostAt 判定时刻在场、
+                // 无所属项目（软引用容缺）；只标记待人工裁决，处置出口＝一键回收
+                new AiplatformWorkspaceSummaryWireResponse(
+                        "3829492006666666", "ws-3829492006666666",
+                        1, "开发", 2, "就绪", 2, "休眠", 3, "无容器",
+                        LocalDateTime.of(2026, 9, 1, 8, 0, 0),
+                        null, LocalDateTime.of(2026, 9, 1, 8, 5, 0),
+                        LocalDateTime.of(2026, 9, 2, 10, 5, 0), null, null, null)), 17, 2, 20));
 
         PageResponse<AiplatformWorkspaceSummaryResponse> page = workspaceAppService.list(
                 new AiplatformWorkspaceQuery(1, 3), 2, 20);
@@ -1863,8 +1952,15 @@ class AiplatformBffIntegrationTest {
         assertThat(drift.containerState()).isEqualTo(3);
         assertThat(drift.containerStateName()).isEqualTo("无容器");
         assertThat(drift.volumeSizeBytes()).isEqualTo(2147483648L);
+        assertThat(drift.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 14, 22, 11, 0));
+        assertThat(drift.lostAt()).isNull();
         assertThat(drift.project().projectId()).isEqualTo("3829492007654321");
         assertThat(drift.project().archived()).isFalse();
+
+        // 在册失联行（#488，issue #127）：lostAt 判定时刻透传不丢、项目引用如实为 null
+        var lost = page.items().get(1);
+        assertThat(lost.lostAt()).isEqualTo(LocalDateTime.of(2026, 9, 2, 10, 5, 0));
+        assertThat(lost.project()).isNull();
     }
 
     // ========== 沙箱详情 · 资源观测 + 项目引用映射 ==========
@@ -1876,6 +1972,9 @@ class AiplatformBffIntegrationTest {
                         "3829492007777777", "ws-3829492007777777", "net-3829492007777777",
                         1, "开发", 2, "就绪", null, 3, "封存", 3, "无容器",
                         LocalDateTime.of(2026, 9, 13, 18, 0, 0), null,
+                        LocalDateTime.of(2026, 9, 13, 18, 1, 0),
+                        // 在册失联判定时刻（#488，issue #127）：项目行已删而物理资源仍在的静止现场标记
+                        LocalDateTime.of(2026, 9, 10, 8, 30, 0),
                         LocalDateTime.of(2026, 9, 13, 18, 0, 0),
                         "workspace-archives/3829492007777777.tar.gz", 89128960L,
                         LocalDateTime.of(2026, 9, 8, 10, 0, 0),
@@ -1894,6 +1993,8 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.desiredStateName()).isEqualTo("封存");
         assertThat(detail.archivePath()).isEqualTo("workspace-archives/3829492007777777.tar.gz");
         assertThat(detail.archiveSizeBytes()).isEqualTo(89128960L);
+        assertThat(detail.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 13, 18, 1, 0));
+        assertThat(detail.lostAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 8, 30, 0));
         assertThat(detail.resources()).hasSize(1);
         assertThat(detail.resources().get(0).kind()).isEqualTo(1);
         assertThat(detail.resources().get(0).internalUrl()).startsWith("postgresql://");
@@ -1909,7 +2010,8 @@ class AiplatformBffIntegrationTest {
                         "3829492009999999", "ws-3829492009999999", "net-3829492009999999",
                         1, "开发", 2, "就绪", null, 1, "运行", 1, "运行中",
                         LocalDateTime.of(2026, 9, 16, 9, 0, 0), 1073741824L,
-                        null, null, null,
+                        LocalDateTime.of(2026, 9, 16, 9, 1, 0),
+                        null, null, null, null,
                         LocalDateTime.of(2026, 9, 8, 10, 0, 0),
                         LocalDateTime.of(2026, 9, 16, 9, 0, 0),
                         List.of(), null));
@@ -1956,7 +2058,10 @@ class AiplatformBffIntegrationTest {
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
                         List.of(new AiplatformCostOverviewWireResponse.AgentKindUsage(
                                 "naming", null,
-                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0)))));
+                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0))),
+                        List.of(new AiplatformCostOverviewWireResponse.ModelBandCost(
+                                "anthropic", "claude-fable-5", 1, "峰",
+                                Map.of("CNY", new BigDecimal("3.0"))))));
 
         AiplatformCostOverviewResponse overview = costAppService.overview(new AiplatformCostQuery(from, to));
 
@@ -1974,6 +2079,14 @@ class AiplatformBffIntegrationTest {
         assertThat(overview.byModel().get(0).tokens().cacheRead()).isEqualTo(300L);
         assertThat(overview.byAgentKind().get(0).agentKind()).isEqualTo("naming");
         assertThat(overview.byAgentKind().get(0).agentKindName()).isNull();
+
+        // byModelCost（#499 峰谷维度）：分模型金额按带拆逐字段映射——band Integer code + bandName
+        // 随行 + 币种分桶透传；null＝不区分时段分量（按张行恒落此桶）
+        assertThat(overview.byModelCost()).hasSize(1);
+        assertThat(overview.byModelCost().get(0).band()).isEqualTo(1);
+        assertThat(overview.byModelCost().get(0).bandName()).isEqualTo("峰");
+        assertThat(overview.byModelCost().get(0).cost())
+                .containsEntry("CNY", new BigDecimal("3.0"));
     }
 
     // ========== unpriced 警示 · 档位映射 ==========
@@ -1986,9 +2099,9 @@ class AiplatformBffIntegrationTest {
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         from, to,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700),
+                                "openai", "gpt-5.2", 1, "输入", null, null, 700),
                                 new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                        "imgprov", "qwen-image", 6, "按张", 3))));
+                                        "imgprov", "qwen-image", 6, "按张", null, null, 3))));
 
         AiplatformUnpricedUsageResponse unpriced = costAppService.unpriced(new AiplatformCostQuery(from, to));
 
@@ -2001,6 +2114,11 @@ class AiplatformBffIntegrationTest {
         assertThat(unpriced.items().get(1).tokenKind()).isEqualTo(6);
         assertThat(unpriced.items().get(1).tokenKindName()).isEqualTo("按张");
         assertThat(unpriced.items().get(1).tokens()).isEqualTo(3L);
+        // band/bandName 两列随行如实映射（#499：null＝不区分时段——通道无生效规则行/按张档不受带影响）
+        assertThat(unpriced.items().get(0).band()).isNull();
+        assertThat(unpriced.items().get(0).bandName()).isNull();
+        assertThat(unpriced.items().get(1).band()).isNull();
+        assertThat(unpriced.items().get(1).bandName()).isNull();
     }
 
     // ========== 项目成本清单 · query→wire + 分页 1-based 透传 ==========
@@ -2051,7 +2169,7 @@ class AiplatformBffIntegrationTest {
                         new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800),
                         Map.of("CNY", new BigDecimal("12.3456")),
                         List.of(new AiplatformProjectCostDetailWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入")),
+                                "openai", "gpt-5.2", 1, "输入", null, null)),
                         List.of(new AiplatformProjectCostDetailWireResponse.ModelUsage(
                                 "anthropic", "claude-fable-5",
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
@@ -2068,6 +2186,9 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.cost()).containsEntry("CNY", new BigDecimal("12.3456"));
         assertThat(detail.unpriced().get(0).tokenKind()).isEqualTo(1);
         assertThat(detail.unpriced().get(0).tokenKindName()).isEqualTo("输入");
+        // band/bandName 两列随行如实映射（#499：null＝不区分时段）
+        assertThat(detail.unpriced().get(0).band()).isNull();
+        assertThat(detail.unpriced().get(0).bandName()).isNull();
         assertThat(detail.byModel().get(0).provider()).isEqualTo("anthropic");
         assertThat(detail.byAgentKind().get(0).agentKind()).isEqualTo("executor");
         assertThat(detail.byAgentKind().get(0).agentKindName()).isEqualTo("执行智能体");
@@ -2100,16 +2221,16 @@ class AiplatformBffIntegrationTest {
     void given_priceEntryQueryAndPage_when_list_then_wireRequestMappedAndPageEchoedFromProvider() {
         when(aiplatformClient.listPriceEntries(any(), eq(2), eq(50))).thenReturn(new PageResponse<>(List.of(
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", 1, "峰",
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), null, "700160", "运营·单价管理员"),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100001111111", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.00000132", "USD",
                         Instant.parse("2026-07-01T00:00:00Z"), Instant.parse("2026-08-01T00:00:00Z"),
                         null, null),
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100004444444", "imgprov", "qwen-image", 6, "按张",
+                        "3830100004444444", "imgprov", "qwen-image", 6, "按张", null, null,
                         "0.18", "CNY",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, null)), 12, 2, 50));
 
@@ -2133,16 +2254,22 @@ class AiplatformBffIntegrationTest {
         assertThat(current.id()).isEqualTo("3830100002222222");
         assertThat(current.tokenKind()).isEqualTo(1);
         assertThat(current.tokenKindName()).isEqualTo("输入");
+        assertThat(current.band()).isEqualTo(1);
+        assertThat(current.bandName()).isEqualTo("峰");
         assertThat(current.unitPrice()).isEqualTo("0.000002");
         assertThat(current.effectiveTo()).isNull();
         assertThat(current.operatorName()).isEqualTo("运营·单价管理员");
         var historical = page.items().get(1);
         assertThat(historical.effectiveTo()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
+        assertThat(historical.band()).isNull();
+        assertThat(historical.bandName()).isNull();
         assertThat(historical.operatorId()).isNull();
         var perImage = page.items().get(2);
         assertThat(perImage.provider()).isEqualTo("imgprov");
         assertThat(perImage.tokenKind()).isEqualTo(6);
         assertThat(perImage.tokenKindName()).isEqualTo("按张");
+        assertThat(perImage.band()).isNull();
+        assertThat(perImage.bandName()).isNull();
         assertThat(perImage.unitPrice()).isEqualTo("0.18");
         assertThat(perImage.currency()).isEqualTo("CNY");
     }
@@ -2154,12 +2281,12 @@ class AiplatformBffIntegrationTest {
         when(aiplatformClient.repricePriceEntry(eq("3830100002222222"), any())).thenReturn(
                 new AiplatformUnitPriceEntryRepriceWireResponse(
                         new AiplatformUnitPriceEntryWireResponse(
-                                "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                                "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", 2, "谷",
                                 "0.000002", "USD",
                                 Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-20T00:00:00Z"),
                                 "700160", "运营·单价管理员"),
                         new AiplatformUnitPriceEntryWireResponse(
-                                "3830100003333333", "anthropic", "claude-fable-5", 1, "输入",
+                                "3830100003333333", "anthropic", "claude-fable-5", 1, "输入", 2, "谷",
                                 "0.0000018", "USD",
                                 Instant.parse("2026-09-20T00:00:00Z"), null,
                                 "3829492001234567", "调价运营")));
@@ -2175,12 +2302,17 @@ class AiplatformBffIntegrationTest {
         assertThat(commandCaptor.getValue()).isEqualTo(new AiplatformPriceEntryRepriceWireRequest(
                 new BigDecimal("0.0000018"), "USD", Instant.parse("2026-09-20T00:00:00Z")));
 
-        // wire → response 逐字段：closed 落 effectiveTo、保留原开行留痕；opened 新 id、敞口、带改价操作者
+        // wire → response 逐字段：closed 落 effectiveTo、保留原开行留痕；opened 新 id、敞口、带改价操作者；
+        // 两行 band=2 谷如实透传（改价新行沿用被关行 band——带是匹配键成分、不在改价命令内不漂移，#498）
         assertThat(receipt.closed().effectiveTo()).isEqualTo(Instant.parse("2026-09-20T00:00:00Z"));
         assertThat(receipt.closed().operatorId()).isEqualTo("700160");
+        assertThat(receipt.closed().band()).isEqualTo(2);
+        assertThat(receipt.closed().bandName()).isEqualTo("谷");
         assertThat(receipt.opened().id()).isEqualTo("3830100003333333");
         assertThat(receipt.opened().unitPrice()).isEqualTo("0.0000018");
         assertThat(receipt.opened().effectiveTo()).isNull();
+        assertThat(receipt.opened().band()).isEqualTo(2);
+        assertThat(receipt.opened().bandName()).isEqualTo("谷");
         assertThat(receipt.opened().operatorName()).isEqualTo("调价运营");
     }
 
@@ -2190,15 +2322,17 @@ class AiplatformBffIntegrationTest {
     void given_deactivateReceipt_when_deactivate_then_singleRowMapped() {
         when(aiplatformClient.deactivatePriceEntry("3830100002222222")).thenReturn(
                 new AiplatformUnitPriceEntryWireResponse(
-                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入",
+                        "3830100002222222", "anthropic", "claude-fable-5", 1, "输入", null, null,
                         "0.000002", "USD",
                         Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-16T10:30:00Z"),
                         "3829492001234567", "调价运营"));
 
         AiplatformUnitPriceEntryResponse closed = priceEntryAppService.deactivate("3830100002222222");
 
-        // 被关行单行回执：effectiveTo 已落、停用操作者落被关行（唯一落点）
+        // 被关行单行回执：effectiveTo 已落、停用操作者落被关行（唯一落点）；band null＝不区分时段如实透传
         assertThat(closed.effectiveTo()).isEqualTo(Instant.parse("2026-09-16T10:30:00Z"));
+        assertThat(closed.band()).isNull();
+        assertThat(closed.bandName()).isNull();
         assertThat(closed.operatorId()).isEqualTo("3829492001234567");
         assertThat(closed.operatorName()).isEqualTo("调价运营");
     }

@@ -24,13 +24,17 @@ public record AiplatformUnpricedUsageWireResponse(
     /**
      * 未配价档位项（tokenKind 为 Integer code + tokenKindName 随附，1=输入 2=输出 3=缓存读
      * 4=缓存写 5=推理 6=按张——按张档未配价同公式进清单；tokens 只计无价分量，语义随档位：
-     * token 档＝token 数、按张档＝张数）。
+     * token 档＝token 数、按张档＝张数）；band/bandName 随附 #499（ADR-0044 读时归段）：
+     * 事件时点归带，1=峰 2=谷，{@code null}＝不区分时段——通道无生效规则行/按张档不受带
+     * 影响；峰行有谷行无时谷段分量按 band=2 单列进缺价面——不伪装 0、不阻断聚合。
      */
     public record UnpricedTier(
             String provider,
             String model,
             Integer tokenKind,
             String tokenKindName,
+            Integer band,
+            String bandName,
             long tokens
     ) {
     }

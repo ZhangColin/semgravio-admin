@@ -284,6 +284,22 @@ class AiplatformSpringDocContractIntegrationTest {
                 .as("tokenKind 应附示例")
                 .isNotBlank();
 
+        // 时段带 band：#498/ADR-0044 峰谷 2/4——1=峰 2=谷、null＝不区分时段自描述（带是匹配键
+        // 成分、改价新行沿用被关行不可漂移），Integer code 直通零 typed enum（bandName 随行）
+        JsonNode band = property("AiplatformUnitPriceEntryResponse", "band");
+        assertThat(band.path("description").asText(""))
+                .as("band 应自描述时段带（1=峰 2=谷、null＝不区分时段，#498）")
+                .contains("1=峰")
+                .contains("2=谷")
+                .contains("不区分时段");
+        assertThat(exampleText(band))
+                .as("band 应附示例")
+                .isNotBlank();
+        // bandName 中文名随行列在场（null＝不区分时段两列同 null 落空）
+        assertThat(property("AiplatformUnitPriceEntryResponse", "bandName").isMissingNode())
+                .as("AiplatformUnitPriceEntryResponse 应含 bandName 随行列")
+                .isFalse();
+
         JsonNode paths = apiDocs().path("paths");
 
         // 单价行清单 @Operation：六档枚举在场＋unitPrice 档位单价语义（token 档每 token/按张档每张）
@@ -611,13 +627,13 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
-    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075 数字码在场）")
+    @DisplayName("swagger 契约：智能体配置三端点 @Operation 描述镜像 provider（#84＋#112 B3 档位键语义＋#122 提速批次十五件＋#123 信号开关两枚〔含失败重试常开口径〕，覆盖标记/默认预览/路由强档 + 幂等回滚语义 + PRJ_033/034/074/075/081/082/083 数字码在场）")
     void given_agentConfigEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");
 
-        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋最近写者——无覆盖行全
-        // 回落、三把稳定键（designer 到场）、modelId 档位键语义、边缘点指路、未知键 404
-        // PRJ_033 数字码
+        // 读面：生效值＋覆盖标记＋默认预览＋工具开关＋路由强档三件＋信号开关两枚＋最近写者
+        // ——无覆盖行全回落、三把稳定键（designer 到场）、modelId 档位键语义、边缘点指路、
+        // 未知键 404 PRJ_033 数字码
         JsonNode config = paths.path("/api/admin/aiplatform/agent-configs/{agentKey}").path("get");
         assertThat(config.isMissingNode()).as("api-docs 应含智能体配置读面端点").isFalse();
         assertThat(config.path("summary").asText(""))
@@ -631,6 +647,14 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("webSearchEnabled/fetchUrlEnabled")
                 .contains("routingStrongModelId")
                 .contains("主档/强档同范式")
+                .contains("routingFileCountSignalEnabled")
+                .contains("routingSizeLabelSignalEnabled")
+                .contains("阈值/映射旋钮照旧生效")
+                .contains("失败重试升档信号不受两开关影响、常开")
+                .contains("控件说明文案须带此口径")
+                .contains("提速批次十五件")
+                .contains("verificationPresenceGateEnabled")
+                .contains("仅 run 执行体行消费")
                 .contains("最近写者")
                 .contains("无覆盖行＝全回落")
                 .contains("main=主智能体").contains("executor=run 执行体")
@@ -653,6 +677,13 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("即时校验")
                 .contains("PRJ_074").contains("4074")
                 .contains("PRJ_075").contains("4075")
+                .contains("缺省方向不一致")
+                .contains("表单须带全字段")
+                .contains("routingFileCountSignalEnabled")
+                .contains("失败重试升档信号不受两开关影响、常开")
+                .contains("PRJ_081").contains("4081")
+                .contains("PRJ_082").contains("4082")
+                .contains("PRJ_083").contains("4083")
                 .contains("进行中 run 不定格")
                 .contains("append-only")
                 .contains("同值重写＝幂等回执不落痕")
@@ -674,6 +705,9 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("old*/new*")
                 .contains("路由强档")
                 .contains("读面可改就必须可回滚")
+                .contains("old/new 四枚")
+                .contains("提速批次二十件")
+                .contains("存储形逗号接键串")
                 .contains("append-only")
                 .contains("留痕不随任何动作删除")
                 .contains("旧值快照 PUT 回写")
@@ -695,8 +729,29 @@ class AiplatformSpringDocContractIntegrationTest {
                 .path("description").asText("")).contains("主档/强档同范式");
         assertThat(property("AiplatformAgentConfigResponse", "defaultRoutingStrongModelId")
                 .path("description").asText("")).contains("清空覆盖即落此值");
+        // #454 信号开关两枚（issue #123——缺省 false＝关/恢复结构性判据/失败重试常开口径）
+        assertThat(property("AiplatformAgentConfigResponse", "routingFileCountSignalEnabled")
+                .path("description").asText(""))
+                .contains("不参与升档判定").contains("阈值旋钮照旧生效")
+                .contains("失败重试升档信号不受本开关影响、常开");
+        assertThat(property("AiplatformAgentConfigResponse", "routingSizeLabelSignalEnabled")
+                .path("description").asText(""))
+                .contains("映射旋钮照旧生效").contains("仅 run 执行体行消费");
         assertThat(property("AiplatformAgentConfigResponse", "operatorId")
                 .path("description").asText("")).contains("null＝从未配置");
+        // 提速批次十五件（issue #122——三闸缺省 false＝闸关、决策注入三键生效值＋越界码）
+        assertThat(property("AiplatformAgentConfigResponse", "verificationPresenceGateEnabled")
+                .path("description").asText("")).contains("闸关");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintErrorStreak")
+                .path("description").asText("")).contains("PRJ_081");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintStackCap")
+                .path("description").asText("")).contains("PRJ_082");
+        assertThat(property("AiplatformAgentConfigResponse", "decisionHintDisabled")
+                .path("description").asText("")).contains("PRJ_083");
+        assertThat(property("AiplatformAgentConfigResponse", "defaultDecisionHintErrorStreak")
+                .path("description").asText("")).contains("清空覆盖即落此值");
+        assertThat(property("AiplatformAgentConfigResponse", "verifySelfDecisionEnabled")
+                .path("description").asText("")).contains("仅 run 执行体行消费");
 
         // 全量写命令 schema 自描述：清空回落语义＋档位键即时校验（PRJ_074/075）＋开关缺省
         // true（装箱——缺省≠关）＋强档同口径
@@ -715,12 +770,47 @@ class AiplatformSpringDocContractIntegrationTest {
         // example 值逐字对齐 provider swagger（AgentConfigUpdateCommand——强档 example＝pro 代码缺省档）
         assertThat(exampleText(property("AiplatformAgentConfigUpdateCommand", "routingStrongModelId")))
                 .isEqualTo("pro");
+        // #454 信号开关两枚（issue #123——缺省 false＝关〔null 同向〕＋仅 run 执行体行消费）
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "routingFileCountSignalEnabled")
+                .path("description").asText(""))
+                .contains("缺省 false＝关").contains("阈值旋钮照旧生效")
+                .contains("失败重试升档信号不受本开关影响、常开");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "routingSizeLabelSignalEnabled")
+                .path("description").asText(""))
+                .contains("缺省 false＝关").contains("映射旋钮照旧生效");
+        // 提速批次十件（issue #122——闸关缺省/null 方向相反＋阈值越界码＋禁用集封闭集）
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "verificationPresenceGateEnabled")
+                .path("description").asText("")).contains("闸关");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintErrorStreak")
+                .path("description").asText("")).contains("2–10").contains("PRJ_081");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintStackCap")
+                .path("description").asText("")).contains("1–3").contains("PRJ_082");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "decisionHintDisabled")
+                .path("description").asText("")).contains("failure_stop_loss").contains("PRJ_083");
+        assertThat(property("AiplatformAgentConfigUpdateCommand", "verifySelfDecisionEnabled")
+                .path("description").asText("")).contains("平台驱动验证腿");
 
         // 留痕行 schema 自描述：old 侧可空语义（回滚写回依据）＋强档对＋时刻倒序
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldSystemPrompt")
                 .path("description").asText("")).contains("回滚即把此值写回");
         assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingStrongModelId")
                 .path("description").asText("")).contains("回滚即把此值写回");
+        // #454 信号开关 old/new 四枚（issue #123——恒有值/缺省态恒 false）
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingFileCountSignalEnabled")
+                .path("description").asText("")).contains("恒有值").contains("缺省态恒 false");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldRoutingSizeLabelSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "newRoutingFileCountSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "newRoutingSizeLabelSignalEnabled")
+                .path("description").asText("")).contains("恒有值");
+        // 提速批次二十件（issue #122——old 侧可空语义＋禁用集存储形逗号串＋缺省态开关恒有值）
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldDecisionHintErrorStreak")
+                .path("description").asText("")).contains("null＝此前即代码缺省 3");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldDecisionHintDisabled")
+                .path("description").asText("")).contains("存储形逗号接键串");
+        assertThat(property("AiplatformAgentConfigTraceResponse", "oldVerifySelfDecisionEnabled")
+                .path("description").asText("")).contains("缺省态 true");
         assertThat(property("AiplatformAgentConfigTraceResponse", "operatedAt")
                 .path("description").asText("")).contains("时间倒序");
     }
@@ -1016,6 +1106,162 @@ class AiplatformSpringDocContractIntegrationTest {
                 .contains("SKL_018")
                 .contains("不前置拦截");
         assertThat(exampleText(reason)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("swagger 契约：「数据标注」五端点 @Operation 描述镜像 provider（#124，队列含终态行 + 宽松 projectId + 已激活≠已入库 + KNW_006/008/009/010/011/012 数字码在场）")
+    void given_sedimentDraftEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 标注队列：三过滤维度（projectId 宽松≠kind 非法 400 有意不同）＋含终态行（待办须显式
+        // status=1）＋自荐时间倒序 provider 定死＋inflightSlot 结构性承载＋分页 1-based 缺省 1/20
+        JsonNode queue = paths.path("/api/admin/aiplatform/sediment-drafts").path("get");
+        assertThat(queue.isMissingNode()).as("api-docs 应含标注队列端点").isFalse();
+        assertThat(queue.path("summary").asText(""))
+                .contains("标注队列").contains("按项目/类别/状态过滤").contains("分页");
+        assertThat(queue.path("description").asText(""))
+                .contains("含终态行")
+                .contains("待办视角须显式 status=1")
+                .contains("宽松口径")
+                .contains("与 kind 非法即 400 有意不同")
+                .contains("CASE/MODULE/RULE")
+                .contains("KNW_011").contains("2011")
+                .contains("自荐时间倒序")
+                .contains("血统三件")
+                .contains("SAFE/CAUTION")
+                .contains("inflightSlot")
+                .contains("结构性承载")
+                .contains("拥挤度")
+                .contains("1 基（缺省 1）");
+
+        // 标注详情：审核面（正文＋payload＋findings 逐条＋终态留痕）＋任意状态可查＋404 KNW_008
+        // 数字码＋语义陷阱「已激活≠已入库」文案红线
+        JsonNode detail = paths.path("/api/admin/aiplatform/sediment-drafts/{id}").path("get");
+        assertThat(detail.isMissingNode()).as("api-docs 应含标注详情端点").isFalse();
+        assertThat(detail.path("summary").asText(""))
+                .contains("标注详情").contains("终态留痕").contains("审核面");
+        assertThat(detail.path("description").asText(""))
+                .contains("原样升格不改稿")
+                .contains("一期恒空面")
+                .contains("patternId/severity/category/file/line/matchText/description")
+                .contains("空列表＝无发现")
+                .contains("在途恒 null")
+                .contains("任意状态可查")
+                .contains("KNW_008").contains("2008")
+                .contains("「已激活」≠「已入库」");
+
+        // 激活：无请求体＋CAS 已审结 409＋语义陷阱（不得暗示「激活即可被检索」）＋按钮态由
+        // 行 status 驱动＋缺操作者 KNW_006＋回执＝终态详情
+        JsonNode activate = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/activate").path("post");
+        assertThat(activate.isMissingNode()).as("api-docs 应含激活端点").isFalse();
+        assertThat(activate.path("summary").asText(""))
+                .contains("激活草稿").contains("人审采纳").contains("原样升格不改稿");
+        assertThat(activate.path("description").asText(""))
+                .contains("CAS")
+                .contains("KNW_009").contains("2009")
+                .contains("「已激活」≠「已入库」")
+                .contains("不得暗示「激活即可被检索」")
+                .contains("status=1 才可按")
+                .contains("KNW_008").contains("2008")
+                .contains("KNW_006").contains("2006")
+                .contains("无请求体")
+                .contains("终态详情");
+
+        // 拒绝：理由必填（KNW_010 库级 CHECK 双锁、可选绑定不前置拦截）＋拒绝即终态不改稿不复活＋
+        // body 仅 reason＋回执＝终态详情
+        JsonNode reject = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/reject").path("post");
+        assertThat(reject.isMissingNode()).as("api-docs 应含拒绝端点").isFalse();
+        assertThat(reject.path("summary").asText(""))
+                .contains("拒绝草稿").contains("终态留档").contains("理由必填");
+        assertThat(reject.path("description").asText(""))
+                .contains("KNW_010").contains("2010")
+                .contains("不前置拦截")
+                .contains("拒绝即终态")
+                .contains("重提只能靠未来会话产生新草稿")
+                .contains("KNW_009").contains("2009")
+                .contains("KNW_008").contains("2008")
+                .contains("KNW_006").contains("2006")
+                .contains("body 仅 reason")
+                .contains("终态详情");
+
+        // 改标签：占目标类别在途名额（跨类别结构性约束）＋满 409 KNW_012＋前端提示文案＋同类别
+        // 幂等 no-op＋不翻终态不动正文＋body 仅 kind＋回执＝详情（新类别直读）
+        JsonNode relabel = paths.path("/api/admin/aiplatform/sediment-drafts/{id}/relabel").path("post");
+        assertThat(relabel.isMissingNode()).as("api-docs 应含改标签端点").isFalse();
+        assertThat(relabel.path("summary").asText(""))
+                .contains("改标签").contains("占目标类别在途名额");
+        assertThat(relabel.path("description").asText(""))
+                .contains("CASE/MODULE/RULE")
+                .contains("KNW_011").contains("2011")
+                .contains("幂等 no-op")
+                .contains("占目标类别在途名额")
+                .contains("上限 3")
+                .contains("KNW_012").contains("2012")
+                .contains("目标类别在途已满，先审结该类别草稿")
+                .contains("不翻终态、不动正文")
+                .contains("body 仅 kind")
+                .contains("新类别直读");
+
+        // 队列行 schema 自描述：id TSID 十进制串（勿做数值假设）＋kind 三类中文对照＋inflightSlot
+        // 结构性承载＋status 三态（队列缺省含终态行）
+        JsonNode draftId = property("AiplatformSedimentDraftSummaryResponse", "id");
+        assertThat(draftId.path("description").asText(""))
+                .contains("TSID 十进制串")
+                .contains("勿做数值假设")
+                .contains("KNW_008");
+        JsonNode kind = property("AiplatformSedimentDraftSummaryResponse", "kind");
+        assertThat(kind.path("description").asText(""))
+                .contains("CASE=需求案例")
+                .contains("MODULE=功能模块")
+                .contains("RULE=业务规则")
+                .contains("占目标类别在途名额");
+        assertThat(exampleText(kind)).isEqualTo("CASE");
+        assertThat(property("AiplatformSedimentDraftSummaryResponse", "inflightSlot")
+                .path("description").asText(""))
+                .contains("在途序号 1-3")
+                .contains("结构性承载")
+                .contains("终态翻行即释放名额");
+        assertThat(property("AiplatformSedimentDraftSummaryResponse", "status")
+                .path("description").asText(""))
+                .contains("1=在途 2=已激活 3=已拒绝")
+                .contains("队列缺省含终态行");
+
+        // 详情 schema 自描述：content 原样升格语义＋payload/findings untyped＋终态留痕四字段可空
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "content")
+                .path("description").asText(""))
+                .contains("原样入库")
+                .contains("审核者不改稿")
+                .contains("所见即入库内容");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "payload")
+                .path("description").asText(""))
+                .contains("一期恒空面")
+                .contains("untyped");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "scanFindings")
+                .path("description").asText(""))
+                .contains("空列表＝无发现")
+                .contains("untyped");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "operatorId")
+                .path("description").asText(""))
+                .contains("在途为 null")
+                .contains("三键审结后回填");
+        assertThat(property("AiplatformSedimentDraftDetailResponse", "rejectReason")
+                .path("description").asText(""))
+                .contains("已拒绝态携带");
+
+        // 三键命令 schema 自描述：拒绝理由终态留档＋空白 KNW_010（provider 裁决不前置拦截）、
+        // 改标签类别三类对照＋非法 KNW_011
+        JsonNode reason = property("AiplatformSedimentDraftRejectCommand", "reason");
+        assertThat(reason.path("description").asText(""))
+                .contains("终态留档")
+                .contains("KNW_010")
+                .contains("不前置拦截");
+        assertThat(exampleText(reason)).isNotBlank();
+        JsonNode relabelKind = property("AiplatformSedimentDraftRelabelCommand", "kind");
+        assertThat(relabelKind.path("description").asText(""))
+                .contains("CASE=需求案例")
+                .contains("同类别幂等 no-op")
+                .contains("KNW_011");
+        assertThat(exampleText(relabelKind)).isEqualTo("MODULE");
     }
 
     @Test
@@ -1861,6 +2107,228 @@ class AiplatformSpringDocContractIntegrationTest {
         assertThat(property("AiplatformModelTierTraceResponse", "newDisplayName")
                 .path("description").asText(""))
                 .contains("本次清空回落语义键");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：「资源面」两端点 @Operation 描述镜像 provider（#128，null＝缺测≠0＝真零/在册≠无主/ADR-0045 准绳/逐项处置三因/WSP_002 数字码在场）")
+    void given_resourceEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 资源大盘：六面齐备＋null≠零两态呈现红线＋失联计数出口（在册≠无主，出口＝一键回收）
+        // ＋ADR-0045 准绳（可回收口径不进本面）＋最近清扫收编结果面
+        JsonNode overview = paths.path("/api/admin/aiplatform/resources/overview").path("get");
+        assertThat(overview.isMissingNode()).as("api-docs 应含资源大盘端点").isFalse();
+        assertThat(overview.path("summary").asText(""))
+                .contains("资源大盘")
+                .contains("主机盘");
+        assertThat(overview.path("description").asText(""))
+                .contains("null＝缺测")
+                .contains("0＝真零")
+                .contains("采样中")
+                .contains("在册≠无主")
+                .contains("一键回收 reclaim")
+                .contains("ADR-0045")
+                .contains("永不进本面")
+                .contains("纯读库零 docker 调用")
+                .contains("lastSweep")
+                .contains("sampledAt");
+
+        // 手动清扫：同准绳（保留集/宽限线/点名删非 prune）＋逐项处置三因＋registryReachable
+        // false 一刀未动＋操作者透传头缺头落空＋无请求体＋WSP_002 数字码
+        JsonNode sweep = paths.path("/api/admin/aiplatform/resources/sweep").path("post");
+        assertThat(sweep.isMissingNode()).as("api-docs 应含手动清扫端点").isFalse();
+        assertThat(sweep.path("summary").asText(""))
+                .contains("手动清扫")
+                .contains("逐项处置报告");
+        assertThat(sweep.path("description").asText(""))
+                .contains("同一实现同一准绳")
+                .contains("保留集＝")
+                .contains("宽限线")
+                .contains("点名删非 prune")
+                .contains("REGISTERED")
+                .contains("GRACE_WINDOW")
+                .contains("TIMESTAMP_UNREADABLE")
+                .contains("一刀未动")
+                .contains("如实呈报不重试")
+                .contains("落空 NULL")
+                .contains("无请求体")
+                .contains("WSP_002").contains("1002");
+
+        // 大盘 schema 自描述：失联计数出口＋在册≠无主；docker/orphans 为嵌套 record（$ref 形）
+        // ——语义自描述在 @Operation 与标量字段上钉死，此处钉 ref 在场即契约未漂移
+        assertThat(property("AiplatformResourceOverviewResponse", "lostWorkspaceCount")
+                .path("description").asText(""))
+                .contains("在册失联")
+                .contains("一键回收 reclaim")
+                .contains("在册≠无主");
+        assertThat(property("AiplatformResourceOverviewResponse", "docker").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "orphans").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "host").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "lastSweep").isMissingNode()).isFalse();
+
+        // 清扫回执 schema 自描述：registryReachable 一刀未动、逐项处置行三因＋SWEPT/FAILED
+        // skipReason 为 null、宽限线窗口保护语义
+        assertThat(property("AiplatformResourceSweepResponse", "registryReachable")
+                .path("description").asText(""))
+                .contains("一刀未动")
+                .contains("不重试");
+        assertThat(property("AiplatformResourceSweepResponse", "graceLine")
+                .path("description").asText(""))
+                .contains("宽限线")
+                .contains("10 分钟");
+        assertThat(property("AiplatformResourceSweepResponse", "items")
+                .path("description").asText(""))
+                .contains("逐项处置");
+        assertThat(property("SweepItem", "skipReason")
+                .path("description").asText(""))
+                .contains("REGISTERED")
+                .contains("GRACE_WINDOW")
+                .contains("TIMESTAMP_UNREADABLE")
+                .contains("SWEPT/FAILED 为 null");
+        assertThat(property("SweepItem", "resourceCreatedAt")
+                .path("description").asText(""))
+                .contains("在册项未起 inspect")
+                .contains("恒 null");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：「时段规则」四端点 @Operation 描述镜像 provider（#130，窗不跨午夜 METER_013/一单 N 窗口＝一个版本/closed opened 双段/band 1=峰 2=谷/dayMask Mon=1…Sun=64/缺头落空/METER_015/016/008 数字码在场）")
+    void given_timeBandRuleEndpoints_when_operations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 清单：含历史版本分页＋effectiveTo null＝当前行＋UTC 分钟 end 不含
+        JsonNode entries = paths.path("/api/admin/aiplatform/time-band-rules").path("get");
+        assertThat(entries.isMissingNode()).as("api-docs 应含时段规则清单端点").isFalse();
+        assertThat(entries.path("summary").asText(""))
+                .contains("时段规则行清单")
+                .contains("历史版本");
+        assertThat(entries.path("description").asText(""))
+                .contains("effectiveTo 为 null 即当前行")
+                .contains("end 不含")
+                .contains("周一至周五")
+                .contains("operatorId/operatorName");
+
+        // 开行：一单 N 窗口＝一个版本＋窗不跨午夜拆两行＋band/dayMask 编码口径
+        JsonNode open = paths.path("/api/admin/aiplatform/time-band-rules").path("post");
+        assertThat(open.isMissingNode()).as("api-docs 应含时段规则开行端点").isFalse();
+        assertThat(open.path("summary").asText(""))
+                .contains("开行")
+                .contains("一个规则版本");
+        assertThat(open.path("description").asText(""))
+                .contains("1=峰 2=谷")
+                .contains("Mon=1")
+                .contains("Sun=64")
+                .contains("跨午夜窗口 v1 不")
+                .contains("METER_013")
+                .contains("3013")
+                .contains("METER_008")
+                .contains("3008")
+                .contains("缺头落空");
+
+        // 原子改窗：closed/opened 双段＋被关行保留原操作者＋METER_014/016 在场
+        JsonNode rewindow = paths.path("/api/admin/aiplatform/time-band-rules/{id}/rewindow").path("post");
+        assertThat(rewindow.isMissingNode()).as("api-docs 应含时段规则改窗端点").isFalse();
+        assertThat(rewindow.path("summary").asText(""))
+                .contains("原子改窗")
+                .contains("closed/opened");
+        assertThat(rewindow.path("description").asText(""))
+                .contains("保留其原")
+                .contains("清单即终态")
+                .contains("METER_014")
+                .contains("3014")
+                .contains("METER_016")
+                .contains("3016")
+                .contains("METER_015")
+                .contains("3015")
+                .contains("缺头落空");
+
+        // 停用：关版本不接新行＋无请求体＋被关行是唯一落点
+        JsonNode deactivate = paths.path("/api/admin/aiplatform/time-band-rules/{id}/deactivate").path("post");
+        assertThat(deactivate.isMissingNode()).as("api-docs 应含时段规则停用端点").isFalse();
+        assertThat(deactivate.path("summary").asText(""))
+                .contains("停用")
+                .contains("不接新行");
+        assertThat(deactivate.path("description").asText(""))
+                .contains("钳到自身起点")
+                .contains("无请求体")
+                .contains("唯一")
+                .contains("落空");
+
+        // 行 schema 在场即契约未漂移（bandName/dayMaskName/effectiveTo——行形十二字段的
+        // 语义自描述在 @Operation 与窗口命令项 @Schema 上钉死，此处钉 ref 在场）；
+        // 窗口命令项 schema：跨午夜拆两行提示＋band/dayMask 编码口径
+        assertThat(property("AiplatformTimeBandRuleResponse", "bandName").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeBandRuleResponse", "dayMaskName").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeBandRuleResponse", "effectiveTo").isMissingNode()).isFalse();
+        assertThat(property("AiplatformTimeWindowCommand", "endMinute")
+                .path("description").asText(""))
+                .contains("跨午夜窗口拆两行");
+        assertThat(property("AiplatformTimeWindowCommand", "dayMask")
+                .path("description").asText(""))
+                .contains("Mon=1")
+                .contains("Sun=64");
+        assertThat(property("AiplatformTimeWindowCommand", "band")
+                .path("description").asText(""))
+                .contains("1=峰 2=谷");
+    }
+
+    @Test
+    @DisplayName("swagger 契约：「一键回收」两端点 @Operation 描述镜像 provider（#129，UNKNOWN 不算清/RESIDUE 如实红不报错重试/UNTOUCHED 如实分示/回收范围确认弹窗/PRJ_001/WSP_001 数字码在场）")
+    void given_reclaimEndpoints_when_postOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 项目级回收：级联停止→销毁→真删级联（受理即删）＋四面逐面三态＋UNKNOWN 不算清＋
+        // 残留如实红不报错重试＋无凭证属主照收＋动刀类留痕（缺头落空 NULL）＋确认弹窗回收范围
+        JsonNode projectReclaim = paths.path("/api/admin/aiplatform/projects/{id}/reclaim").path("post");
+        assertThat(projectReclaim.isMissingNode()).as("api-docs 应含项目级回收端点").isFalse();
+        assertThat(projectReclaim.path("summary").asText(""))
+                .contains("项目级一键回收")
+                .contains("四面报告");
+        assertThat(projectReclaim.path("description").asText(""))
+                .contains("先级联停止")
+                .contains("受理即删")
+                .contains("UNKNOWN 不算清")
+                .contains("如实红不报错重试")
+                .contains("无凭证属主的账户项目照收")
+                .contains("落空 NULL")
+                .contains("项目连同工作区全删")
+                .contains("PRJ_001").contains("4001");
+
+        // 工作区级回收：单台三清＋项目其余不动（UNTOUCHED 如实分示）＋失联裁决出口＋
+        // 确认弹窗回收范围（只删单台沙箱，项目仍在）
+        JsonNode workspaceReclaim = paths.path("/api/admin/aiplatform/workspaces/{id}/reclaim").path("post");
+        assertThat(workspaceReclaim.isMissingNode()).as("api-docs 应含工作区级回收端点").isFalse();
+        assertThat(workspaceReclaim.path("summary").asText(""))
+                .contains("工作区级一键回收")
+                .contains("项目其余部分不动");
+        assertThat(workspaceReclaim.path("description").asText(""))
+                .contains("UNTOUCHED")
+                .contains("人工裁决出口")
+                .contains("只删单台沙箱，项目仍在")
+                .contains("含畸形 id")
+                .contains("WSP_001").contains("1001");
+
+        // 回执 schema 自描述：逐面三态＋UNKNOWN 不算清 residueFree 判据＋UNTOUCHED 语义＋
+        // runsStopped 口径＋操作者落空口径
+        assertThat(property("AiplatformReclaimResponse", "container")
+                .path("description").asText(""))
+                .contains("CLEAN")
+                .contains("RESIDUE")
+                .contains("UNKNOWN");
+        assertThat(property("AiplatformReclaimResponse", "projectRow")
+                .path("description").asText(""))
+                .contains("UNTOUCHED")
+                .contains("非清非残留");
+        assertThat(property("AiplatformReclaimResponse", "residueFree")
+                .path("description").asText(""))
+                .contains("UNKNOWN 不算清");
+        assertThat(property("AiplatformReclaimResponse", "runsStopped")
+                .path("description").asText(""))
+                .contains("级联停止");
+        assertThat(property("AiplatformReclaimResponse", "operatorId")
+                .path("description").asText(""))
+                .contains("落空 NULL")
+                .contains("wsp_reclaim_actions");
     }
 
     // ---------- 装载 ----------

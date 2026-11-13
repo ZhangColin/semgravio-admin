@@ -45,7 +45,12 @@ public record AiplatformCostOverviewResponse(
         List<ModelUsage> byModel,
 
         /** 分智能体聚合（agentKind 裸维度串 + agentKindName 随行） */
-        List<AgentKindUsage> byAgentKind
+        List<AgentKindUsage> byAgentKind,
+
+        /** 分模型金额按带拆（#499 峰谷维度：band/bandName 随附，null＝不区分时段分量——无规则行
+         * 通道与按张行恒落此桶；cost 按币种分桶与全局 cost 同源互补不重叠——各带行币种金额
+         * 分桶直加即回全局 cost，不重复计数） */
+        List<ModelBandCost> byModelCost
 ) {
 
     /** 分模型聚合项。 */
@@ -54,5 +59,21 @@ public record AiplatformCostOverviewResponse(
 
     /** 分智能体聚合项（agentKind 原值 + agentKindName 中文名，辅助标记为 null）。 */
     public record AgentKindUsage(String agentKind, String agentKindName, AiplatformTokenUsageResponse tokens) {
+    }
+
+    /** 分模型金额按带拆项（#499 峰谷维度，ADR-0044 读时归段）：band Integer code（1=峰 2=谷）
+     * ＋bandName 中文名随行，{@code null}＝不区分时段分量（无规则行通道与按张行恒落此桶——
+     * 消费端展示落「不区分时段」桶）；cost＝该 (provider, model, 带) 已配价分量按币种分桶，
+     * 与全局 cost 同源互补不重叠。 */
+    public record ModelBandCost(
+            String provider,
+            String model,
+            Integer band,
+            String bandName,
+            @Schema(description = "该 (provider, model, 带) 已配价分量按币种分桶（键 = ISO 4217 币种码、"
+                    + "值 BigDecimal；与全局 cost 同源互补不重叠——各带行分桶直加即回全局 cost）",
+                    example = "{\"CNY\": 3.00}")
+            Map<String, BigDecimal> cost
+    ) {
     }
 }

@@ -44,17 +44,24 @@ public record AiplatformWorkspaceDetailResponse(
         /** 期望态名 */
         String desiredStateName,
 
-        /** 容器实态（1=运行中 2=已停止 3=无容器 4=未知——现场探查、封存容缺） */
+        /** 容器实态采样（1=运行中 2=已停止 3=无容器 4=未知——采样到探查失败）；未采样为 null */
         Integer containerState,
 
-        /** 容器实态名 */
+        /** 容器实态名（未采样为 null） */
         String containerStateName,
 
         /** 最近触碰 */
         LocalDateTime lastTouchAt,
 
-        /** 卷用量（字节；封存容缺/探查失败为 null） */
+        /** 卷用量采样（字节；封存按意图容缺/未采样/采样失败为 null——封存行恒 null，看 archiveSizeBytes） */
         Long volumeSizeBytes,
+
+        /** 实态列采样时刻（新鲜度标注；未采样为 null） */
+        LocalDateTime sampledAt,
+
+        /** 在册失联判定时刻（aiplatform #488，issue #127——项目行已删而物理资源仍在的静止现场，
+         * 处置出口＝一键回收人工裁决，机器不自动清）；未失联为 null */
+        LocalDateTime lostAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

@@ -24,41 +24,68 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 源码 {@code BackofficeAgentConfigController} / {@code BackofficeAgentConfigResponse} /
  * {@code BackofficeAgentConfigTraceResponse} / {@code AgentConfigUpdateCommand} /
  * {@code AgentProfile} / {@code ProjectMessage} / {@code ErrorCodePrefix} 核实；
- * B3 增量 2026-11-03 对照 provider develop（V44/V45 落地后）复核）：</p>
+ * B3 增量 2026-11-03 对照 provider develop（V44/V45 落地后）复核；issue #122 增量
+ * 2026-11-11 对照 provider develop（#432 提速批次 V53–V57 落地后）复核——10 新字段镜像
+ * ＋缺省/null 方向陷阱＋PRJ_081/082/083 校验透传；issue #123 增量 2026-11-11 对照 provider
+ * develop（#454 路由结构性信号开关 V58 落地后）复核——读/写两枚＋留痕 old/new 四枚镜像
+ * ＋缺省 false＝关（无覆盖行语境＝false）口径）：</p>
  * <ul>
  *   <li>三端点均包 {@code ApiResponse<T>} 信封，按信封反序列化取 {@code .data()}：GET
  *       {@code /agent-configs/{agentKey}} 与 PUT 回执同形（单对象——provider 写入后重读同一
  *       视图）；GET {@code /agent-configs/{agentKey}/traces} data 为<strong>裸 List</strong>
  *       （append-only 时间倒序、有界——与技能更新留痕 List 直出同形，不造分页）。</li>
- *   <li>读面字段（16 件镜像）：{@code agentKey}（main=主智能体／executor=run 执行体／
+ *   <li>读面字段（33 件镜像）：{@code agentKey}（main=主智能体／executor=run 执行体／
  *       designer=设计执行体——展示名分别为「主智能体」/「run 执行体」/「设计执行体」，默认
  *       档位键 flash/flash/pro，{@code AgentProfile} 枚举定死；边缘调用点走 /edge/{edgeKey}
  *       三座端点对边缘键 404 PRJ_033）＋生效值两件＋覆盖标记两件＋枚举默认预览两件＋增强
  *       工具开关两件＋<strong>路由强档三件</strong>（routingStrongModelId 生效值／
  *       routingStrongModelIdOverridden／defaultRoutingStrongModelId——主档/强档同范式，B3
- *       忠实跟随）＋最近写者两肢＋{@code updatedAt}。modelId 语义＝<strong>档位键</strong>
- *       （ADR-0031 语义键如 flash/pro/doubao-flagship，V44 存量已刷档——非裸模型名）。覆盖
- *       标记与开关四件 provider 恒在场（原生 boolean）；写者两肢与 updatedAt 可空（null＝
- *       从未配置——无覆盖行＝全回落，覆盖标记 false）。provider 读面另带路由开关/两阈值六件
- *       （#354，routingEnabled±/routingFileCountThreshold±/routingSliceFeatureThreshold±），
- *       B3 票面只点名 routingStrongModelId——六件不镜像（Jackson 容错忽略，读面不呈现），
+ *       忠实跟随）＋<strong>#454 路由结构性信号开关两枚</strong>（issue #123——
+ *       routingFileCountSignalEnabled/routingSizeLabelSignalEnabled 生效值，缺省 false＝关
+ *       ＝文件面/规模标签不参与升档判定〔观测值照留〕，true＝恢复对应结构性判据〔阈值/映射
+ *       旋钮照旧生效〕；失败重试升档信号不受两开关影响、常开——仅 run 执行体行消费）＋
+ *       <strong>#432 提速批次十五件</strong>（issue #122——三闸生效值
+ *       〔verificationPresenceGateEnabled/proofOfOutputGateEnabled/
+ *       finalVerificationGateEnabled，缺省 false＝闸关〕＋单会话/并行机器/注入总开关/verify
+ *       自决生效值〔缺省 true/true/true/true，并行机器 false〕＋决策注入三键生效值
+ *       〔decisionHintErrorStreak/decisionHintStackCap Integer 可空、decisionHintDisabled
+ *       List&lt;String&gt;——空数组＝全启用〕＋两阈值各带 Overridden 标志与
+ *       defaultDecisionHint&#42; 代码缺省预览 3＋禁用集 Overridden 标志）＋最近写者两肢＋
+ *       {@code updatedAt}。modelId 语义＝<strong>档位键</strong>（ADR-0031 语义键如 flash/pro/
+ *       doubao-flagship，V44 存量已刷档——非裸模型名）。覆盖标记与开关 provider 恒在场
+ *       （原生 boolean）；写者两肢与 updatedAt 可空（null＝从未配置——无覆盖行＝全回落，
+ *       覆盖标记 false）。provider 读面另带路由开关/两阈值/升档标签映射/verify 面旧件
+ *       （#354/#424/#426/#427），B3 票面不点名——不镜像（Jackson 容错忽略，读面不呈现），
  *       fixtures 如实携带以钉住容错事实。</li>
- *   <li>PUT 命令体（5 件）：{@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled,
- *       routingStrongModelId}}——逐字镜像 {@code AgentConfigUpdateCommand}（B3 面）。覆盖三件
- *       null/缺省/纯空白＝清空覆盖回落枚举/代码默认；开关两件 <strong>Boolean 装箱</strong>
- *       （provider 命令同型）——null 出站在场（全局 Jackson 含 null）＝provider 缺省 true
- *       （开），若北向用原生 boolean 缺省会落成 false（关）语义反了。<strong>档位键即时
- *       校验</strong>（#367）：modelId 与 routingStrongModelId 非空时必须在模型档位面
- *       （/model-tiers）有行且启用——缺行 400 PRJ_074、停用 400 PRJ_075（错值写不进去，
- *       不再靠留痕回滚兜底；null＝清空回落缺省不校验）。provider 命令另带路由开关/两阈值
- *       三件（routingEnabled/routingFileCountThreshold/routingSliceFeatureThreshold——
- *       #354），B3 票面不镜像：admin 命令体三肢不出站＝provider null＝缺省态（开/60/4）
- *       ——BFF 是唯一写面、三件从无可设处，结构上恒缺省态（票面字面口径，2026-11-03 拍板）。</li>
- *   <li>留痕行（14 件镜像）：{@code id}（TSID 十进制串）＋old&#42;/new&#42; 对（prompt/档位/
- *       <strong>路由强档</strong>三件可空——null＝该侧即缺省回落，旧值快照即回滚写回依据
- *       〔含强档——读面可改就必须可回滚〕；开关四件恒在场）＋操作者两肢＋{@code operatedAt}
- *       （LocalDateTime ISO）。每痕＝一次实际变更（同值幂等重写不落痕）。provider 留痕另带
- *       路由开关/两阈值六件（#354），同读面口径不镜像（fixtures 如实携带钉容错）。</li>
+ *   <li>PUT 命令体（17 件）：{@code {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled,
+ *       routingStrongModelId}}＋<strong>路由结构性信号开关两枚</strong>（issue #123——
+ *       routingFileCountSignalEnabled/routingSizeLabelSignalEnabled〔Boolean 装箱〕，null＝
+ *       缺省 false＝关）＋<strong>提速批次十件</strong>（三闸/单会话/并行机器/注入总开关/
+ *       verify 自决七开关〔Boolean 装箱〕＋decisionHintErrorStreak/decisionHintStackCap
+ *       〔Integer 可空〕＋decisionHintDisabled〔List&lt;String&gt;〕）——逐字镜像
+ *       {@code AgentConfigUpdateCommand}（B3 面＋issue #122 面）。覆盖三件 null/缺省/纯空白＝
+ *       清空覆盖回落枚举/代码默认；开关缺省方向<strong>不一致</strong>（陷阱②——工具/单会话/
+ *       注入/自决缺省 true，三闸/并行机器缺省 false），全部装箱——null 出站在场（全局 Jackson
+ *       含 null）＝provider 回落缺省，原生 boolean 会把缺省绑成 false（关）语义反了；三闸
+ *       null＝闸关（陷阱③——#435 归一口径，与工具开关「null＝开」相反）。档位键即时校验
+ *       （#367）：modelId 与 routingStrongModelId 非空时必须在模型档位面（/model-tiers）有行
+ *       且启用——缺行 400 PRJ_074、停用 400 PRJ_075（null＝清空回落缺省不校验）。决策注入
+ *       校验（#437）：errorStreak 2–10 越界 400 PRJ_081、stackCap 1–3 越界 400 PRJ_082、
+ *       禁用集非法 token 400 PRJ_083（null/空数组＝全启用不校验）——provider 裁决，admin
+ *       不代判。provider 命令另带路由开关/两阈值/升档标签映射/verify 面九件（#354/#424/
+ *       #426/#427），B3 票面不点名：admin 命令体九件不出站＝provider null＝缺省态——BFF 是
+ *       唯一写面、九件从无可设处，结构上恒缺省态（票面字面口径）。</li>
+ *   <li>留痕行（38 件镜像）：{@code id}（TSID 十进制串）＋old&#42;/new&#42; 对（prompt/档位/
+ *       <strong>强档</strong>三件可空——null＝该侧即缺省回落，旧值快照即回滚写回依据〔含
+ *       强档——读面可改就必须可回滚〕；开关件恒在场；<strong>#454 路由结构性信号开关
+ *       old/new 四枚</strong>〔issue #123——恒有值，缺省态恒 false＝关〕；<strong>提速批次
+ *       二十件</strong>〔issue
+ *       #122〕——七开关恒有值〔缺省态：三闸 false、并行机器 false、余 true〕、两阈值可空
+ *       〔null＝该侧即代码缺省 3〕、禁用集可空〔<strong>存储形逗号接键串</strong>——provider
+ *       留痕快照直读存储列，与读面 List 形不同；空串＝全启用显式形〕）＋操作者两肢＋
+ *       {@code operatedAt}（LocalDateTime ISO）。每痕＝一次实际变更（同值幂等重写不落痕）。
+ *       provider 留痕另带路由开关/两阈值/升档标签映射/verify 面旧件（#354/#424/#426/#427），
+ *       同读面口径不镜像（fixtures 如实携带钉容错）。</li>
  *   <li>边缘调用点三端点（#366 同表收编——值面仅模型档位键，无 prompt/工具开关/路由件）：
  *       GET/PUT {@code /agent-configs/edge/{edgeKey}} 与 GET {@code /edge/{edgeKey}/traces}。
  *       寻址稳定键四把（{@code AgentEdgePoint} 实值）：naming=项目取名（code 11）／
@@ -68,14 +95,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       ——字段名对齐三座面，admin 侧同一渲染件可复用）；PUT 命令体 1 件 {@code {modelId}}
  *       （窄形拒绝误带——null/缺省/纯空白＝清空覆盖回落代码缺省 flash；即时校验同三座口径
  *       PRJ_074/075）；留痕行与三座同形（边缘行档位列之外快照件恒缺省态：prompt null、开关
- *       true、路由件缺省态）。</li>
+ *       true、路由件缺省态、#454 信号开关四枚恒 false〔issue #123〕）。</li>
  *   <li>错误透传（PRJ 域码 4×1000＋序号）：PRJ_033→4033（404 智能体不存在——运营配置面
  *       只有 main/executor/designer 三座，边缘键走 /edge/{edgeKey}；三座三端点同语义）；
  *       PRJ_064→4064（404 边缘调用点不存在——档位配置面只有 naming/compaction/
  *       classification/precheck 四点；边缘三端点同语义）；PRJ_034→4034（400 操作者不能为
  *       空——配置变更必留痕，缺头域面守卫拦，admin 不拦）；PRJ_074→4074（400 绑定的模型
  *       档位不存在——先在模型档位面建行）；PRJ_075→4075（400 绑定的模型档位已停用——启用
- *       该档位或改绑其他档位）——fail-fast 原样透传，admin 不映射不翻译。</li>
+ *       该档位或改绑其他档位）；PRJ_081→4081（400 失败止损阈值越界——2–10 整数）；PRJ_082→4082
+ *       （400 微指令堆叠上限越界——1–3 整数）；PRJ_083→4083（400 禁用集含非法 token——封闭集
+ *       failure_stop_loss/anti_mock/context_economy/parallel_tools）——fail-fast 原样透传，
+ *       admin 不映射不翻译。</li>
  * </ul>
  *
  * <p>本测试 <strong>不</strong> mock {@code AiplatformClient}（方法边界 mock 会绕过 wire 反序列化
@@ -93,8 +123,12 @@ class AiplatformAgentConfigClientContractTest {
      * aiplatform GET /api/backoffice/agent-configs/{agentKey} 的真实成功响应形状（有覆盖行
      * 代表面）：生效值＝库覆盖（覆盖标记 true×2＋路由强档覆盖标记 true）、生效值≠默认预览、
      * 开关一开一关、最近写者两肢＋写入时刻俱全。PUT 回执与本信封同形。modelId/强档取 V44
-     * 档位键实值（flash/pro/doubao-flagship——存量已刷档，非裸模型名）。路由开关/两阈值六件
-     * （#354）provider 在场、B3 票面不镜像——如实携带钉住「Jackson 容错忽略不炸读面」事实。
+     * 档位键实值（flash/pro/doubao-flagship——存量已刷档，非裸模型名）。#454 路由结构性信号
+     * 开关两枚（issue #123）＝文件面开/规模标签关（一开一关代表面）。提速批次十五件
+     * （issue #122）＝三闸一开两关＋单会话关/并行开/注入关/自决关＋决策注入三键库覆盖
+     * （errorStreak 5/stackCap 2/禁用集两键，Overridden true×3）＋defaultDecisionHint* 预览 3。
+     * provider 未点名镜像的旧件（路由开关/两阈值/升档标签映射/verify 面——#354/#424/#426/
+     * #427）在场——如实携带钉住「Jackson 容错忽略不炸读面」事实。
      */
     private static final String CONFIG_ENVELOPE = """
             {
@@ -121,6 +155,34 @@ class AiplatformAgentConfigClientContractTest {
                 "routingSliceFeatureThreshold": 4,
                 "routingSliceFeatureThresholdOverridden": false,
                 "defaultRoutingSliceFeatureThreshold": 4,
+                "routingEscalatingSizeLabels": ["中", "大"],
+                "routingEscalatingSizeLabelsOverridden": false,
+                "defaultRoutingEscalatingSizeLabels": ["大"],
+                "routingFileCountSignalEnabled": true,
+                "routingSizeLabelSignalEnabled": false,
+                "verifyModelId": null,
+                "verifyModelIdOverridden": false,
+                "verifyRoundBudget": 3,
+                "verifyRoundBudgetOverridden": false,
+                "defaultVerifyRoundBudget": 3,
+                "finalVerifyFixBudget": 2,
+                "finalVerifyFixBudgetOverridden": false,
+                "defaultFinalVerifyFixBudget": 2,
+                "verificationPresenceGateEnabled": true,
+                "proofOfOutputGateEnabled": false,
+                "finalVerificationGateEnabled": true,
+                "singleSessionGenerationEnabled": false,
+                "parallelSliceMachineEnabled": true,
+                "decisionHintsEnabled": false,
+                "decisionHintErrorStreak": 5,
+                "decisionHintErrorStreakOverridden": true,
+                "defaultDecisionHintErrorStreak": 3,
+                "decisionHintStackCap": 2,
+                "decisionHintStackCapOverridden": true,
+                "defaultDecisionHintStackCap": 3,
+                "decisionHintDisabled": ["anti_mock", "parallel_tools"],
+                "decisionHintDisabledOverridden": true,
+                "verifySelfDecisionEnabled": false,
                 "operatorId": "700200",
                 "operatorName": "运营·技能管理员",
                 "updatedAt": "2026-09-22T14:30:00"
@@ -134,7 +196,10 @@ class AiplatformAgentConfigClientContractTest {
      * 无覆盖行代表面（executor=run 执行体，从未配置）：全回落——覆盖标记 false×2＋路由强档
      * 覆盖标记 false、生效值＝枚举默认（flash 为 executor 枚举默认档位键、pro 为代码缺省
      * 强档——#341 起 executor 缺省档 pro→flash）、开关缺省 true×2、写者两肢与 updatedAt
-     * 全 null（如实出 JSON null，全局 Jackson 含 null）。路由开关/两阈值六件同恒缺省态。
+     * 全 null（如实出 JSON null，全局 Jackson 含 null）。#454 路由结构性信号开关两枚恒
+     * 缺省态 false×2（issue #123——无覆盖行语境＝false）；提速批次十五件恒缺省态（三闸
+     * false×3/单会话 true/并行 false/注入 true/自决 true，两阈值回落 3 且 Overridden
+     * false，禁用集空数组＝全启用）。provider 未点名镜像的旧件同恒缺省态。
      */
     private static final String CONFIG_UNTOUCHED_ENVELOPE = """
             {
@@ -161,6 +226,34 @@ class AiplatformAgentConfigClientContractTest {
                 "routingSliceFeatureThreshold": 4,
                 "routingSliceFeatureThresholdOverridden": false,
                 "defaultRoutingSliceFeatureThreshold": 4,
+                "routingEscalatingSizeLabels": ["大"],
+                "routingEscalatingSizeLabelsOverridden": false,
+                "defaultRoutingEscalatingSizeLabels": ["大"],
+                "routingFileCountSignalEnabled": false,
+                "routingSizeLabelSignalEnabled": false,
+                "verifyModelId": null,
+                "verifyModelIdOverridden": false,
+                "verifyRoundBudget": 3,
+                "verifyRoundBudgetOverridden": false,
+                "defaultVerifyRoundBudget": 3,
+                "finalVerifyFixBudget": 2,
+                "finalVerifyFixBudgetOverridden": false,
+                "defaultFinalVerifyFixBudget": 2,
+                "verificationPresenceGateEnabled": false,
+                "proofOfOutputGateEnabled": false,
+                "finalVerificationGateEnabled": false,
+                "singleSessionGenerationEnabled": true,
+                "parallelSliceMachineEnabled": false,
+                "decisionHintsEnabled": true,
+                "decisionHintErrorStreak": 3,
+                "decisionHintErrorStreakOverridden": false,
+                "defaultDecisionHintErrorStreak": 3,
+                "decisionHintStackCap": 3,
+                "decisionHintStackCapOverridden": false,
+                "defaultDecisionHintStackCap": 3,
+                "decisionHintDisabled": [],
+                "decisionHintDisabledOverridden": false,
+                "verifySelfDecisionEnabled": true,
                 "operatorId": null,
                 "operatorName": null,
                 "updatedAt": null
@@ -175,8 +268,13 @@ class AiplatformAgentConfigClientContractTest {
      * 裸 List、append-only 时间倒序（最近先）。首条＝清空覆盖变更（new prompt/档位/强档
      * null——本次清空回落枚举/代码默认）；次条＝首次配置（old 三件 null——此前即缺省回落，
      * 回滚即把 null 写回）。可空三件对 null 两侧各一面；留痕链衔接（次条 new＝首条 old）。
-     * 路由开关/两阈值六件（#354）边缘三座同口径不镜像——如实携带钉容错（阈值 null＝该侧
-     * 即代码缺省 60/4）。
+     * 提速批次二十件（issue #122）：首条＝清空提速批次变更（old 七开关呈覆盖态＋errorStreak
+     * 5/stackCap 2/禁用集逗号串；new 回落缺省态——七开关恒有值、两阈值/禁用集 null），
+     * 次条＝首次配置提速批次（old 全缺省、new＝首条 old——链衔接）。
+     * #454 路由结构性信号开关四枚（issue #123）：首条＝清空变更（old 开/true×2、new 回落
+     * 缺省态 false×2——恒有值），次条＝首次配置（old 缺省态 false×2、new＝首条 old——链衔
+     * 接）。provider 未点名镜像的
+     * 旧件（路由/verify 面）如实携带钉容错（阈值 null＝该侧即代码缺省 60/4）。
      */
     private static final String TRACES_ENVELOPE = """
             {
@@ -193,6 +291,22 @@ class AiplatformAgentConfigClientContractTest {
                   "oldRoutingStrongModelId": "doubao-flagship",
                   "oldRoutingFileCountThreshold": null,
                   "oldRoutingSliceFeatureThreshold": null,
+                  "oldRoutingEscalatingSizeLabels": "中,大",
+                  "oldRoutingFileCountSignalEnabled": true,
+                  "oldRoutingSizeLabelSignalEnabled": true,
+                  "oldVerifyModelId": "pro",
+                  "oldVerifyRoundBudget": 5,
+                  "oldFinalVerifyFixBudget": 1,
+                  "oldVerificationPresenceGateEnabled": true,
+                  "oldProofOfOutputGateEnabled": true,
+                  "oldFinalVerificationGateEnabled": false,
+                  "oldSingleSessionGenerationEnabled": false,
+                  "oldParallelSliceMachineEnabled": true,
+                  "oldDecisionHintsEnabled": false,
+                  "oldDecisionHintErrorStreak": 5,
+                  "oldDecisionHintStackCap": 2,
+                  "oldDecisionHintDisabled": "anti_mock,parallel_tools",
+                  "oldVerifySelfDecisionEnabled": false,
                   "newSystemPrompt": null,
                   "newModelId": null,
                   "newWebSearchEnabled": true,
@@ -201,6 +315,22 @@ class AiplatformAgentConfigClientContractTest {
                   "newRoutingStrongModelId": null,
                   "newRoutingFileCountThreshold": null,
                   "newRoutingSliceFeatureThreshold": null,
+                  "newRoutingEscalatingSizeLabels": null,
+                  "newRoutingFileCountSignalEnabled": false,
+                  "newRoutingSizeLabelSignalEnabled": false,
+                  "newVerifyModelId": null,
+                  "newVerifyRoundBudget": null,
+                  "newFinalVerifyFixBudget": null,
+                  "newVerificationPresenceGateEnabled": false,
+                  "newProofOfOutputGateEnabled": false,
+                  "newFinalVerificationGateEnabled": false,
+                  "newSingleSessionGenerationEnabled": true,
+                  "newParallelSliceMachineEnabled": false,
+                  "newDecisionHintsEnabled": true,
+                  "newDecisionHintErrorStreak": null,
+                  "newDecisionHintStackCap": null,
+                  "newDecisionHintDisabled": null,
+                  "newVerifySelfDecisionEnabled": true,
                   "operatorId": "700200",
                   "operatorName": "运营·技能管理员",
                   "operatedAt": "2026-09-22T14:30:00"
@@ -215,6 +345,22 @@ class AiplatformAgentConfigClientContractTest {
                   "oldRoutingStrongModelId": null,
                   "oldRoutingFileCountThreshold": null,
                   "oldRoutingSliceFeatureThreshold": null,
+                  "oldRoutingEscalatingSizeLabels": null,
+                  "oldRoutingFileCountSignalEnabled": false,
+                  "oldRoutingSizeLabelSignalEnabled": false,
+                  "oldVerifyModelId": null,
+                  "oldVerifyRoundBudget": null,
+                  "oldFinalVerifyFixBudget": null,
+                  "oldVerificationPresenceGateEnabled": false,
+                  "oldProofOfOutputGateEnabled": false,
+                  "oldFinalVerificationGateEnabled": false,
+                  "oldSingleSessionGenerationEnabled": true,
+                  "oldParallelSliceMachineEnabled": false,
+                  "oldDecisionHintsEnabled": true,
+                  "oldDecisionHintErrorStreak": null,
+                  "oldDecisionHintStackCap": null,
+                  "oldDecisionHintDisabled": null,
+                  "oldVerifySelfDecisionEnabled": true,
                   "newSystemPrompt": "首次覆盖 prompt 全文",
                   "newModelId": "pro",
                   "newWebSearchEnabled": true,
@@ -223,6 +369,22 @@ class AiplatformAgentConfigClientContractTest {
                   "newRoutingStrongModelId": "doubao-flagship",
                   "newRoutingFileCountThreshold": null,
                   "newRoutingSliceFeatureThreshold": null,
+                  "newRoutingEscalatingSizeLabels": "中,大",
+                  "newRoutingFileCountSignalEnabled": true,
+                  "newRoutingSizeLabelSignalEnabled": true,
+                  "newVerifyModelId": "pro",
+                  "newVerifyRoundBudget": 5,
+                  "newFinalVerifyFixBudget": 1,
+                  "newVerificationPresenceGateEnabled": true,
+                  "newProofOfOutputGateEnabled": true,
+                  "newFinalVerificationGateEnabled": false,
+                  "newSingleSessionGenerationEnabled": false,
+                  "newParallelSliceMachineEnabled": true,
+                  "newDecisionHintsEnabled": false,
+                  "newDecisionHintErrorStreak": 5,
+                  "newDecisionHintStackCap": 2,
+                  "newDecisionHintDisabled": "anti_mock,parallel_tools",
+                  "newVerifySelfDecisionEnabled": false,
                   "operatorId": "700100",
                   "operatorName": "运营·平台管理员",
                   "operatedAt": "2026-09-10T09:05:00"
@@ -308,8 +470,9 @@ class AiplatformAgentConfigClientContractTest {
      * aiplatform GET /api/backoffice/agent-configs/edge/{edgeKey}/traces 的真实成功响应形状：
      * 裸 List、append-only 时间倒序（最近先）——快照列与三座同形（同 DTO 复用），边缘行
      * 档位列之外的快照件恒缺省态：prompt null、开关 true、路由件缺省态（强档 null——
-     * provider 边缘写把非档位覆盖列结构性归缺省）。首条＝升档变更（flash→pro）；次条＝首次
-     * 配置（old null）。
+     * provider 边缘写把非档位覆盖列结构性归缺省）。提速批次二十件恒代码缺省态（issue #122——
+     * 七开关缺省态、两阈值/禁用集 null）；#454 信号开关四枚恒 false（issue #123）。
+     * 首条＝升档变更（flash→pro）；次条＝首次配置（old null）。
      */
     private static final String EDGE_TRACES_ENVELOPE = """
             {
@@ -326,6 +489,22 @@ class AiplatformAgentConfigClientContractTest {
                   "oldRoutingStrongModelId": null,
                   "oldRoutingFileCountThreshold": null,
                   "oldRoutingSliceFeatureThreshold": null,
+                  "oldRoutingEscalatingSizeLabels": null,
+                  "oldRoutingFileCountSignalEnabled": false,
+                  "oldRoutingSizeLabelSignalEnabled": false,
+                  "oldVerifyModelId": null,
+                  "oldVerifyRoundBudget": null,
+                  "oldFinalVerifyFixBudget": null,
+                  "oldVerificationPresenceGateEnabled": false,
+                  "oldProofOfOutputGateEnabled": false,
+                  "oldFinalVerificationGateEnabled": false,
+                  "oldSingleSessionGenerationEnabled": true,
+                  "oldParallelSliceMachineEnabled": false,
+                  "oldDecisionHintsEnabled": true,
+                  "oldDecisionHintErrorStreak": null,
+                  "oldDecisionHintStackCap": null,
+                  "oldDecisionHintDisabled": null,
+                  "oldVerifySelfDecisionEnabled": true,
                   "newSystemPrompt": null,
                   "newModelId": "pro",
                   "newWebSearchEnabled": true,
@@ -334,6 +513,22 @@ class AiplatformAgentConfigClientContractTest {
                   "newRoutingStrongModelId": null,
                   "newRoutingFileCountThreshold": null,
                   "newRoutingSliceFeatureThreshold": null,
+                  "newRoutingEscalatingSizeLabels": null,
+                  "newRoutingFileCountSignalEnabled": false,
+                  "newRoutingSizeLabelSignalEnabled": false,
+                  "newVerifyModelId": null,
+                  "newVerifyRoundBudget": null,
+                  "newFinalVerifyFixBudget": null,
+                  "newVerificationPresenceGateEnabled": false,
+                  "newProofOfOutputGateEnabled": false,
+                  "newFinalVerificationGateEnabled": false,
+                  "newSingleSessionGenerationEnabled": true,
+                  "newParallelSliceMachineEnabled": false,
+                  "newDecisionHintsEnabled": true,
+                  "newDecisionHintErrorStreak": null,
+                  "newDecisionHintStackCap": null,
+                  "newDecisionHintDisabled": null,
+                  "newVerifySelfDecisionEnabled": true,
                   "operatorId": "700210",
                   "operatorName": "运营·智能体管理员",
                   "operatedAt": "2026-11-01T10:15:00"
@@ -348,6 +543,22 @@ class AiplatformAgentConfigClientContractTest {
                   "oldRoutingStrongModelId": null,
                   "oldRoutingFileCountThreshold": null,
                   "oldRoutingSliceFeatureThreshold": null,
+                  "oldRoutingEscalatingSizeLabels": null,
+                  "oldRoutingFileCountSignalEnabled": false,
+                  "oldRoutingSizeLabelSignalEnabled": false,
+                  "oldVerifyModelId": null,
+                  "oldVerifyRoundBudget": null,
+                  "oldFinalVerifyFixBudget": null,
+                  "oldVerificationPresenceGateEnabled": false,
+                  "oldProofOfOutputGateEnabled": false,
+                  "oldFinalVerificationGateEnabled": false,
+                  "oldSingleSessionGenerationEnabled": true,
+                  "oldParallelSliceMachineEnabled": false,
+                  "oldDecisionHintsEnabled": true,
+                  "oldDecisionHintErrorStreak": null,
+                  "oldDecisionHintStackCap": null,
+                  "oldDecisionHintDisabled": null,
+                  "oldVerifySelfDecisionEnabled": true,
                   "newSystemPrompt": null,
                   "newModelId": "flash",
                   "newWebSearchEnabled": true,
@@ -356,6 +567,22 @@ class AiplatformAgentConfigClientContractTest {
                   "newRoutingStrongModelId": null,
                   "newRoutingFileCountThreshold": null,
                   "newRoutingSliceFeatureThreshold": null,
+                  "newRoutingEscalatingSizeLabels": null,
+                  "newRoutingFileCountSignalEnabled": false,
+                  "newRoutingSizeLabelSignalEnabled": false,
+                  "newVerifyModelId": null,
+                  "newVerifyRoundBudget": null,
+                  "newFinalVerifyFixBudget": null,
+                  "newVerificationPresenceGateEnabled": false,
+                  "newProofOfOutputGateEnabled": false,
+                  "newFinalVerificationGateEnabled": false,
+                  "newSingleSessionGenerationEnabled": true,
+                  "newParallelSliceMachineEnabled": false,
+                  "newDecisionHintsEnabled": true,
+                  "newDecisionHintErrorStreak": null,
+                  "newDecisionHintStackCap": null,
+                  "newDecisionHintDisabled": null,
+                  "newVerifySelfDecisionEnabled": true,
                   "operatorId": "700100",
                   "operatorName": "运营·平台管理员",
                   "operatedAt": "2026-10-22T16:40:00"
@@ -395,6 +622,39 @@ class AiplatformAgentConfigClientContractTest {
               "message": "绑定的模型档位已停用：doubao-flagship（启用该档位或改绑其他档位）",
               "data": null,
               "requestId": "req-e1k2l",
+              "errors": null
+            }
+            """;
+
+    /** 失败止损阈值越界（2–10 整数）：HTTP 400 + 信封 code=4081（PRJ_081，域码 4——#437 决策注入校验）。 */
+    private static final String PRJ_081_ERROR_ENVELOPE = """
+            {
+              "code": 4081,
+              "message": "失败止损阈值越界：1（合法区间 2–10）",
+              "data": null,
+              "requestId": "req-g1h2i",
+              "errors": null
+            }
+            """;
+
+    /** 微指令堆叠上限越界（1–3 整数）：HTTP 400 + 信封 code=4082（PRJ_082，域码 4——#437 决策注入校验）。 */
+    private static final String PRJ_082_ERROR_ENVELOPE = """
+            {
+              "code": 4082,
+              "message": "微指令堆叠上限越界：4（合法区间 1–3）",
+              "data": null,
+              "requestId": "req-g3j4k",
+              "errors": null
+            }
+            """;
+
+    /** 禁用集非法 token（封闭集四键）：HTTP 400 + 信封 code=4083（PRJ_083，域码 4——#437 决策注入校验）。 */
+    private static final String PRJ_083_ERROR_ENVELOPE = """
+            {
+              "code": 4083,
+              "message": "禁用集含非法 token：unknown_hint（封闭集 failure_stop_loss/anti_mock/context_economy/parallel_tools）",
+              "data": null,
+              "requestId": "req-g5l6m",
               "errors": null
             }
             """;
@@ -444,6 +704,32 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(config.routingStrongModelIdOverridden()).isTrue();
         assertThat(config.defaultRoutingStrongModelId()).isEqualTo("pro");
 
+        // #454 路由结构性信号开关两枚（issue #123——一开一关代表面）：true＝恢复对应结构性
+        // 判据（阈值/映射旋钮照旧生效），false＝该面不参与升档判定（观测值照留进判定快照）；
+        // 失败重试升档信号不受两开关影响、常开
+        assertThat(config.routingFileCountSignalEnabled()).isTrue();
+        assertThat(config.routingSizeLabelSignalEnabled()).isFalse();
+
+        // #432 提速批次十五件（issue #122——三闸缺省 false＝闸关，单会话/注入/自决缺省 true，
+        // 并行机器缺省 false）：本面为覆盖行代表面——三闸一开两关、单会话关、并行开、注入关、
+        // 自决关（「缺省开」字段全呈反缺省态，钉住装箱 null≠false 的北向绑定不串场）；
+        // 决策注入三键生效值＋Overridden 标志＋defaultDecisionHint* 代码缺省预览 3 全绑定
+        assertThat(config.verificationPresenceGateEnabled()).isTrue();
+        assertThat(config.proofOfOutputGateEnabled()).isFalse();
+        assertThat(config.finalVerificationGateEnabled()).isTrue();
+        assertThat(config.singleSessionGenerationEnabled()).isFalse();
+        assertThat(config.parallelSliceMachineEnabled()).isTrue();
+        assertThat(config.decisionHintsEnabled()).isFalse();
+        assertThat(config.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(config.decisionHintErrorStreakOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintErrorStreak()).isEqualTo(3);
+        assertThat(config.decisionHintStackCap()).isEqualTo(2);
+        assertThat(config.decisionHintStackCapOverridden()).isTrue();
+        assertThat(config.defaultDecisionHintStackCap()).isEqualTo(3);
+        assertThat(config.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(config.decisionHintDisabledOverridden()).isTrue();
+        assertThat(config.verifySelfDecisionEnabled()).isFalse();
+
         // 增强工具开关存储态（一开一关代表面）
         assertThat(config.webSearchEnabled()).isTrue();
         assertThat(config.fetchUrlEnabled()).isFalse();
@@ -473,8 +759,30 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(config.routingStrongModelIdOverridden()).isFalse();
         assertThat(config.routingStrongModelId())
                 .isEqualTo(config.defaultRoutingStrongModelId()).isEqualTo("pro");
+
+        // 无覆盖行语境＝#454 路由结构性信号开关两枚恒缺省态 false×2（issue #123——新默认关）
+        assertThat(config.routingFileCountSignalEnabled()).isFalse();
+        assertThat(config.routingSizeLabelSignalEnabled()).isFalse();
         assertThat(config.webSearchEnabled()).isTrue();
         assertThat(config.fetchUrlEnabled()).isTrue();
+
+        // 无覆盖行语境＝提速批次全回落缺省：三闸 false×3、单会话 true、并行机器 false、
+        // 注入 true、自决 true；两阈值回落代码缺省 3（Overridden false）、禁用集空数组＝全启用
+        assertThat(config.verificationPresenceGateEnabled()).isFalse();
+        assertThat(config.proofOfOutputGateEnabled()).isFalse();
+        assertThat(config.finalVerificationGateEnabled()).isFalse();
+        assertThat(config.singleSessionGenerationEnabled()).isTrue();
+        assertThat(config.parallelSliceMachineEnabled()).isFalse();
+        assertThat(config.decisionHintsEnabled()).isTrue();
+        assertThat(config.decisionHintErrorStreak()).isEqualTo(3);
+        assertThat(config.decisionHintErrorStreakOverridden()).isFalse();
+        assertThat(config.defaultDecisionHintErrorStreak()).isEqualTo(3);
+        assertThat(config.decisionHintStackCap()).isEqualTo(3);
+        assertThat(config.decisionHintStackCapOverridden()).isFalse();
+        assertThat(config.defaultDecisionHintStackCap()).isEqualTo(3);
+        assertThat(config.decisionHintDisabled()).isEmpty();
+        assertThat(config.decisionHintDisabledOverridden()).isFalse();
+        assertThat(config.verifySelfDecisionEnabled()).isTrue();
 
         // 从未配置：写者两肢与 updatedAt 全 null 如实绑定（全局 Jackson 含 null——契约断言
         // isNull 而非缺省）
@@ -494,23 +802,49 @@ class AiplatformAgentConfigClientContractTest {
 
         appService.updateConfig(AGENT_KEY, new AiplatformAgentConfigUpdateCommand(
                 "你是英语学习助手的主智能体：先判意图，再编排执行体。（库覆盖全文）",
-                "pro", true, false, "doubao-flagship"));
+                "pro", true, false, "doubao-flagship",
+                true, false,
+                true, false, true, false, true, false, 5, 2,
+                List.of("anti_mock", "parallel_tools"), false));
 
         // 出站 wire 形状逐字镜像 provider 契约：PUT /api/backoffice/agent-configs/{agentKey}，
-        // 命令体 {systemPrompt, modelId, webSearchEnabled, fetchUrlEnabled, routingStrongModelId}
-        // 五字段——逐字镜像 AgentConfigUpdateCommand（B3 面），无增删（PUT 全量语义：请求体
-        // 即覆盖态终态）；modelId/routingStrongModelId 均档位键——非空须在模型档位面有行且
-        // 启用（缺行 400 PRJ_074/停用 400 PRJ_075，provider 即时校验裁决，admin 不预判）
+        // 命令体 17 字段（覆盖三件＋开关两件＋路由强档一件＋#454 路由结构性信号开关两枚
+        // 〔issue #123〕＋#432 提速批次十件〔issue #122〕）
+        // ——逐字镜像 AgentConfigUpdateCommand，无增删（PUT 全量语义：请求体即覆盖态终态）；
+        // modelId/routingStrongModelId 均档位键——非空须在模型档位面有行且启用（缺行 400
+        // PRJ_074/停用 400 PRJ_075，provider 即时校验裁决，admin 不预判）；提速批次越界值
+        // （errorStreak 2–10 / stackCap 1–3 / 禁用集封闭集）同样 provider 裁决 PRJ_081/082/083
         assertThat(wireUrl[0]).isEqualTo("http://stub-aiplatform/api/backoffice/agent-configs/" + AGENT_KEY);
         var body = new ObjectMapper().readTree(wireBody[0]);
         assertThat(body.fieldNames()).toIterable()
                 .containsExactly("systemPrompt", "modelId", "webSearchEnabled",
-                        "fetchUrlEnabled", "routingStrongModelId");
+                        "fetchUrlEnabled", "routingStrongModelId",
+                        "routingFileCountSignalEnabled", "routingSizeLabelSignalEnabled",
+                        "verificationPresenceGateEnabled", "proofOfOutputGateEnabled",
+                        "finalVerificationGateEnabled", "singleSessionGenerationEnabled",
+                        "parallelSliceMachineEnabled", "decisionHintsEnabled",
+                        "decisionHintErrorStreak", "decisionHintStackCap",
+                        "decisionHintDisabled", "verifySelfDecisionEnabled");
         assertThat(body.path("systemPrompt").asText()).contains("先判意图");
         assertThat(body.path("modelId").asText()).isEqualTo("pro");
         assertThat(body.path("webSearchEnabled").asBoolean()).isTrue();
         assertThat(body.path("fetchUrlEnabled").asBoolean()).isFalse();
         assertThat(body.path("routingStrongModelId").asText()).isEqualTo("doubao-flagship");
+        // #454 路由结构性信号开关两枚（issue #123）：开关装箱原值出站
+        assertThat(body.path("routingFileCountSignalEnabled").asBoolean()).isTrue();
+        assertThat(body.path("routingSizeLabelSignalEnabled").asBoolean()).isFalse();
+        // 提速批次十件：开关装箱原值出站、两阈值整数出站、禁用集键数组出站
+        assertThat(body.path("verificationPresenceGateEnabled").asBoolean()).isTrue();
+        assertThat(body.path("proofOfOutputGateEnabled").asBoolean()).isFalse();
+        assertThat(body.path("finalVerificationGateEnabled").asBoolean()).isTrue();
+        assertThat(body.path("singleSessionGenerationEnabled").asBoolean()).isFalse();
+        assertThat(body.path("parallelSliceMachineEnabled").asBoolean()).isTrue();
+        assertThat(body.path("decisionHintsEnabled").asBoolean()).isFalse();
+        assertThat(body.path("decisionHintErrorStreak").asInt()).isEqualTo(5);
+        assertThat(body.path("decisionHintStackCap").asInt()).isEqualTo(2);
+        assertThat(body.path("decisionHintDisabled")).hasSize(2);
+        assertThat(body.path("decisionHintDisabled").get(0).asText()).isEqualTo("anti_mock");
+        assertThat(body.path("verifySelfDecisionEnabled").asBoolean()).isFalse();
     }
 
     @Test
@@ -519,22 +853,45 @@ class AiplatformAgentConfigClientContractTest {
         var appService = AiplatformWireTestSupport.agentConfigAppServiceWithStubTransport(
                 CONFIG_UNTOUCHED_ENVELOPE, new String[1], wireBody);
 
-        // 清空覆盖＋开关缺省＋强档清空：五件全 null 出站——null 在场而非缺省（全局 Jackson
-        // 含 null，技能安装 excludeDirs 先例）；provider 侧 null＝覆盖清空回落枚举/代码默认 /
-        // 开关缺省 true（装箱 Boolean 与 provider 命令同型——原生 boolean 会把缺省绑成
-        // false 关，语义反了；强档 null＝清空回落代码缺省 pro，即时校验对 null 放行）
+        // 清空覆盖＋开关缺省＋强档清空＋信号开关缺省＋提速批次清空：十七件全 null 出站——
+        // null 在场而非缺省（全局 Jackson 含 null，技能安装 excludeDirs 先例）；provider 侧
+        // null＝覆盖清空回落枚举/代码默认 / 开关缺省（工具与单会话等缺省 true、三闸与并行
+        // 机器缺省 false——装箱 Boolean 与 provider 命令同型，原生 boolean 会把缺省绑成
+        // false 关，对缺省开的字段语义反了；信号开关两枚缺省 false＝关，null 同向无陷阱；
+        // 强档 null＝清空回落代码缺省 pro，即时校验对 null 放行；两阈值 null＝清空回落代码
+        // 缺省 3；禁用集 null＝全启用）
         appService.updateConfig(AGENT_KEY,
-                new AiplatformAgentConfigUpdateCommand(null, null, null, null, null));
+                new AiplatformAgentConfigUpdateCommand(null, null, null, null, null,
+                        null, null,
+                        null, null, null, null, null, null, null, null, null, null));
 
         var body = new ObjectMapper().readTree(wireBody[0]);
         assertThat(body.fieldNames()).toIterable()
                 .containsExactly("systemPrompt", "modelId", "webSearchEnabled",
-                        "fetchUrlEnabled", "routingStrongModelId");
+                        "fetchUrlEnabled", "routingStrongModelId",
+                        "routingFileCountSignalEnabled", "routingSizeLabelSignalEnabled",
+                        "verificationPresenceGateEnabled", "proofOfOutputGateEnabled",
+                        "finalVerificationGateEnabled", "singleSessionGenerationEnabled",
+                        "parallelSliceMachineEnabled", "decisionHintsEnabled",
+                        "decisionHintErrorStreak", "decisionHintStackCap",
+                        "decisionHintDisabled", "verifySelfDecisionEnabled");
         assertThat(body.path("systemPrompt").isNull()).isTrue();
         assertThat(body.path("modelId").isNull()).isTrue();
         assertThat(body.path("webSearchEnabled").isNull()).isTrue();
         assertThat(body.path("fetchUrlEnabled").isNull()).isTrue();
         assertThat(body.path("routingStrongModelId").isNull()).isTrue();
+        assertThat(body.path("routingFileCountSignalEnabled").isNull()).isTrue();
+        assertThat(body.path("routingSizeLabelSignalEnabled").isNull()).isTrue();
+        assertThat(body.path("verificationPresenceGateEnabled").isNull()).isTrue();
+        assertThat(body.path("proofOfOutputGateEnabled").isNull()).isTrue();
+        assertThat(body.path("finalVerificationGateEnabled").isNull()).isTrue();
+        assertThat(body.path("singleSessionGenerationEnabled").isNull()).isTrue();
+        assertThat(body.path("parallelSliceMachineEnabled").isNull()).isTrue();
+        assertThat(body.path("decisionHintsEnabled").isNull()).isTrue();
+        assertThat(body.path("decisionHintErrorStreak").isNull()).isTrue();
+        assertThat(body.path("decisionHintStackCap").isNull()).isTrue();
+        assertThat(body.path("decisionHintDisabled").isNull()).isTrue();
+        assertThat(body.path("verifySelfDecisionEnabled").isNull()).isTrue();
     }
 
     @Test
@@ -543,10 +900,11 @@ class AiplatformAgentConfigClientContractTest {
                 CONFIG_ENVELOPE, new String[1], new String[1]);
 
         AiplatformAgentConfigResponse receipt = appService.updateConfig(AGENT_KEY,
-                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship"));
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "pro", true, false, "doubao-flagship",
+                        null, null, null, null, null, null, null, null, null, null, null, null));
 
         // 回执＝写入后读面（与 GET 同形——provider 落库后重读同一视图，admin 同形镜像）：
-        // 16 件全绑定（覆盖行代表面，含路由强档三件）
+        // 33 件全绑定（覆盖行代表面，含路由强档三件、#454 信号开关两枚与提速批次十五件）
         assertThat(receipt.agentKey()).isEqualTo(AGENT_KEY);
         assertThat(receipt.systemPromptOverridden()).isTrue();
         assertThat(receipt.defaultModelId()).isEqualTo("flash");
@@ -554,6 +912,13 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(receipt.routingStrongModelId()).isEqualTo("doubao-flagship");
         assertThat(receipt.routingStrongModelIdOverridden()).isTrue();
         assertThat(receipt.defaultRoutingStrongModelId()).isEqualTo("pro");
+        assertThat(receipt.routingFileCountSignalEnabled()).isTrue();
+        assertThat(receipt.routingSizeLabelSignalEnabled()).isFalse();
+        assertThat(receipt.decisionHintErrorStreak()).isEqualTo(5);
+        assertThat(receipt.decisionHintErrorStreakOverridden()).isTrue();
+        assertThat(receipt.defaultDecisionHintErrorStreak()).isEqualTo(3);
+        assertThat(receipt.decisionHintDisabled()).containsExactly("anti_mock", "parallel_tools");
+        assertThat(receipt.verifySelfDecisionEnabled()).isFalse();
         assertThat(receipt.operatorId()).isEqualTo("700200");
         assertThat(receipt.updatedAt()).isEqualTo("2026-09-22T14:30:00");
     }
@@ -594,17 +959,47 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(latest.oldWebSearchEnabled()).isTrue();
         assertThat(latest.oldFetchUrlEnabled()).isFalse();
         assertThat(latest.oldRoutingStrongModelId()).isEqualTo("doubao-flagship");
+        // #454 路由结构性信号开关 old/new 四枚（issue #123）：首条＝清空变更——old 开
+        // （true×2，回滚写回依据），new 回落缺省态 false×2（恒有值）
+        assertThat(latest.oldRoutingFileCountSignalEnabled()).isTrue();
+        assertThat(latest.oldRoutingSizeLabelSignalEnabled()).isTrue();
+        assertThat(latest.newRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(latest.newRoutingSizeLabelSignalEnabled()).isFalse();
         assertThat(latest.newSystemPrompt()).isNull();
         assertThat(latest.newModelId()).isNull();
         assertThat(latest.newWebSearchEnabled()).isTrue();
         assertThat(latest.newFetchUrlEnabled()).isTrue();
         assertThat(latest.newRoutingStrongModelId()).isNull();
+        // 提速批次二十件（issue #122）：首条＝清空提速批次变更——old 快照＝此前覆盖值（回滚
+        // 写回依据），new 侧回落缺省态（三闸 false、单会话 true、并行 false、注入 true、
+        // 自决 true——七开关恒有值），两阈值/禁用集 new null＝本次清空回落代码缺省 3/全启用
+        assertThat(latest.oldVerificationPresenceGateEnabled()).isTrue();
+        assertThat(latest.oldProofOfOutputGateEnabled()).isTrue();
+        assertThat(latest.oldFinalVerificationGateEnabled()).isFalse();
+        assertThat(latest.oldSingleSessionGenerationEnabled()).isFalse();
+        assertThat(latest.oldParallelSliceMachineEnabled()).isTrue();
+        assertThat(latest.oldDecisionHintsEnabled()).isFalse();
+        assertThat(latest.oldDecisionHintErrorStreak()).isEqualTo(5);
+        assertThat(latest.oldDecisionHintStackCap()).isEqualTo(2);
+        assertThat(latest.oldDecisionHintDisabled()).isEqualTo("anti_mock,parallel_tools");
+        assertThat(latest.oldVerifySelfDecisionEnabled()).isFalse();
+        assertThat(latest.newVerificationPresenceGateEnabled()).isFalse();
+        assertThat(latest.newProofOfOutputGateEnabled()).isFalse();
+        assertThat(latest.newFinalVerificationGateEnabled()).isFalse();
+        assertThat(latest.newSingleSessionGenerationEnabled()).isTrue();
+        assertThat(latest.newParallelSliceMachineEnabled()).isFalse();
+        assertThat(latest.newDecisionHintsEnabled()).isTrue();
+        assertThat(latest.newDecisionHintErrorStreak()).isNull();
+        assertThat(latest.newDecisionHintStackCap()).isNull();
+        assertThat(latest.newDecisionHintDisabled()).isNull();
+        assertThat(latest.newVerifySelfDecisionEnabled()).isTrue();
         assertThat(latest.operatorId()).isEqualTo("700200");
         assertThat(latest.operatorName()).isEqualTo("运营·技能管理员");
         assertThat(latest.operatedAt()).isEqualTo("2026-09-22T14:30:00");
 
         // 次条更早（首次配置）：old prompt/档位/强档 null＝此前即缺省回落（回滚即把 null
-        // 写回）——留痕链衔接：次条 new＝首条 old（append-only 时间线诚实可查，强档同链）
+        // 写回）——留痕链衔接：次条 new＝首条 old（append-only 时间线诚实可查，强档同链）；
+        // 提速批次同链（次条 new 覆盖值＝首条 old 快照值）
         var earlier = traces.get(1);
         assertThat(earlier.id()).isEqualTo("3900000001111111");
         assertThat(earlier.oldSystemPrompt()).isNull();
@@ -614,6 +1009,19 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(earlier.newModelId()).isEqualTo(latest.oldModelId());
         assertThat(earlier.newRoutingStrongModelId()).isEqualTo(latest.oldRoutingStrongModelId());
         assertThat(earlier.newFetchUrlEnabled()).isFalse();
+        assertThat(earlier.oldDecisionHintErrorStreak()).isNull();
+        assertThat(earlier.oldDecisionHintDisabled()).isNull();
+        assertThat(earlier.newDecisionHintErrorStreak()).isEqualTo(latest.oldDecisionHintErrorStreak());
+        assertThat(earlier.newDecisionHintStackCap()).isEqualTo(latest.oldDecisionHintStackCap());
+        assertThat(earlier.newDecisionHintDisabled()).isEqualTo(latest.oldDecisionHintDisabled());
+        assertThat(earlier.newVerifySelfDecisionEnabled()).isEqualTo(latest.oldVerifySelfDecisionEnabled());
+        // 信号开关同链：次条 new 覆盖值＝首条 old 快照值
+        assertThat(earlier.oldRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(earlier.oldRoutingSizeLabelSignalEnabled()).isFalse();
+        assertThat(earlier.newRoutingFileCountSignalEnabled())
+                .isEqualTo(latest.oldRoutingFileCountSignalEnabled());
+        assertThat(earlier.newRoutingSizeLabelSignalEnabled())
+                .isEqualTo(latest.oldRoutingSizeLabelSignalEnabled());
         assertThat(earlier.operatorId()).isEqualTo("700100");
         assertThat(earlier.operatedAt()).isEqualTo("2026-09-10T09:05:00");
     }
@@ -638,7 +1046,8 @@ class AiplatformAgentConfigClientContractTest {
         var invocation = switch (endpoint) {
             case "config" -> (Runnable) () -> appService.getConfig("classify");
             case "update" -> (Runnable) () -> appService.updateConfig("classify",
-                    new AiplatformAgentConfigUpdateCommand(null, null, null, null, null));
+                    new AiplatformAgentConfigUpdateCommand(null, null, null, null, null,
+                            null, null, null, null, null, null, null, null, null, null, null, null));
             case "traces" -> (Runnable) () -> appService.listTraces("classify");
             default -> throw new IllegalArgumentException("未知端点族: " + endpoint);
         };
@@ -663,7 +1072,8 @@ class AiplatformAgentConfigClientContractTest {
         // 操作者缺头由 provider 域面守卫拦截（配置变更必留痕，admin 不拦——透传断言即证据）：
         // HTTP 400 + 数字业务码 4034（PRJ_034＝域码 4×1000＋34）+ provider message 原样
         assertThatThrownBy(() -> appService.updateConfig(AGENT_KEY,
-                new AiplatformAgentConfigUpdateCommand("新 prompt", null, null, null, null)))
+                new AiplatformAgentConfigUpdateCommand("新 prompt", null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, null, null, null)))
                 .isInstanceOf(AiplatformUpstreamException.class)
                 .satisfies(e -> {
                     var upstream = (AiplatformUpstreamException) e;
@@ -802,7 +1212,8 @@ class AiplatformAgentConfigClientContractTest {
         List<AiplatformAgentConfigTraceResponse> traces = appService.listEdgeModelTraces("naming");
 
         // data 为裸 List（append-only 时间倒序，最近先）；快照列与三座同形——只有档位列在动
-        // （首条升档 flash→pro），prompt/强档 null＝边缘行结构性缺省态、开关恒 true
+        // （首条升档 flash→pro），prompt/强档 null＝边缘行结构性缺省态、开关恒 true；提速
+        // 批次二十件恒代码缺省态（issue #122——边缘写把非档位覆盖列结构性归缺省）
         assertThat(traces).hasSize(2);
 
         var latest = traces.get(0);
@@ -813,8 +1224,30 @@ class AiplatformAgentConfigClientContractTest {
         assertThat(latest.newSystemPrompt()).isNull();
         assertThat(latest.oldRoutingStrongModelId()).isNull();
         assertThat(latest.newRoutingStrongModelId()).isNull();
+        // #454 路由结构性信号开关四枚：边缘行恒缺省态 false×4（issue #123——边缘写把非
+        // 档位覆盖列结构性归缺省）
+        assertThat(latest.oldRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(latest.oldRoutingSizeLabelSignalEnabled()).isFalse();
+        assertThat(latest.newRoutingFileCountSignalEnabled()).isFalse();
+        assertThat(latest.newRoutingSizeLabelSignalEnabled()).isFalse();
         assertThat(latest.oldWebSearchEnabled()).isTrue();
         assertThat(latest.newFetchUrlEnabled()).isTrue();
+        assertThat(latest.oldVerificationPresenceGateEnabled()).isFalse();
+        assertThat(latest.newVerificationPresenceGateEnabled()).isFalse();
+        assertThat(latest.oldSingleSessionGenerationEnabled()).isTrue();
+        assertThat(latest.newSingleSessionGenerationEnabled()).isTrue();
+        assertThat(latest.oldParallelSliceMachineEnabled()).isFalse();
+        assertThat(latest.newParallelSliceMachineEnabled()).isFalse();
+        assertThat(latest.oldDecisionHintsEnabled()).isTrue();
+        assertThat(latest.newDecisionHintsEnabled()).isTrue();
+        assertThat(latest.oldDecisionHintErrorStreak()).isNull();
+        assertThat(latest.newDecisionHintErrorStreak()).isNull();
+        assertThat(latest.oldDecisionHintStackCap()).isNull();
+        assertThat(latest.newDecisionHintStackCap()).isNull();
+        assertThat(latest.oldDecisionHintDisabled()).isNull();
+        assertThat(latest.newDecisionHintDisabled()).isNull();
+        assertThat(latest.oldVerifySelfDecisionEnabled()).isTrue();
+        assertThat(latest.newVerifySelfDecisionEnabled()).isTrue();
         assertThat(latest.operatorId()).isEqualTo("700210");
         assertThat(latest.operatedAt()).isEqualTo("2026-11-01T10:15:00");
 
@@ -871,7 +1304,8 @@ class AiplatformAgentConfigClientContractTest {
         var missingTier = AiplatformWireTestSupport.agentConfigAppServiceWithErrorTransport(
                 400, PRJ_074_ERROR_ENVELOPE, new String[1]);
         assertThatThrownBy(() -> missingTier.updateConfig(AGENT_KEY,
-                new AiplatformAgentConfigUpdateCommand("新 prompt", "doubao-ultra", null, null, null)))
+                new AiplatformAgentConfigUpdateCommand("新 prompt", "doubao-ultra", null, null, null,
+                        null, null, null, null, null, null, null, null, null, null, null, null)))
                 .isInstanceOf(AiplatformUpstreamException.class)
                 .satisfies(e -> {
                     var upstream = (AiplatformUpstreamException) e;
@@ -893,6 +1327,56 @@ class AiplatformAgentConfigClientContractTest {
                     assertThat(upstream.envelopeCode()).isEqualTo(4075);
                     assertThat(upstream.getMessage())
                             .isEqualTo("绑定的模型档位已停用：doubao-flagship（启用该档位或改绑其他档位）");
+                });
+    }
+
+    @Test
+    void given_prj081Or082Or083ErrorEnvelope_when_decisionHintValidationRejected_then_passThroughWithoutMapping() {
+        // #432 提速批次决策注入校验（#437）的负例契约（issue #122）：越界值/非法 token 写不进去，
+        // 归 provider 写用例裁决——admin 不代判不预校验，错误信封原样透传。
+        // errorStreak 越界（PRJ_081＝4081）：HTTP 400 + provider message 原样
+        var errorStreak = AiplatformWireTestSupport.agentConfigAppServiceWithErrorTransport(
+                400, PRJ_081_ERROR_ENVELOPE, new String[1]);
+        assertThatThrownBy(() -> errorStreak.updateConfig(AGENT_KEY,
+                new AiplatformAgentConfigUpdateCommand(null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, 1, null, null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4081);
+                    assertThat(upstream.getMessage()).isEqualTo("失败止损阈值越界：1（合法区间 2–10）");
+                });
+
+        // stackCap 越界（PRJ_082＝4082）：HTTP 400 + provider message 原样
+        var stackCap = AiplatformWireTestSupport.agentConfigAppServiceWithErrorTransport(
+                400, PRJ_082_ERROR_ENVELOPE, new String[1]);
+        assertThatThrownBy(() -> stackCap.updateConfig(AGENT_KEY,
+                new AiplatformAgentConfigUpdateCommand(null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, 4, null, null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4082);
+                    assertThat(upstream.getMessage()).isEqualTo("微指令堆叠上限越界：4（合法区间 1–3）");
+                });
+
+        // 禁用集非法 token（PRJ_083＝4083）：HTTP 400 + provider message 原样
+        var disabledToken = AiplatformWireTestSupport.agentConfigAppServiceWithErrorTransport(
+                400, PRJ_083_ERROR_ENVELOPE, new String[1]);
+        assertThatThrownBy(() -> disabledToken.updateConfig(AGENT_KEY,
+                new AiplatformAgentConfigUpdateCommand(null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, null,
+                        List.of("unknown_hint"), null)))
+                .isInstanceOf(AiplatformUpstreamException.class)
+                .satisfies(e -> {
+                    var upstream = (AiplatformUpstreamException) e;
+                    assertThat(upstream.httpStatus()).isEqualTo(400);
+                    assertThat(upstream.envelopeCode()).isEqualTo(4083);
+                    assertThat(upstream.getMessage()).isEqualTo(
+                            "禁用集含非法 token：unknown_hint（封闭集 failure_stop_loss/anti_mock/"
+                                    + "context_economy/parallel_tools）");
                 });
     }
 }

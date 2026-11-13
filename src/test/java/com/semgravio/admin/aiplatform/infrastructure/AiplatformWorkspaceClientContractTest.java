@@ -15,7 +15,8 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspa
 import com.cartisan.web.response.PageResponse;
 
 /**
- * aiplatform 沙箱域（观测清单/详情 + 四干预动作）的 wire 契约测试（对接 aiplatform #173/#174 契约，issue #66）。
+ * aiplatform 沙箱域（观测清单/详情 + 四干预动作）的 wire 契约测试（对接 aiplatform #173/#174 契约，issue #66；
+ * 实态列采样快照口径 #487/issue #126；在册失联标记 #488/issue #127）。
  *
  * <p>契约事实（2026-09-16 对照 aiplatform 源码 {@code BackofficeWorkspaceController} /
  * {@code BackofficeWorkspaceSummaryResponse} / {@code BackofficeWorkspaceDetailResponse} /
@@ -34,6 +35,16 @@ import com.cartisan.web.response.PageResponse;
  *   <li>详情另带 networkName/provisionError/封存包寻址键 archivePath/审计列 createdAt/updatedAt +
  *       中间件资源清单 {@code resources}（kind Integer code + containerName + internalUrl 三字段，
  *       连接串原文容器内回环形态——provider 出口无 *Name，忠实镜像不加戏）。</li>
+ *   <li>实态列（aiplatform #487 起）为<strong>采样快照</strong>而非请求时现场探查：新增
+ *       {@code sampledAt}（date-time，可空）标注 {@code containerState}/{@code volumeSizeBytes}
+ *       两列的采样时刻（约 5 分钟新鲜度）；未采样（新工作区首个采样窗内）三字段（
+ *       containerState/containerStateName/volumeSizeBytes）全 null——未采样 ≠ 探查失败
+ *       （containerState=4 未知）≠ 无容器（=3）；封存行 volumeSizeBytes 恒 null（卷已删，
+ *       看 sealedAt/archiveSizeBytes）。</li>
+ *   <li>新增 {@code lostAt}（date-time，可空，aiplatform #488，issue #127）：在册失联判定时刻——
+ *       注册行在而项目行已删、物理资源仍在的静止现场（销毁中途吞错）；未失联为 null。首标即定、
+ *       复扫不覆盖——lostAt 稳定不翻新。只标记待人工裁决（处置出口＝一键回收 aiplatform #490），
+ *       机器不自动清。空壳行（物理已空）由平台扫描轮自动卫生删行，本字段不参与。</li>
  *   <li>错误透传（数字业务码＝域码 1×1000＋序号）：WSP_014→1014（400，过滤参数绑定失败）、
  *       WSP_001→1001（404，工作区不存在）、WSP_009→1009（400，状态边界：封存态休眠/重建、重复封存）、
  *       WSP_015→1015（409，run 在途拒）、WSP_017→1017（409，收敛任务在途）。</li>
@@ -48,9 +59,11 @@ import com.cartisan.web.response.PageResponse;
 class AiplatformWorkspaceClientContractTest {
 
     /**
-     * aiplatform GET /api/backoffice/workspaces 的真实成功响应形状（信封 + PageResponse：两行——
-     * 一漂移行「期望运行而实态无容器」带项目引用，一正常休眠行无所属项目）。Long 字段
-     * （total/volumeSizeBytes/archiveSizeBytes）为 JSON string——cartisan-web 全局
+     * aiplatform GET /api/backoffice/workspaces 的真实成功响应形状（信封 + PageResponse：三行——
+     * 一漂移行「期望运行而实态无容器」带项目引用（未失联 lostAt null），一在册失联行（#488：
+     * 项目行已删而物理资源仍在——lostAt 在场、无所属项目），一未采样新工作区行
+     * （containerState/containerStateName/volumeSizeBytes/sampledAt 全 null——#487 采样快照口径）。
+     * Long 字段（total/volumeSizeBytes/archiveSizeBytes）为 JSON string——cartisan-web 全局
      * {@code Long→ToStringSerializer} 出口口径。
      */
     private static final String WORKSPACE_PAGE_ENVELOPE = """
@@ -72,6 +85,8 @@ class AiplatformWorkspaceClientContractTest {
                     "containerStateName": "无容器",
                     "lastTouchAt": "2026-09-14T22:10:00",
                     "volumeSizeBytes": "2147483648",
+                    "sampledAt": "2026-09-14T22:11:00",
+                    "lostAt": null,
                     "sealedAt": null,
                     "archiveSizeBytes": null,
                     "project": {
@@ -93,6 +108,27 @@ class AiplatformWorkspaceClientContractTest {
                     "containerStateName": "无容器",
                     "lastTouchAt": "2026-09-01T08:00:00",
                     "volumeSizeBytes": null,
+                    "sampledAt": "2026-09-01T08:05:00",
+                    "lostAt": "2026-09-02T10:05:00",
+                    "sealedAt": null,
+                    "archiveSizeBytes": null,
+                    "project": null
+                  },
+                  {
+                    "workspaceId": "3829492005555555",
+                    "containerName": "ws-3829492005555555",
+                    "kind": 1,
+                    "kindName": "开发",
+                    "status": 1,
+                    "statusName": "置备中",
+                    "desiredState": 1,
+                    "desiredStateName": "运行",
+                    "containerState": null,
+                    "containerStateName": null,
+                    "lastTouchAt": null,
+                    "volumeSizeBytes": null,
+                    "sampledAt": null,
+                    "lostAt": null,
                     "sealedAt": null,
                     "archiveSizeBytes": null,
                     "project": null
@@ -110,7 +146,9 @@ class AiplatformWorkspaceClientContractTest {
     /**
      * aiplatform GET /api/backoffice/workspaces/{id} 的真实成功响应形状：封存态沙箱全量字段——
      * 封存包寻址键 + 卷用量容缺（封存删卷）、中间件资源清单（PostgreSQL + Redis，internalUrl
-     * 容器内回环连接串原文）、provisionError null（非 FAILED 态）。
+     * 容器内回环连接串原文）、provisionError null（非 FAILED 态）。实态列为采样快照：sampledAt
+     * 标注采样时刻（#487），封存行 volumeSizeBytes 恒 null；在册失联判定时刻 lostAt 在场（#488，
+     * issue #127——项目行已删而物理资源仍在的静止现场标记，首标即定不翻新）。
      */
     private static final String WORKSPACE_DETAIL_ENVELOPE = """
             {
@@ -131,6 +169,8 @@ class AiplatformWorkspaceClientContractTest {
                 "containerStateName": "无容器",
                 "lastTouchAt": "2026-09-13T18:00:00",
                 "volumeSizeBytes": null,
+                "sampledAt": "2026-09-13T18:01:00",
+                "lostAt": "2026-09-10T08:30:00",
                 "sealedAt": "2026-09-13T18:00:00",
                 "archivePath": "workspace-archives/3829492007777777.tar.gz",
                 "archiveSizeBytes": "89128960",
@@ -244,7 +284,7 @@ class AiplatformWorkspaceClientContractTest {
                 appService.list(new AiplatformWorkspaceQuery(null, null), 1, 20);
 
         // 信封正确拆开——证明 WORKSPACE_PAGE_TYPEREF 按 ApiResponse<PageResponse<…>> 反序列化并取 .data()
-        assertThat(page.items()).hasSize(2);
+        assertThat(page.items()).hasSize(3);
 
         // 分页回显：provider 回报值原样透传（1-based，含 clamp 后值）——BFF 不夹取不换算
         assertThat(page.total()).isEqualTo(17L);
@@ -252,7 +292,8 @@ class AiplatformWorkspaceClientContractTest {
         assertThat(page.size()).isEqualTo(20);
 
         // 漂移行：期望态/实态两列如实分示（desired=1 运行 vs containerState=3 无容器）；四对
-        // Integer code + *Name 中文名；卷用量 Long（JSON string → Long）；项目引用三字段
+        // Integer code + *Name 中文名；卷用量 Long（JSON string → Long）；实态列采样快照
+        // （sampledAt 新鲜度标注，#487）；项目引用三字段
         var drift = page.items().get(0);
         assertThat(drift.workspaceId()).isEqualTo("3829492009999999");
         assertThat(drift.containerName()).isEqualTo("ws-3829492009999999");
@@ -266,20 +307,37 @@ class AiplatformWorkspaceClientContractTest {
         assertThat(drift.containerStateName()).isEqualTo("无容器");
         assertThat(drift.lastTouchAt()).isEqualTo(LocalDateTime.of(2026, 9, 14, 22, 10, 0));
         assertThat(drift.volumeSizeBytes()).isEqualTo(2147483648L);
+        assertThat(drift.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 14, 22, 11, 0));
+        assertThat(drift.lostAt()).isNull();
         assertThat(drift.sealedAt()).isNull();
         assertThat(drift.archiveSizeBytes()).isNull();
         assertThat(drift.project().projectId()).isEqualTo("3829492007654321");
         assertThat(drift.project().name()).isEqualTo("英语学习助手");
         assertThat(drift.project().archived()).isFalse();
 
-        // 正常休眠行：期望休眠而实态无容器是正常收敛态（非漂移）；无所属项目为 null（工作区先于
-        // 项目存在、软引用容缺）；封存容缺 volumeSizeBytes null
-        var hibernated = page.items().get(1);
-        assertThat(hibernated.desiredState()).isEqualTo(2);
-        assertThat(hibernated.desiredStateName()).isEqualTo("休眠");
-        assertThat(hibernated.containerState()).isEqualTo(3);
-        assertThat(hibernated.volumeSizeBytes()).isNull();
-        assertThat(hibernated.project()).isNull();
+        // 在册失联行（#488）：期望休眠而实态无容器；项目行已删（无所属项目为 null、软引用容缺），
+        // 物理资源仍在——lostAt 判定时刻在场（首标即定、复扫不翻新）；休眠删卷后 volumeSizeBytes
+        // null 而 sampledAt 在场（采样到实态帧）
+        var lost = page.items().get(1);
+        assertThat(lost.desiredState()).isEqualTo(2);
+        assertThat(lost.desiredStateName()).isEqualTo("休眠");
+        assertThat(lost.containerState()).isEqualTo(3);
+        assertThat(lost.volumeSizeBytes()).isNull();
+        assertThat(lost.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 1, 8, 5, 0));
+        assertThat(lost.lostAt()).isEqualTo(LocalDateTime.of(2026, 9, 2, 10, 5, 0));
+        assertThat(lost.project()).isNull();
+
+        // 未采样行（新工作区首个采样窗内）：containerState/containerStateName/volumeSizeBytes/sampledAt
+        // 全 null——未采样 ≠ 探查失败（containerState=4 未知）≠ 无容器（=3）；未失联 lostAt 亦 null
+        var unsampled = page.items().get(2);
+        assertThat(unsampled.workspaceId()).isEqualTo("3829492005555555");
+        assertThat(unsampled.status()).isEqualTo(1);
+        assertThat(unsampled.containerState()).isNull();
+        assertThat(unsampled.containerStateName()).isNull();
+        assertThat(unsampled.volumeSizeBytes()).isNull();
+        assertThat(unsampled.sampledAt()).isNull();
+        assertThat(unsampled.lostAt()).isNull();
+        assertThat(unsampled.project()).isNull();
     }
 
     @Test
@@ -330,6 +388,10 @@ class AiplatformWorkspaceClientContractTest {
         assertThat(detail.archivePath()).isEqualTo("workspace-archives/3829492007777777.tar.gz");
         assertThat(detail.archiveSizeBytes()).isEqualTo(89128960L);
         assertThat(detail.volumeSizeBytes()).isNull();
+        // 实态列采样快照（#487）：封存行 volumeSizeBytes 恒 null（卷已删，看 sealedAt/archiveSizeBytes），
+        // sampledAt 标注采样时刻；在册失联判定时刻 lostAt 在场（#488，issue #127）
+        assertThat(detail.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 13, 18, 1, 0));
+        assertThat(detail.lostAt()).isEqualTo(LocalDateTime.of(2026, 9, 10, 8, 30, 0));
         assertThat(detail.createdAt()).isEqualTo(LocalDateTime.of(2026, 9, 8, 10, 0, 0));
         assertThat(detail.updatedAt()).isEqualTo(LocalDateTime.of(2026, 9, 13, 18, 0, 0));
 

@@ -2,6 +2,7 @@ package com.semgravio.admin.aiplatform.endpoints.controller;
 
 import com.semgravio.admin.aiplatform.application.AiplatformWorkspaceAppService;
 import com.semgravio.admin.aiplatform.application.dto.query.AiplatformWorkspaceQuery;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformWorkspaceSummaryResponse;
 import com.semgravio.admin.constants.AdminScopes;
@@ -60,13 +61,17 @@ public class AiplatformWorkspaceController {
             description = "存储观测工作清单：新沙箱在前（TSID 倒序）。两过滤维度均可缺省"
                     + "（缺省＝全量）、可组合：① desired 期望态<strong>单选</strong>，Integer code"
                     + "（1=运行 2=休眠 3=封存，DB 意图侧）；② actual 容器实态<strong>单选</strong>，"
-                    + "Integer code（1=运行中 2=已停止 3=无容器 4=未知——docker 现场探查，实态不落库，"
-                    + "过滤在探查后内存完成，total 如实＝筛后计数；「期望运行而实态无容器」即漂移行，"
+                    + "Integer code（1=运行中 2=已停止 3=无容器 4=未知——实态列为采样快照而非请求时"
+                    + "现场探查：扫描轮采样落库约 5 分钟新鲜度，sampledAt 标注采样时刻，未采样（新工作区"
+                    + "首个采样窗内）containerState/containerStateName/volumeSizeBytes 全 null，"
+                    + "过滤按最近采样帧内存完成，total 如实＝筛后计数；「期望运行而实态无容器」即漂移行，"
                     + "desired=1&actual=3 即捞漂移清单）。每行＝项目引用（无所属项目为 null）＋期望态/"
-                    + "实态两列＋last-touch＋卷大小（旁路容器 du 全卷、含可重建缓存，字节——封存容缺"
-                    + " null、探查失败亦 null）＋封存信息（时刻/包大小）。page 1 基（缺省 1）、size 缺省"
-                    + " 20（provider 上界 100），clamp 由 provider 执行、回显 provider 回报值。实态与"
-                    + "卷大小逐行现场探查（docker 子进程），页越大越慢——观测页不必贪大。绑定裁决两段："
+                    + "实态两列＋last-touch＋卷大小采样（字节——封存容缺/未采样/采样失败为 null，封存行"
+                    + "恒 null 看封存包大小）＋在册失联标记 lostAt（可空——非 null＝项目行已删而物理资源"
+                    + "仍在，「失联多久」以此为锚，处置出口＝一键回收人工裁决，机器不自动清）＋封存信息"
+                    + "（时刻/包大小）。page 1 基（缺省 1）、size 缺省"
+                    + " 20（provider 上界 100），clamp 由 provider 执行、回显 provider 回报值。响应秒级"
+                    + "稳定（零 docker 调用）——观测页不必贪大。绑定裁决两段："
                     + "非整数 code/非法分页值在本服务绑定层 400（框架信封）；数值但未知的 code（如 7）"
                     + "由 provider 裁决 400 WSP_014（数字业务码 1014）透传。")
     public ApiResponse<PageResponse<AiplatformWorkspaceSummaryResponse>> workspaces(
@@ -89,8 +94,11 @@ public class AiplatformWorkspaceController {
             description = "清单行超集：另带置备失败原因（FAILED 态排障）、封存包寻址键"
                     + "（archivePath）、审计时间列（createdAt/updatedAt）与中间件资源清单"
                     + "（resources：kind 1=PostgreSQL 2=Redis + 容器名 + 连接串原文，容器内回环形态"
-                    + "——全量如实呈现，机机签名面无脱敏）。期望态/实态/卷大小同清单口径（现场探查、"
-                    + "封存容缺）。四枚举 kind/status/desiredState/containerState 均配 Integer code +"
+                    + "——全量如实呈现，机机签名面无脱敏）。期望态/实态/卷大小同清单口径（采样快照、"
+                    + "sampledAt 新鲜度标注，封存行卷大小恒 null）；在册失联标记 lostAt 同清单口径"
+                    + "（可空——非 null＝项目行已删而物理资源仍在，处置出口＝一键回收人工裁决）。"
+                    + "四枚举 kind/status/desiredState/"
+                    + "containerState 均配 Integer code +"
                     + " *Name。所属项目引用软引用容缺（null 呈现）——工作区先于项目存在。"
                     + "工作区不存在（含畸形 id）404 WSP_001（数字业务码 1001）。")
     public ApiResponse<AiplatformWorkspaceDetailResponse> detail(@PathVariable String id) {
@@ -168,5 +176,31 @@ public class AiplatformWorkspaceController {
                     + "（1017）。响应＝动作后的观测详情（含封存包元数据）。操作者透传头落痕同唤醒。")
     public ApiResponse<AiplatformWorkspaceDetailResponse> seal(@PathVariable String id) {
         return ApiResponse.ok(workspaceAppService.seal(id));
+    }
+
+    @PostMapping("/{id}/reclaim")
+    @RequireAuth
+    @RequirePermission(
+            value = "admin:aiplatform:workspace:reclaim",
+            name = "AI 平台 / 沙箱回收",
+            scope = AdminScopes.ADMIN
+    )
+    @Operation(summary = "工作区级一键回收（单台三清，项目其余部分不动）——透传 aiplatform",
+            description = "处置单点残留而不动整个项目（#473 故事 7，issue #129 镜像 aiplatform "
+                    + "#490）：单台工作区三清（容器/卷/注册表行，#485 销毁终态一致内核），"
+                    + "<strong>项目行与其余资产不动</strong>（回执 projectRow＝UNTOUCHED 如实"
+                    + "分示）；#488 在册失联行（lostAt 标记）的人工裁决出口——确认后经本端点"
+                    + "回收，标记随注册行级联消亡。所属项目有在飞 run 先级联停止（承 #477）；"
+                    + "无所属（失联裁决/fork）无停止面可挂，runsStopped 如实 false。回执＝同形"
+                    + "回收报告：三面逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留判据"
+                    + "（<strong>UNKNOWN 不算清</strong>——回执如实红不报错重试，残留归扫描轮/"
+                    + "手动清扫收编——建议前端展示「残留待收编」提示而非报错重试）。动刀类走 "
+                    + "admin 手动＋留痕（ADR-0045）：操作者经 X-User-Id/X-User-Name 透传头落 "
+                    + "append-only wsp_reclaim_actions（缺头落空 NULL，未成不留痕）；确认弹窗"
+                    + "建议展示回收范围（工作区级＝只删单台沙箱，项目仍在）。工作区不存在"
+                    + "（含畸形 id）404 WSP_001（数字业务码 1001）；销毁自身失败 500（未成不"
+                    + "留痕，可重试）。")
+    public ApiResponse<AiplatformReclaimResponse> reclaim(@PathVariable String id) {
+        return ApiResponse.ok(workspaceAppService.reclaim(id));
     }
 }

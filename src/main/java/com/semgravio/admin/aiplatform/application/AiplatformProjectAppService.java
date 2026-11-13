@@ -11,6 +11,7 @@ import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProject
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectFilesPackageResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectFilesResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformProjectSummaryResponse;
+import com.semgravio.admin.aiplatform.application.dto.response.AiplatformReclaimResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformVersionDetailResponse;
 import com.semgravio.admin.aiplatform.application.dto.response.AiplatformVersionResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformConversationEntryWireResponse;
@@ -21,6 +22,7 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformVersionDetailWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformVersionWireResponse;
 import com.semgravio.admin.aiplatform.infrastructure.AiplatformClient;
@@ -151,6 +153,28 @@ public class AiplatformProjectAppService {
         String contentDisposition = binary.headers().firstValue(HttpHeaders.CONTENT_DISPOSITION)
                 .orElse("attachment");
         return new AiplatformProjectFilesPackageResponse(binary.body(), contentType, contentDisposition);
+    }
+
+    /**
+     * 项目级一键回收（透传 aiplatform，issue #129 镜像 aiplatform #490）——删除＋清残＋四面
+     * 报告一次完成：在飞 run 先级联停止→工作区销毁→prj_* 真删级联（受理即删）；账户属主无
+     * 会话凭证的项目不再裸操改挂属主、生成中项目回收不留僵尸任务。回执＝同形回收报告：四面
+     * （容器/卷/注册表行/项目行）逐面 CLEAN/RESIDUE/UNKNOWN＋residueFree 零残留判据
+     * （UNKNOWN 不算清——回执如实红不报错重试，物理销毁尽力而为不阻断记录删除，残留归收编
+     * 通道）＋runsStopped。操作者经框架 {@code RequestContext}→{@code X-User-Id/X-User-Name}
+     * 自动透传落痕（AppService 不经手，缺头落空 NULL——照沙箱动作面口径）；错误（404 PRJ_001、
+     * 销毁自身失败 500〔未成不留痕可重试〕）经 {@link AiplatformClient} 原样透传，本层不
+     * try/catch。
+     */
+    public AiplatformReclaimResponse reclaim(String id) {
+        return toReclaim(aiplatformClient.reclaimProject(id));
+    }
+
+    private static AiplatformReclaimResponse toReclaim(AiplatformReclaimWireResponse wire) {
+        return new AiplatformReclaimResponse(
+                wire.scope(), wire.projectId(), wire.workspaceId(), wire.runsStopped(),
+                wire.container(), wire.volume(), wire.registryRow(), wire.projectRow(),
+                wire.residueFree(), wire.operatorId(), wire.operatorName(), wire.reclaimedAt());
     }
 
     private static AiplatformProjectSummaryResponse toSummary(AiplatformProjectSummaryWireResponse wire) {

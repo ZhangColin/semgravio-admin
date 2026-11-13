@@ -44,9 +44,16 @@ import com.cartisan.web.response.PageResponse;
  *   <li>{@code byModel}/{@code byAgentKind} 分解镜像：byModel＝provider+model+tokens 三字段；
  *       byAgentKind＝agentKind 裸维度串（dims 原值）+ agentKindName 中文名随行（aiplatform#186
  *       已落——主链经智能体配置回解，naming/classify 等辅助标记为 null）+ tokens。</li>
+ *   <li>{@code byModelCost}（#499 峰谷维度，ADR-0044 读时归段）＝分模型金额按带拆：
+ *       provider+model+band+bandName+cost（cost 为币种分桶 Map）五字段；band Integer code
+ *       （1=峰 2=谷）+bandName 随行，null＝不区分时段分量——无规则行通道与按张行恒落此桶；
+ *       与全局 cost 同源互补不重叠（各带行币种分桶直加即回全局 cost）。</li>
  *   <li>unpriced 档位：全局警示项带用量计数（tokens long，只计无价分量——token 档＝token 数、
  *       按张档＝张数）；单项目下钻项无计数（bySubject 口径）；tokenKind 为 Integer code
- *       （1=输入 2=输出 3=缓存读 4=缓存写 5=推理 <strong>6=按张</strong>）+ tokenKindName 随附。</li>
+ *       （1=输入 2=输出 3=缓存读 4=缓存写 5=推理 <strong>6=按张</strong>）+ tokenKindName 随附；
+ *       两清单各项均加 <strong>band/bandName 两列</strong>（#499：事件时点归带，null＝不区分时段——
+ *       通道无生效规则行/按张档不受带影响；峰行有谷行无时谷段分量按 band=2 单列进缺价面，
+ *       不伪装 0）。</li>
  *   <li>项目成本清单排序服务端定死成本降序、全未配价项目排后且 allUnpriced=true；分页 provider clamp
  *       （page≥1、size∈[1,100] 默认 20）行为透传、回显 provider 回报值。</li>
  *   <li>错误透传（数字业务码＝域码 3×1000＋序号）：METER_011→3011（400，无效的成本查询参数）。</li>
@@ -62,8 +69,10 @@ class AiplatformCostClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/costs/overview 的真实成功响应形状：窗口回显 + 五档总量 +
-     * 双币种成本分桶 + 双模型分解 + 双智能体分解（主链带名、辅助标记 agentKindName=null）。
-     * TokenUsage 五档为 JSON 数字（provider 侧 primitive long）；cost 值为 JSON 数字（BigDecimal）。
+     * 双币种成本分桶 + 双模型分解 + 双智能体分解（主链带名、辅助标记 agentKindName=null）+
+     * byModelCost 按带拆三行（#499 峰谷维度：band 1=峰/2=谷 带名随行、null＝不区分时段——
+     * 按张行恒落 null 桶）。TokenUsage 五档为 JSON 数字（provider 侧 primitive long）；
+     * cost 值为 JSON 数字（BigDecimal）。
      */
     private static final String COST_OVERVIEW_ENVELOPE = """
             {
@@ -106,6 +115,14 @@ class AiplatformCostClientContractTest {
                     "agentKindName": null,
                     "tokens": { "input": 1000, "output": 200, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }
                   }
+                ],
+                "byModelCost": [
+                  { "provider": "anthropic", "model": "claude-fable-5", "band": 1, "bandName": "峰",
+                    "cost": { "CNY": 3.0 } },
+                  { "provider": "anthropic", "model": "claude-fable-5", "band": 2, "bandName": "谷",
+                    "cost": { "CNY": 3.0 } },
+                  { "provider": "imgprov", "model": "qwen-image", "band": null, "bandName": null,
+                    "cost": { "CNY": 0.6 } }
                 ]
               },
               "requestId": "req-c1o2v",
@@ -114,10 +131,12 @@ class AiplatformCostClientContractTest {
             """;
 
     /**
-     * aiplatform GET /api/backoffice/costs/unpriced 的真实成功响应形状：窗口回显 + 三档未配价
-     * 档位（tokenKind Integer code + tokenKindName + tokens 只计无价分量，JSON 数字）——前两档
-     * token 档（tokens=token 数），第三档按张档（#288 tokenKind=6，tokens=张数——无生效单价的
-     * 按张分量同公式进警示清单；实值对照 provider {@code MeteringImagePricingTest} fixture
+     * aiplatform GET /api/backoffice/costs/unpriced 的真实成功响应形状：窗口回显 + 四档未配价
+     * 档位（tokenKind Integer code + tokenKindName + band/bandName 两列〔#499〕+ tokens 只计
+     * 无价分量，JSON 数字）——前三档 band 落空 null（不区分时段通道/按张档不受带影响），第四档
+     * demo-pro 只配峰行、谷段分量按 band=2/谷 单列进缺价面（峰行有谷行无场景，不伪装 0）；
+     * 前两档 token 档（tokens=token 数），第三档按张档（#288 tokenKind=6，tokens=张数——无生效
+     * 单价的按张分量同公式进警示清单；实值对照 provider {@code MeteringImagePricingTest} fixture
      * 源码兜底：imgprov/qwen-image 无 IMAGE 行时按张档进 unpriced）。
      */
     private static final String UNPRICED_ENVELOPE = """
@@ -133,6 +152,8 @@ class AiplatformCostClientContractTest {
                     "model": "gpt-5.2",
                     "tokenKind": 1,
                     "tokenKindName": "输入",
+                    "band": null,
+                    "bandName": null,
                     "tokens": 700
                   },
                   {
@@ -140,6 +161,8 @@ class AiplatformCostClientContractTest {
                     "model": "deepseek-v4",
                     "tokenKind": 5,
                     "tokenKindName": "推理",
+                    "band": null,
+                    "bandName": null,
                     "tokens": 300
                   },
                   {
@@ -147,7 +170,18 @@ class AiplatformCostClientContractTest {
                     "model": "qwen-image",
                     "tokenKind": 6,
                     "tokenKindName": "按张",
+                    "band": null,
+                    "bandName": null,
                     "tokens": 3
+                  },
+                  {
+                    "provider": "demopro",
+                    "model": "demo-pro",
+                    "tokenKind": 1,
+                    "tokenKindName": "输入",
+                    "band": 2,
+                    "bandName": "谷",
+                    "tokens": 100
                   }
                 ]
               },
@@ -191,7 +225,8 @@ class AiplatformCostClientContractTest {
 
     /**
      * aiplatform GET /api/backoffice/costs/projects/{projectId} 的真实成功响应形状：subject 原值
-     * 回显 + 窗口回显 + 五档总量 + 成本分桶 + 未配价档位（bySubject 口径无 token 计数）+ 双分解。
+     * 回显 + 窗口回显 + 五档总量 + 成本分桶 + 未配价档位两档（bySubject 口径无 token 计数，
+     * band/bandName 两列随行〔#499〕——openai 档 band 落空、demo-pro 档 band=2/谷）+ 双分解。
      */
     private static final String PROJECT_COST_DETAIL_ENVELOPE = """
             {
@@ -204,7 +239,10 @@ class AiplatformCostClientContractTest {
                 "total": { "input": 3000, "output": 1000, "cacheRead": 300, "cacheWrite": 0, "reasoning": 800 },
                 "cost": { "CNY": 12.3456 },
                 "unpriced": [
-                  { "provider": "openai", "model": "gpt-5.2", "tokenKind": 1, "tokenKindName": "输入" }
+                  { "provider": "openai", "model": "gpt-5.2", "tokenKind": 1, "tokenKindName": "输入",
+                    "band": null, "bandName": null },
+                  { "provider": "demopro", "model": "demo-pro", "tokenKind": 1, "tokenKindName": "输入",
+                    "band": 2, "bandName": "谷" }
                 ],
                 "byModel": [
                   {
@@ -299,6 +337,24 @@ class AiplatformCostClientContractTest {
         var naming = overview.byAgentKind().get(1);
         assertThat(naming.agentKind()).isEqualTo("naming");
         assertThat(naming.agentKindName()).isNull();
+
+        // byModelCost（#499 峰谷维度）：分模型金额按带拆——band Integer code（1=峰 2=谷）+bandName
+        // 随行，cost 按币种分桶与全局 cost 同源互补不重叠；null＝不区分时段分量（按张行恒落此桶）
+        assertThat(overview.byModelCost()).hasSize(3);
+        var peak = overview.byModelCost().get(0);
+        assertThat(peak.provider()).isEqualTo("anthropic");
+        assertThat(peak.model()).isEqualTo("claude-fable-5");
+        assertThat(peak.band()).isEqualTo(1);
+        assertThat(peak.bandName()).isEqualTo("峰");
+        assertThat(peak.cost()).containsEntry("CNY", new BigDecimal("3.0"));
+        var valley = overview.byModelCost().get(1);
+        assertThat(valley.band()).isEqualTo(2);
+        assertThat(valley.bandName()).isEqualTo("谷");
+        assertThat(valley.cost()).containsEntry("CNY", new BigDecimal("3.0"));
+        var unbanded = overview.byModelCost().get(2);
+        assertThat(unbanded.band()).isNull();
+        assertThat(unbanded.bandName()).isNull();
+        assertThat(unbanded.cost()).containsEntry("CNY", new BigDecimal("0.6"));
     }
 
     // ========== unpriced 全局警示（用量驱动，档位带 token 计数）==========
@@ -329,12 +385,14 @@ class AiplatformCostClientContractTest {
 
         // 未配价档位：tokenKind Integer code（1=输入 … 5=推理 6=按张）+ tokenKindName + tokens
         // 只计无价分量（JSON 数字——primitive long）
-        assertThat(unpriced.items()).hasSize(3);
+        assertThat(unpriced.items()).hasSize(4);
         var inputTier = unpriced.items().get(0);
         assertThat(inputTier.provider()).isEqualTo("openai");
         assertThat(inputTier.model()).isEqualTo("gpt-5.2");
         assertThat(inputTier.tokenKind()).isEqualTo(1);
         assertThat(inputTier.tokenKindName()).isEqualTo("输入");
+        assertThat(inputTier.band()).isNull();
+        assertThat(inputTier.bandName()).isNull();
         assertThat(inputTier.tokens()).isEqualTo(700L);
         var reasoningTier = unpriced.items().get(1);
         assertThat(reasoningTier.tokenKind()).isEqualTo(5);
@@ -348,6 +406,18 @@ class AiplatformCostClientContractTest {
         assertThat(perImageTier.tokenKind()).isEqualTo(6);
         assertThat(perImageTier.tokenKindName()).isEqualTo("按张");
         assertThat(perImageTier.tokens()).isEqualTo(3L);
+        // band 列随档位如实透传：按张档不受带影响落空 null（不伪装 0/不臆造归带）
+        assertThat(perImageTier.band()).isNull();
+        assertThat(perImageTier.bandName()).isNull();
+        // 峰行有谷行无场景（#499 缺价带维）：谷段分量按 band=2/谷 单列进缺价面——不伪装 0、
+        // 不阻断聚合（消费端按 band 分组成「峰缺价/谷缺价」）
+        var valleyTier = unpriced.items().get(3);
+        assertThat(valleyTier.provider()).isEqualTo("demopro");
+        assertThat(valleyTier.model()).isEqualTo("demo-pro");
+        assertThat(valleyTier.tokenKind()).isEqualTo(1);
+        assertThat(valleyTier.band()).isEqualTo(2);
+        assertThat(valleyTier.bandName()).isEqualTo("谷");
+        assertThat(valleyTier.tokens()).isEqualTo(100L);
     }
 
     // ========== 项目成本清单（成本降序分页 + allUnpriced 标记 + 1-based 回显）==========
@@ -428,12 +498,20 @@ class AiplatformCostClientContractTest {
         assertThat(detail.total().cacheRead()).isEqualTo(300L);
         assertThat(detail.cost()).containsEntry("CNY", new BigDecimal("12.3456"));
 
-        // 未配价档位（bySubject 口径无 token 计数——档位用量汇总走全局 unpriced 端点）
-        assertThat(detail.unpriced()).hasSize(1);
+        // 未配价档位（bySubject 口径无 token 计数——档位用量汇总走全局 unpriced 端点）；
+        // band/bandName 两列随行如实透传（#499：null＝不区分时段、band=2＝谷段分量单列——
+        // 与全局 unpriced 端点同口径）
+        assertThat(detail.unpriced()).hasSize(2);
         var tier = detail.unpriced().get(0);
         assertThat(tier.provider()).isEqualTo("openai");
         assertThat(tier.tokenKind()).isEqualTo(1);
         assertThat(tier.tokenKindName()).isEqualTo("输入");
+        assertThat(tier.band()).isNull();
+        assertThat(tier.bandName()).isNull();
+        var valleyTier = detail.unpriced().get(1);
+        assertThat(valleyTier.provider()).isEqualTo("demopro");
+        assertThat(valleyTier.band()).isEqualTo(2);
+        assertThat(valleyTier.bandName()).isEqualTo("谷");
 
         // 双分解：byModel（provider+model）/ byAgentKind（裸维度串 + 中文名随行）
         assertThat(detail.byModel()).hasSize(1);

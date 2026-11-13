@@ -64,7 +64,17 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillSummar
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateTraceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSkillUpdateWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftDetailWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRejectWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftRelabelWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSedimentDraftSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformSlotAssignmentWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleListWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleOpenWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireRequest;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionActionWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionHandoffWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProductionSupplementWireRequest;
@@ -76,6 +86,9 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceOverviewWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceSweepWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnpricedUsageWireResponse;
@@ -111,7 +124,13 @@ import org.springframework.stereotype.Component;
  * 生产承接域（#107 第十域——spec #102 A 批 A4，aiplatform 交付承接）、模型供应商域
  * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
  * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
- * CRUD＋留痕）共用本客户端——同一 downstream、同一签名身份，各域只加方法。</p>
+ * CRUD＋留痕）与沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层
+ * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）与「资源面」（issue #128——
+ * aiplatform #489 #473/ADR-0045 资源回收通道的观测与手动处置面：resources/overview
+ * 大盘＋resources/sweep 手动清扫，回执逐项处置报告）与「时段规则」域（issue #130——
+ * aiplatform #497／ADR-0044 峰谷 1/4 后台时段规则面：time-band-rules 清单/开行/原子
+ * 改窗/停用四端点，一单 N 窗口＝一个版本，回执改窗 closed/opened 双段）共用本客户端——同一
+ * downstream、同一签名身份，各域只加方法。</p>
  *
  * <p>信封与错误契约（spec #62 定稿）：aiplatform 出口统一 {@code ApiResponse<T>}，本客户端解包取
  * {@code .data()}；下游 ≥400 时框架抛 {@link OpenApiClientException}，此处统一翻译为
@@ -207,6 +226,11 @@ public class AiplatformClient {
     private static final TypeReference<ApiResponse<AiplatformWorkspaceDetailWireResponse>> WORKSPACE_DETAIL_TYPEREF =
             new TypeReference<>() {};
 
+    // 一键回收（#490，issue #129）：项目级/工作区级 reclaim 同形回执（ApiResponse 单对象信封）、
+    // 均无请求体——一个 TypeRef 两端点复用
+    private static final TypeReference<ApiResponse<AiplatformReclaimWireResponse>> RECLAIM_TYPEREF =
+            new TypeReference<>() {};
+
     // 成本域（#161/#164 观测）同为 ApiResponse<T> 信封；四端点均为读口（时间窗 + 可选分页）
     private static final TypeReference<ApiResponse<AiplatformCostOverviewWireResponse>> COST_OVERVIEW_TYPEREF =
             new TypeReference<>() {};
@@ -282,6 +306,36 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSkillDraftDetailWireResponse>> SKILL_DRAFT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 沉淀草稿「数据标注」域（#464 数据飞轮采集层人审口，issue #124）：队列 data 为 PageResponse
+    // （page 1-based、含终态行——终态留档可查）；详情任意状态可查（终态留档），三键（激活/拒绝/
+    // 改标签）回执共形＝终态详情（与 GET 详情同形——SEDIMENT_DRAFT_DETAIL_TYPEREF 复用；激活
+    // 无请求体，拒绝/改标签单字段命令体可选绑定不前置拦截）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformSedimentDraftSummaryWireResponse>>> SEDIMENT_DRAFT_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformSedimentDraftDetailWireResponse>> SEDIMENT_DRAFT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 资源面（#489 资源大盘＋手动清扫，issue #128）：overview 为 ApiResponse<BackofficeResourceOverviewResponse>
+    // 单对象信封；sweep 回执同为单对象信封（逐项处置报告＋计数面——无请求体 POST）
+    private static final TypeReference<ApiResponse<AiplatformResourceOverviewWireResponse>> RESOURCE_OVERVIEW_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformResourceSweepWireResponse>> RESOURCE_SWEEP_TYPEREF =
+            new TypeReference<>() {};
+
+    // 「时段规则」域（#497 时段规则表与机机写口，issue #130）：清单 data 为 PageResponse（page 1-based、
+    // 含历史版本行——规则史全貌）；开行/停用回执为裸 List<TimeBandRuleResponse>（一单 N 窗口行＝一个版本）；
+    // 改窗回执 {closed, opened} 双段（对称单价表原子改价回执）
+    private static final TypeReference<ApiResponse<PageResponse<AiplatformTimeBandRuleWireResponse>>> TIME_BAND_RULE_PAGE_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<List<AiplatformTimeBandRuleWireResponse>>> TIME_BAND_RULE_LIST_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformTimeBandRuleRewindowWireResponse>> TIME_BAND_RULE_REWINDOW_TYPEREF =
             new TypeReference<>() {};
 
     // 智能体配置域（#251 技能线 T5；#366 边缘四点收编 issue #112 B3）：GET 读面与 PUT 回执
@@ -1381,15 +1435,18 @@ public class AiplatformClient {
     /**
      * 分页查询沙箱清单（透传 aiplatform，期望态/实态两维过滤——漂移发现口径）。
      *
-     * <p>对接 aiplatform {@code GET /api/backoffice/workspaces}（#173 观测面已冻结）：返回
-     * {@code ApiResponse<PageResponse<BackofficeWorkspaceSummaryResponse>>}。两维均<strong>单选</strong>
-     * Integer code、可组合、可缺省（null＝该维不过滤）：{@code desired} 期望态（1=运行 2=休眠 3=封存，
-     * DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器 4=未知——docker 现场探查、
-     * 探查后内存过滤，total 如实＝筛后计数；{@code actual=3} 即捞「期望运行而实态已亡」漂移清单）。
-     * 过滤参数绑定失败 400 WSP_014（数字业务码 1014）原样透传。</p>
+     * <p>对接 aiplatform {@code GET /api/backoffice/workspaces}（#173 观测面；#487 实态列转采样快照，
+     * issue #126）：返回 {@code ApiResponse<PageResponse<BackofficeWorkspaceSummaryResponse>>}。两维均
+     * <strong>单选</strong> Integer code、可组合、可缺省（null＝该维不过滤）：{@code desired} 期望态
+     * （1=运行 2=休眠 3=封存，DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器
+     * 4=未知——按最近采样帧内存过滤，total 如实＝筛后计数；{@code actual=3} 即捞「期望运行而实态已亡」
+     * 漂移清单）。实态列（containerState/volumeSizeBytes）为扫描轮采样快照（sampledAt 新鲜度标注，
+     * 未采样全 null）——响应秒级稳定零 docker 调用。另带在册失联标记 {@code lostAt}（可空，
+     * aiplatform #488，issue #127）：非 null＝项目行已删而物理资源仍在，只标记待人工裁决。
+     * 过滤参数绑定失败 400 WSP_014（数字业务码 1014）
+     * 原样透传。</p>
      *
-     * <p>page 1-based 直传零换算（同订单/项目），provider clamp（page≥1、size∈[1,100]）行为透传。
-     * 实态与卷大小逐行现场探查（docker 子进程）——页越大越慢，provider 侧语义、本客户端不干预。</p>
+     * <p>page 1-based 直传零换算（同订单/项目），provider clamp（page≥1、size∈[1,100]）行为透传。</p>
      *
      * @param filter wire 层过滤参数（由应用层从 {@code AiplatformWorkspaceQuery} 映射而来）
      * @param page   页码，<strong>1-based</strong>（北向原样直传）
@@ -1520,6 +1577,70 @@ public class AiplatformClient {
     }
 
     /**
+     * 项目级一键回收（透传 aiplatform，issue #129——镜像 aiplatform #490 #473/ADR-0045「一键
+     * 回收」）：删除＋清残＋四面报告一次完成——在飞 run 先级联停止（承 #477）→ 工作区销毁
+     * （#485 销毁终态一致内核）→ prj_* 真删级联（受理即删，与用户面 DELETE 同内核）。用途：
+     * 账户属主无会话凭证的项目不再裸操改挂属主；生成中项目回收不留僵尸任务。运维通道不经
+     * 用户会话凭证——签名面担保调用应用，归属不查。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/projects/{id}/reclaim}（#490）：无请求体，
+     * 回执＝同形回收报告（四面〔容器/卷/注册表行/项目行〕逐面 CLEAN/RESIDUE/UNKNOWN＋
+     * residueFree 零残留判据〔UNKNOWN 不算清〕＋runsStopped＋操作者两列＋reclaimedAt）。
+     * 物理销毁尽力而为不阻断记录删除（受理即删），残留如实红不报错重试、归扫描轮/手动清扫
+     * （#486/#489）收编。动刀类走 admin 手动＋留痕（ADR-0045）：操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头落 append-only {@code wsp_reclaim_actions}（缺头落空
+     * NULL——照沙箱动作面口径）；成功落痕、未成不留痕。项目不存在 404 PRJ_001（数字业务码
+     * 4001）；销毁自身失败 500（未成不留痕，可重试）——均原样透传。</p>
+     *
+     * @param id 项目标识（TSID 十进制字符串）
+     * @return 同形回收报告（scope=PROJECT）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 PRJ_001、500 等，不做映射）
+     */
+    public AiplatformReclaimWireResponse reclaimProject(String id) {
+        String url = baseUrl + "/api/backoffice/projects/" + encode(id) + "/reclaim";
+        log.debug("AiplatformClient.reclaimProject: {}", url);
+        try {
+            // 无请求体：框架 OpenApiClient.post 对 null body 发空 body（同沙箱动作/手动清扫先例）
+            ApiResponse<AiplatformReclaimWireResponse> resp =
+                    openApiClient.post(url, null, RECLAIM_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 工作区级一键回收（透传 aiplatform，issue #129——镜像 aiplatform #490）：单台工作区三清
+     * （容器/卷/注册表行，#485 销毁终态一致内核），<strong>项目行与其余资产不动</strong>（回执
+     * projectRow＝UNTOUCHED 如实分示）；#488 在册失联行（lostAt 标记）的人工裁决出口——确认
+     * 后回收，标记随注册行级联消亡。所属项目有在飞 run 先级联停止（承 #477）；无所属（失联
+     * 裁决/fork）无停止面可挂，runsStopped 如实 false。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/workspaces/{id}/reclaim}（#490）：无请求体，
+     * 回执＝同形回收报告（三面〔容器/卷/注册表行〕逐面 CLEAN/RESIDUE/UNKNOWN＋项目面
+     * UNTOUCHED＋residueFree〔UNKNOWN 不算清〕＋runsStopped＋操作者两列＋reclaimedAt）。
+     * 操作者透传头落痕同项目级（append-only {@code wsp_reclaim_actions}，缺头落空 NULL）。
+     * 工作区不存在（含畸形 id）404 WSP_001（数字业务码 1001）；销毁自身失败 500（未成不留痕，
+     * 可重试）——均原样透传。</p>
+     *
+     * @param id 工作区标识（TSID 十进制字符串）
+     * @return 同形回收报告（scope=WORKSPACE）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 WSP_001、500 等，不做映射）
+     */
+    public AiplatformReclaimWireResponse reclaimWorkspace(String id) {
+        String url = baseUrl + "/api/backoffice/workspaces/" + encode(id) + "/reclaim";
+        log.debug("AiplatformClient.reclaimWorkspace: {}", url);
+        try {
+            // 无请求体：框架 OpenApiClient.post 对 null body 发空 body（同项目级 reclaim 先例）
+            ApiResponse<AiplatformReclaimWireResponse> resp =
+                    openApiClient.post(url, null, RECLAIM_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
      * 平台成本全局总览（透传 aiplatform）——全平台跨项目观测模型开销构成：五档总量 + 平台成本
      * （token × 事件时点生效单价，币种分桶直读不折算）+ 分模型 + 分智能体（agentKind 裸维度串
      * + agentKindName 随行——aiplatform#186 已落）。cost 桶含图片生成成本（#288 按张事件张数 ×
@@ -1640,7 +1761,8 @@ public class AiplatformClient {
 
     /**
      * 分页查询单价行清单（透传 aiplatform，含历史行——价史全貌）。tokenKind 六档
-     * （1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价）。
+     * （1=输入 … 5=推理 6=按张——#288 按张计价行，unitPrice 即每张单价）；band 时段带两列
+     * （1=峰 2=谷＋bandName 随行，#498/ADR-0044——null＝不区分时段两列同 null，存量/按张行零变动）。
      *
      * <p>对接 aiplatform {@code GET /api/backoffice/price-entries}（#160 已冻结）：返回
      * {@code ApiResponse<PageResponse<UnitPriceEntryResponse>>}。provider/model 均为匹配键成分＝
@@ -1677,21 +1799,24 @@ public class AiplatformClient {
 
     /**
      * 原子改价（透传 aiplatform）——单调用关当前行＋开新行（同事务，中途任一守卫失败两行都不动）。
-     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价）。
+     * 新行沿用被关行匹配键（含 tokenKind——按张行〔#288 第 6 档〕改价同语义，unitPrice 即每张价；
+     * 含 band 时段带——带是匹配键成分，改价命令不含 band、新行沿用被关行不可漂移，#498）。
      *
      * <p>对接 aiplatform {@code POST /api/backoffice/price-entries/{id}/reprice}（#160）：请求体
      * {@code {unitPrice, currency, effectiveFrom}} 逐字镜像（unitPrice BigDecimal→JSON 明文小数
      * ——入参侧 number，响应侧读回十进制字符串，两侧类型有意不对称照实各自呈现；
-     * effectiveFrom 可空＝缺省即时、含未来时点＝预发布——预发布与重叠校验语义由 provider 承担，
-     * BFF 不代填时点不预判），返回 {@code ApiResponse<UnitPriceEntryRepriceResponse>}——
+     * effectiveFrom 可空＝缺省即时、含未来时点＝预发布——预发布与同键同带重叠校验语义由 provider
+     * 承担，BFF 不代填时点不预判），返回 {@code ApiResponse<UnitPriceEntryRepriceResponse>}——
      * {@code {closed, opened}} 双行回执（被关行落 effectiveTo＝新起点且保留其原开行留痕，新行
-     * 沿用匹配键、带改价操作者）。操作者身份经框架 {@code OpenApiClient} 自动带
+     * 沿用匹配键、带改价操作者；两行 band 如实回显且相等——新行沿用被关行）。操作者身份经框架
+     * {@code OpenApiClient} 自动带
      * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕新行，缺头落空）。</p>
      *
      * <p>行不存在（含畸形 id——provider 侧 lenient 解析）404 METER_006（3006）；字段不完整/
      * 单价负数 400 METER_004（3004）；币种非 ISO 4217 400 METER_010（3010）；起点早于被关行起点
-     * 400 METER_005（3005）；目标非当前行 409 METER_007（3007）；区间重叠（跨区间或同起点）
-     * 409 METER_008（3008）——均原样透传。</p>
+     * 400 METER_005（3005）；目标非当前行 409 METER_007（3007）；区间重叠
+     * 409 METER_008（3008）——#498 起语义同步带维度（同键同带同起点拒、不同带不误拒）——
+     * 均原样透传。</p>
      *
      * @param id      单价行标识（TSID 十进制字符串）
      * @param command 改价命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
@@ -1717,7 +1842,8 @@ public class AiplatformClient {
      *
      * <p>对接 aiplatform {@code POST /api/backoffice/price-entries/{id}/deactivate}（#160）：<strong>无
      * 请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，provider 端只读路径参数——
-     * 同沙箱四动作先例），返回 {@code ApiResponse<UnitPriceEntryResponse>}（被关行单行回执）。操作者
+     * 同沙箱四动作先例），返回 {@code ApiResponse<UnitPriceEntryResponse>}（被关行单行回执，band
+     * 时段带如实回显、停用语义不变——#498）。操作者
      * 透传头自动落痕被关行（停用不接新行，被关行是唯一落点；缺头落空）。行不存在（含畸形 id）
      * 404 METER_006（3006）；目标非当前行 409 METER_007（3007）——均原样透传。</p>
      *
@@ -2306,6 +2432,357 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSkillDraftDetailWireResponse> resp =
                     openApiClient.post(url, command, SKILL_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 分页查询沉淀草稿标注队列（透传 aiplatform，「数据标注」域读口，issue #124）——
+     * 采集层自荐沉淀草稿的人审队列分诊面。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/sediment-drafts}（#464）：返回
+     * {@code ApiResponse<PageResponse<BackofficeSedimentDraftSummaryResponse>>}。三过滤
+     * 维度可组合、均可缺省（缺省＝全量<strong>含终态行</strong>——终态留档可查；待办视角
+     * 须显式 status=1）：{@code projectId} 来源项目 id 精确（<strong>宽松</strong>——畸形值
+     * provider {@code Tsid.parseOrNull} 归 null 即缺省不过滤，与 kind 非法即 400 有意不同）；
+     * {@code kind} 类别单选（CASE/MODULE/RULE 大小写不敏感——非法 400 KNW_011＝数字业务码
+     * 2011 带合法取值表）；{@code status} 状态单选 Integer code（1=在途 2=已激活 3=已拒绝
+     * ——未知 code 骑 provider 框架 400 带合法取值表，非 KNW 码）。排序服务端定死＝自荐
+     * 时间倒序（id 倒序稳定）。</p>
+     *
+     * <p>page 1-based 直传零换算（同订单/项目/素材），provider clamp（page≥1、size∈[1,100]
+     * 默认 20——{@code Pagination} 框架契约）行为透传、本客户端不重复夹取。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformSedimentDraftQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（400 KNW_011 等，不做映射）
+     */
+    public PageResponse<AiplatformSedimentDraftSummaryWireResponse> listSedimentDrafts(
+            AiplatformSedimentDraftListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/sediment-drafts?page=").append(page)
+                .append("&size=").append(size);
+        appendParam(url, "projectId", filter.projectId());
+        appendParam(url, "kind", filter.kind());
+        appendParam(url, "status", filter.status());
+        log.debug("AiplatformClient.listSedimentDrafts: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformSedimentDraftSummaryWireResponse>> resp =
+                    openApiClient.get(url.toString(), SEDIMENT_DRAFT_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 查询沉淀草稿标注详情（透传 aiplatform，「数据标注」域读口，issue #124）——队列行
+     * 同形字段＋正文全文（激活原样升格不改稿——审核面所见即入库内容）＋载荷（untyped
+     * 一期恒空面）＋扫描 findings 逐条留档（untyped map 透传）＋终态留痕四字段（在途
+     * 恒 null）。<strong>任意状态可查</strong>（终态留档）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/sediment-drafts/{id}}（#464）：返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>}；草稿不存在（含未寻址/
+     * 畸形 TSID——provider {@code Tsid.resolve} lenient 解析）时 HTTP 404 + 数字业务码
+     * 2008（KNW_008）原样透传。</p>
+     *
+     * @param id 草稿柄（TSID 十进制字符串原样出站；畸形值由 provider 判 404 KNW_008）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 KNW_008 等，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse getSedimentDraft(String id) {
+        String url = baseUrl + "/api/backoffice/sediment-drafts/" + encode(id);
+        log.debug("AiplatformClient.getSedimentDraft: {}", url);
+        try {
+            ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
+                    openApiClient.get(url, SEDIMENT_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 激活沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——人审采纳：
+     * 在途翻已激活＋操作者留痕（CAS——并发审结零行命中 409 KNW_009）。激活即出标注
+     * 队列、释放在途名额，升格 knw_materials 归激活链（激活只翻审结终态——「已激活」
+     * ≠「已入库」，素材检索在升格落地前不命中已激活沉淀）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/activate}（#464）：
+     * <strong>无请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数——同素材停用⇄启用先例），返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>}——回执＝<strong>终态
+     * 详情</strong>（留痕形状直读，与 GET 详情同形——SEDIMENT_DRAFT_DETAIL_TYPEREF 复用）。
+     * 操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name} 头
+     * （RequestContext→provider 落痕）——<strong>缺头 400 KNW_006</strong>（数字业务码
+     * 2006，标注动作必留痕，无落空通道）。草稿须在途（已审结 409 KNW_009＝2009）；
+     * 不存在 404 KNW_008（2008）——均原样透传。</p>
+     *
+     * @param id 草稿柄（TSID 十进制字符串；在途判定归 provider CAS 条件更新）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse activateSedimentDraft(String id) {
+        return postSedimentDraftAction(id, "activate", null);
+    }
+
+    /**
+     * 拒绝沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——人审不采纳：
+     * 理由必填（空白 400 KNW_010＝数字业务码 2010——终态留档拒绝须有据，库级 CHECK
+     * 双锁）＋在途翻已拒绝＋操作者留痕（CAS 同激活）。拒绝即终态：不再列标注队列、
+     * 详情仍可查（留档）；不改稿不复活——重提只能靠未来会话产生新草稿。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/reject}（#464）：
+     * 请求体 {@code {reason}} 逐字镜像（单字段——BFF 不前置拦截，空白由 provider 手工
+     * 校验出 400 KNW_010 原样透传；缺 body 同语义），返回终态详情（同 GET 详情形）。
+     * 操作者透传头口径同激活（缺头 400 KNW_006＝2006）；已审结 409 KNW_009（2009）、
+     * 不存在 404 KNW_008（2008）——均原样透传。</p>
+     *
+     * @param id      草稿柄（TSID 十进制字符串原样出站）
+     * @param command 拒绝命令体（由应用层从北向命令映射而来，理由合法性归 provider 用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009/010，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse rejectSedimentDraft(
+            String id, AiplatformSedimentDraftRejectWireRequest command) {
+        return postSedimentDraftAction(id, "reject", command);
+    }
+
+    /**
+     * 改标签沉淀草稿（透传 aiplatform，「数据标注」三键之一，issue #124）——在途内调整
+     * 类别（纯队列分诊修正：不翻终态、不动正文）。{@code kind} 一期合法取值 CASE/MODULE/
+     * RULE（大小写不敏感归一大写稳定键；非法 400 KNW_011＝2011 带合法取值表；同类别
+     * 幂等 no-op）；<strong>占目标类别在途名额</strong>——跨类别占目标类别在途序号最低
+     * 空位（每项目每 kind 上限 3 的结构性约束跨类别生效），目标类别满 409 KNW_012
+     * （数字业务码 2012——前端提示「目标类别在途已满，先审结该类别草稿」）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/sediment-drafts/{id}/relabel}（#464）：
+     * 请求体 {@code {kind}} 逐字镜像（单字段——BFF 不前置拦截，非法由 provider 用例裁决；
+     * 缺 body 同语义），返回详情（新类别直读，同 GET 详情形）。操作者透传头口径同激活
+     * （缺头 400 KNW_006＝2006）；已审结 409 KNW_009（2009）、不存在 404 KNW_008（2008）
+     * ——均原样透传。</p>
+     *
+     * @param id      草稿柄（TSID 十进制字符串原样出站）
+     * @param command 改标签命令体（由应用层从北向命令映射而来，类别合法性归 provider 用例）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（KNW_006/008/009/011/012，不做映射）
+     */
+    public AiplatformSedimentDraftDetailWireResponse relabelSedimentDraft(
+            String id, AiplatformSedimentDraftRelabelWireRequest command) {
+        return postSedimentDraftAction(id, "relabel", command);
+    }
+
+    /**
+     * 「数据标注」三键共用的出站形状（#464）：{@code POST /api/backoffice/sediment-drafts/
+     * {id}/{action}}——激活无请求体（{@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数），拒绝/改标签单字段命令体可选绑定不前置拦截；返回
+     * {@code ApiResponse<BackofficeSedimentDraftDetailResponse>} 信封取 {@code .data()}
+     * （三键回执共形＝详情：激活/拒绝回<strong>终态</strong>详情、改标签回现值详情）；
+     * 操作者身份由框架经 {@code RequestContext}→{@code X-User-Id/X-User-Name} 自动透传
+     * （缺头会被 provider 域面守卫 KNW_006 拦截——标注动作必留痕，无落空通道）。
+     */
+    private AiplatformSedimentDraftDetailWireResponse postSedimentDraftAction(
+            String id, String action, Object command) {
+        String url = baseUrl + "/api/backoffice/sediment-drafts/" + encode(id) + "/" + action;
+        log.debug("AiplatformClient.postSedimentDraftAction: {}", url);
+        try {
+            ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
+                    openApiClient.post(url, command, SEDIMENT_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 资源大盘（透传 aiplatform，「资源面」读口，issue #128——镜像 aiplatform #489
+     * #473/ADR-0045 资源回收通道的观测面）——主机磁盘（平台进程所在文件系统，hostPath
+     * ＝df 对账锚）＋docker 四类用量（镜像/容器/本地卷/build cache 计数与体量——体量
+     * 十进制单位换算与 docker 显示同基）＋无主资源计数（ADR-0045 准绳——docker 侧
+     * ws-&lt;id&gt;/vol-ws-&lt;id&gt; 对注册表全量求差；docker system df「可回收」口径
+     * 永不进本面）＋在册失联计数（#488 只标记待裁决，出口＝一键回收——在册≠无主）＋
+     * 最近一次手动清扫（收编结果面）。<strong>纯读库零 docker 调用、秒级返回</strong>
+     * （#487 治超时口径延伸）；未采样各面如实 null（null＝缺测≠0＝真零，两态必须可分）、
+     * sampledAt 新鲜度标注。无查询参数、无路径参数。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/resources/overview}（#489）：返回
+     * {@code ApiResponse<BackofficeResourceOverviewResponse>}；机机签名五头 HMAC 类级
+     * 强制（无签名 401 由 provider 裁决）。错误信封原样透传（不做映射）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public AiplatformResourceOverviewWireResponse getResourceOverview() {
+        String url = baseUrl + "/api/backoffice/resources/overview";
+        log.debug("AiplatformClient.getResourceOverview: {}", url);
+        try {
+            ApiResponse<AiplatformResourceOverviewWireResponse> resp =
+                    openApiClient.get(url, RESOURCE_OVERVIEW_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 手动清扫（透传 aiplatform，「资源面」写口，issue #128——镜像 aiplatform #489
+     * #473 故事 8：按需对账不等扫描轮）——触发一次无主收编，<strong>复用扫描轮自动收编
+     * 同一实现同一准绳</strong>（保留集＝注册表全量编号——在册一律不动〔休眠保卷是用户
+     * 数据 ADR-0016〕、宽限线＝触发时刻减 10 分钟〔新建「资源已建、记录未落」窗口保护〕、
+     * 点名删非 prune——docker system df「可回收」不作判定、volume prune 永不进任何
+     * 通道）。回执＝逐项处置报告：收编了什么（SWEPT）、跳过什么为什么（SKIPPED：
+     * REGISTERED＝在册/GRACE_WINDOW＝宽限窗内/TIMESTAMP_UNREADABLE＝时刻解析不出）、
+     * 删除未成什么（FAILED——下轮扫描再收）；库不可达（registryReachable=false）一刀
+     * 未动如实呈报（准绳无从构成绝不按「全部无主」动手，不重试）。手动清扫不受休眠总
+     * 开关静默（管理员显式动作，ADR-0045 动刀类走 admin 手动＋留痕）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/resources/sweep}（#489）：<strong>无
+     * 请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，provider 端
+     * 只读透传头——同沙箱四动作/重试归档先例），返回
+     * {@code ApiResponse<BackofficeResourceSweepResponse>}。操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落 append-only 留痕行
+     * ＋报告 JSON 全量落档，缺头落空 NULL——照沙箱动作面口径，provider 不落强制守卫）。
+     * docker CLI 自身失败 500 WSP_002（数字业务码 1002——未执行完的清扫不留痕不定格）
+     * 原样透传。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（500 WSP_002 等，不做映射）
+     */
+    public AiplatformResourceSweepWireResponse sweepResources() {
+        String url = baseUrl + "/api/backoffice/resources/sweep";
+        log.debug("AiplatformClient.sweepResources: {}", url);
+        try {
+            ApiResponse<AiplatformResourceSweepWireResponse> resp =
+                    openApiClient.post(url, null, RESOURCE_SWEEP_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 时段规则行清单（透传 aiplatform，「时段规则」域读口，issue #130——镜像 aiplatform
+     * #497／ADR-0044 峰谷 1/4：现行与历史行全量＝规则史全貌）。行形：通道 × 时段带
+     * （band Integer code 1=峰 2=谷＋bandName）× 星期口径（dayMask bitmask Mon=1…Sun=64
+     * ＋dayMaskName 连续段压缩）× UTC 窗口（startMinute/endMinute，end 不含）× 生效区间
+     * （effectiveTo null＝当前行）＋操作者两列（该行最近管理动作留痕；存量行/种子脚本种入行
+     * 落 null）。排序服务端定死＝生效起点倒序（新版本在前，同起点 id 倒序稳定）。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/time-band-rules}（#497）：返回
+     * {@code ApiResponse<PageResponse<TimeBandRuleResponse>>}；provider 为匹配键＝精确等值
+     * 过滤、可缺省（缺省＝全量行）；机机签名五头 HMAC 类级强制（无签名 401 由 provider 裁决）。
+     * 错误信封原样透传（不做映射）。</p>
+     *
+     * <p>page 1-based 直传零换算（同订单/单价表），provider clamp（page≥1、size∈[1,100]
+     * 默认 20）行为透传、本客户端不重复夹取。</p>
+     *
+     * @param filter wire 层过滤参数（由应用层从 {@code AiplatformTimeBandRuleQuery} 映射而来）
+     * @param page   页码，<strong>1-based</strong>（北向原样直传）
+     * @param size   每页大小
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（非法分页值 400 等，不做映射）
+     */
+    public PageResponse<AiplatformTimeBandRuleWireResponse> listTimeBandRules(
+            AiplatformTimeBandRuleListWireRequest filter, int page, int size) {
+        StringBuilder url = new StringBuilder(baseUrl)
+                .append("/api/backoffice/time-band-rules?page=").append(page)
+                .append("&size=").append(size);
+        appendParam(url, "provider", filter.provider());
+        log.debug("AiplatformClient.listTimeBandRules: {}", url);
+        try {
+            ApiResponse<PageResponse<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.get(url.toString(), TIME_BAND_RULE_PAGE_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 开行（透传 aiplatform，「时段规则」域写口，issue #130）——空通道首开：一单 N 时段窗口行
+     * 原子落（每项＝规则表一行〔通道 × 生效区间 × 星期口径 × UTC 窗口〕，同单各窗口共享生效起点）
+     * ＝一个规则版本。effectiveFrom 可回溯（种子敞口覆盖存量事件）、可指定未来时点（预发布），
+     * 缺省即时（provider 裁决 null→now()，BFF 不代填时点）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules}（#497）：请求体
+     * {@code {provider, windows:[{band, dayMask, startMinute, endMinute}], effectiveFrom}}
+     * 逐字镜像（band Integer code 1=峰 2=谷——provider 侧 BaseEnum 从 code 反序列化；dayMask
+     * 星期口径 bitmask Mon=1…Sun=64 合法域 1..127；startMinute/endMinute UTC 分钟 end 不含、
+     * 须 start&lt;end——跨午夜窗口 v1 不支持、拆两行），返回 {@code ApiResponse<List<TimeBandRuleResponse>>}
+     * ＝新版本全部行。操作者身份经框架 {@code OpenApiClient} 自动带 {@code X-User-Id/X-User-Name}
+     * 头（RequestContext→provider 落痕新行，缺头落空——种子脚本即落空口径）。</p>
+     *
+     * <p>窗口项字段不完整/星期口径越界/跨午夜窗口 400 METER_013（3013）；同通道区间重叠
+     * （跨区间或同起点）409 METER_008（3008）——均原样透传。</p>
+     *
+     * @param command 开行命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（METER_008/013 等，不做映射）
+     */
+    public List<AiplatformTimeBandRuleWireResponse> openTimeBandRule(
+            AiplatformTimeBandRuleOpenWireRequest command) {
+        String url = baseUrl + "/api/backoffice/time-band-rules";
+        log.debug("AiplatformClient.openTimeBandRule: {}", url);
+        try {
+            ApiResponse<List<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.post(url, command, TIME_BAND_RULE_LIST_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 原子改窗（透传 aiplatform，「时段规则」域写口，issue #130）——单调用关当前版本全部行＋
+     * 开新版本（同事务，中途任一守卫失败两段都不动）：寻址行须当前版本成员（版本任一行皆可达——
+     * 关行在版本级非单行），被关版本全部行落 effectiveTo＝新版本起点（保留其原开行操作者，不被
+     * 改写）；新版本窗口清单整版本替换语义（清单即终态）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules/{id}/rewindow}（#497）：
+     * 请求体 {@code {windows:[…], effectiveFrom}} 逐字镜像（effectiveFrom 可空＝缺省即时、含
+     * 未来时点＝预发布——预发布与重叠校验语义由 provider 承担，BFF 不代填时点不预判），返回
+     * {@code ApiResponse<TimeBandRuleRewindowResponse>}——{@code {closed, opened}} 双段回执
+     * （被关行保留原操作者留痕，新行带本次操作者）。操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落痕新行，缺头落空）。</p>
+     *
+     * <p>行不存在（含畸形 id——provider 侧 lenient 解析）404 METER_015（3015）；窗口项字段
+     * 不完整/星期口径越界/跨午夜窗口 400 METER_013（3013）；起点早于被关版本起点 400
+     * METER_014（3014）；目标非当前行 409 METER_016（3016）；区间重叠（跨区间或同起点）409
+     * METER_008（3008）——均原样透传。</p>
+     *
+     * @param id      规则行标识（TSID 十进制字符串）
+     * @param command 改窗命令体（由应用层从北向命令映射而来，字段合法性归 provider 聚合守卫）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（METER_008/013/014/015/016 等，不做映射）
+     */
+    public AiplatformTimeBandRuleRewindowWireResponse rewindowTimeBandRule(
+            String id, AiplatformTimeBandRuleRewindowWireRequest command) {
+        String url = baseUrl + "/api/backoffice/time-band-rules/" + encode(id) + "/rewindow";
+        log.debug("AiplatformClient.rewindowTimeBandRule: {}", url);
+        try {
+            ApiResponse<AiplatformTimeBandRuleRewindowWireResponse> resp =
+                    openApiClient.post(url, command, TIME_BAND_RULE_REWINDOW_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 停用（透传 aiplatform，「时段规则」域写口，issue #130）——即时生效：关当前版本全部行
+     * （effectiveTo＝现在）不开新版本——此后该通道 ts 无窗口命中＝不归带（引擎归段票接线后
+     * 生效）。对未生效的预发布版本停用＝钳到自身起点成空区间（从未生效）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/time-band-rules/{id}/deactivate}（#497）：
+     * <strong>无请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，
+     * provider 端只读路径参数——同沙箱四动作/手动清扫先例），返回
+     * {@code ApiResponse<List<TimeBandRuleResponse>>}＝被关版本全部行。操作者透传头自动落痕
+     * 被关版本各行（停用不接新行，被关行是唯一落点；缺头落空）。行不存在（含畸形 id）
+     * 404 METER_015（3015）；目标非当前行 409 METER_016（3016）——均原样透传。</p>
+     *
+     * @param id 规则行标识（TSID 十进制字符串）
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（404 METER_015、409 METER_016 等，不做映射）
+     */
+    public List<AiplatformTimeBandRuleWireResponse> deactivateTimeBandRule(String id) {
+        String url = baseUrl + "/api/backoffice/time-band-rules/" + encode(id) + "/deactivate";
+        log.debug("AiplatformClient.deactivateTimeBandRule: {}", url);
+        try {
+            ApiResponse<List<AiplatformTimeBandRuleWireResponse>> resp =
+                    openApiClient.post(url, null, TIME_BAND_RULE_LIST_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);

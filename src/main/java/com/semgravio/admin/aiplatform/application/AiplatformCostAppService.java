@@ -97,7 +97,9 @@ public class AiplatformCostAppService {
                 wire.byModel() == null ? null : wire.byModel().stream()
                         .map(AiplatformCostAppService::toModelUsage).toList(),
                 wire.byAgentKind() == null ? null : wire.byAgentKind().stream()
-                        .map(AiplatformCostAppService::toAgentKindUsage).toList());
+                        .map(AiplatformCostAppService::toAgentKindUsage).toList(),
+                wire.byModelCost() == null ? null : wire.byModelCost().stream()
+                        .map(AiplatformCostAppService::toModelBandCost).toList());
     }
 
     private static AiplatformUnpricedUsageResponse toUnpriced(AiplatformUnpricedUsageWireResponse wire) {
@@ -144,13 +146,21 @@ public class AiplatformCostAppService {
     private static AiplatformUnpricedUsageResponse.UnpricedTier toUnpricedTier(
             AiplatformUnpricedUsageWireResponse.UnpricedTier wire) {
         return new AiplatformUnpricedUsageResponse.UnpricedTier(
-                wire.provider(), wire.model(), wire.tokenKind(), wire.tokenKindName(), wire.tokens());
+                wire.provider(), wire.model(), wire.tokenKind(), wire.tokenKindName(),
+                wire.band(), wire.bandName(), wire.tokens());
     }
 
     private static AiplatformProjectCostDetailResponse.UnpricedTier toDetailTier(
             AiplatformProjectCostDetailWireResponse.UnpricedTier wire) {
         return new AiplatformProjectCostDetailResponse.UnpricedTier(
-                wire.provider(), wire.model(), wire.tokenKind(), wire.tokenKindName());
+                wire.provider(), wire.model(), wire.tokenKind(), wire.tokenKindName(),
+                wire.band(), wire.bandName());
+    }
+
+    private static AiplatformCostOverviewResponse.ModelBandCost toModelBandCost(
+            AiplatformCostOverviewWireResponse.ModelBandCost wire) {
+        return new AiplatformCostOverviewResponse.ModelBandCost(
+                wire.provider(), wire.model(), wire.band(), wire.bandName(), wire.cost());
     }
 
     private static AiplatformProjectCostDetailResponse.ModelUsage toDetailModelUsage(

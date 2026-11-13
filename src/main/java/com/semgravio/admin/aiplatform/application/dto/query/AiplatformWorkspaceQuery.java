@@ -6,7 +6,8 @@ package com.semgravio.admin.aiplatform.application.dto.query;
  *
  * <p>漂移发现口径：两维独立单选、可组合、可缺省（缺省＝全量）——{@code desired} 期望态
  * （1=运行 2=休眠 3=封存，DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器
- * 4=未知，docker 现场探查）。「期望运行而实态无容器」即漂移行——{@code desired=1 & actual=3}
+ * 4=未知——实态列为扫描轮采样快照（#487），按最近采样帧过滤）。「期望运行而实态无容器」即漂移行
+ * ——{@code desired=1 & actual=3}
  * 即捞漂移清单；期望休眠/封存而 actual=3 是正常收敛态。</p>
  *
  * <p>枚举筛选项以 aiplatform {@code DesiredState} / {@code ContainerState}（BaseEnum）的
