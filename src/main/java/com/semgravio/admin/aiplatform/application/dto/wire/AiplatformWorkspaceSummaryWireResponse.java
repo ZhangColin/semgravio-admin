@@ -11,7 +11,13 @@ import java.time.LocalDateTime;
  * 四枚举均为 <strong>Integer code</strong> + {@code *Name} 中文名两列（kind/status/desiredState/
  * containerState——provider 已配对，BFF 透传不做 code→中文映射）；期望态与 docker 实态两列如实
  * 分示（desired=1 而 containerState=3 即「实态已亡」漂移行）。卷用量/封存包大小为 <strong>Long</strong>
- * （字节，cartisan-web 全局 Long→ToStringSerializer 出 JSON string）；封存容缺/探查失败为 null。</p>
+ * （字节，cartisan-web 全局 Long→ToStringSerializer 出 JSON string）；封存容缺/未采样/采样失败为 null。</p>
+ *
+ * <p>实态列为<strong>采样快照</strong>（aiplatform #487，issue #126）：{@code containerState}/
+ * {@code volumeSizeBytes} 不再请求时现场探查，改由扫描轮旁路采样落库（约 5 分钟新鲜度），
+ * {@code sampledAt} 标注采样时刻——未采样（新工作区首个采样窗内）containerState/
+ * containerStateName/volumeSizeBytes 三字段全 null（未采样 ≠ 探查失败 containerState=4 ≠
+ * 无容器 containerState=3）；封存行 volumeSizeBytes 恒 null（卷已删，看 sealedAt/archiveSizeBytes）。</p>
  *
  * @since 0.1.0
  */
@@ -41,17 +47,21 @@ public record AiplatformWorkspaceSummaryWireResponse(
         /** 期望态名（provider 出口提供） */
         String desiredStateName,
 
-        /** 容器实态（1=运行中 2=已停止 3=无容器 4=未知——docker 现场探查，不落库） */
+        /** 容器实态采样（code）：1=运行中 2=已停止 3=无容器 4=未知（采样到探查失败）；
+         * 未采样为 null（新工作区首个采样窗内，aiplatform #487 采样快照口径） */
         Integer containerState,
 
-        /** 容器实态名（provider 出口提供） */
+        /** 实态名（provider 出口提供；未采样为 null） */
         String containerStateName,
 
         /** 最近触碰（闲置计时输入） */
         LocalDateTime lastTouchAt,
 
-        /** 卷用量（字节；封存容缺/探查失败为 null） */
+        /** 卷用量采样（字节；封存按意图容缺/未采样/采样失败为 null） */
         Long volumeSizeBytes,
+
+        /** 采样时刻（新鲜度标注；未采样为 null） */
+        LocalDateTime sampledAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

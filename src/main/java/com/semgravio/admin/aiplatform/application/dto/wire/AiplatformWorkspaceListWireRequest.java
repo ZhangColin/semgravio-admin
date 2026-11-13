@@ -11,7 +11,8 @@ package com.semgravio.admin.aiplatform.application.dto.wire;
  *
  * <p>两维均为<strong>单选</strong> Integer code、可组合、可缺省（null＝该维不过滤）：{@code desired}
  * 期望态（1=运行 2=休眠 3=封存，DB 意图侧）；{@code actual} 容器实态（1=运行中 2=已停止 3=无容器
- * 4=未知，docker 现场探查后内存过滤——actual=3 即捞「期望运行而实态已亡」漂移清单）。</p>
+ * 4=未知，按最近采样帧内存过滤（实态列自 aiplatform #487 起为扫描轮采样快照，非请求时现场探查）
+ * ——actual=3 即捞「期望运行而实态已亡」漂移清单）。</p>
  *
  * @since 0.1.0
  */

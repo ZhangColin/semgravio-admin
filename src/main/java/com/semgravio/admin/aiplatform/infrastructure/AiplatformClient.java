@@ -1398,15 +1398,16 @@ public class AiplatformClient {
     /**
      * 分页查询沙箱清单（透传 aiplatform，期望态/实态两维过滤——漂移发现口径）。
      *
-     * <p>对接 aiplatform {@code GET /api/backoffice/workspaces}（#173 观测面已冻结）：返回
-     * {@code ApiResponse<PageResponse<BackofficeWorkspaceSummaryResponse>>}。两维均<strong>单选</strong>
-     * Integer code、可组合、可缺省（null＝该维不过滤）：{@code desired} 期望态（1=运行 2=休眠 3=封存，
-     * DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器 4=未知——docker 现场探查、
-     * 探查后内存过滤，total 如实＝筛后计数；{@code actual=3} 即捞「期望运行而实态已亡」漂移清单）。
-     * 过滤参数绑定失败 400 WSP_014（数字业务码 1014）原样透传。</p>
+     * <p>对接 aiplatform {@code GET /api/backoffice/workspaces}（#173 观测面；#487 实态列转采样快照，
+     * issue #126）：返回 {@code ApiResponse<PageResponse<BackofficeWorkspaceSummaryResponse>>}。两维均
+     * <strong>单选</strong> Integer code、可组合、可缺省（null＝该维不过滤）：{@code desired} 期望态
+     * （1=运行 2=休眠 3=封存，DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器
+     * 4=未知——按最近采样帧内存过滤，total 如实＝筛后计数；{@code actual=3} 即捞「期望运行而实态已亡」
+     * 漂移清单）。实态列（containerState/volumeSizeBytes）为扫描轮采样快照（sampledAt 新鲜度标注，
+     * 未采样全 null）——响应秒级稳定零 docker 调用。过滤参数绑定失败 400 WSP_014（数字业务码 1014）
+     * 原样透传。</p>
      *
-     * <p>page 1-based 直传零换算（同订单/项目），provider clamp（page≥1、size∈[1,100]）行为透传。
-     * 实态与卷大小逐行现场探查（docker 子进程）——页越大越慢，provider 侧语义、本客户端不干预。</p>
+     * <p>page 1-based 直传零换算（同订单/项目），provider clamp（page≥1、size∈[1,100]）行为透传。</p>
      *
      * @param filter wire 层过滤参数（由应用层从 {@code AiplatformWorkspaceQuery} 映射而来）
      * @param page   页码，<strong>1-based</strong>（北向原样直传）

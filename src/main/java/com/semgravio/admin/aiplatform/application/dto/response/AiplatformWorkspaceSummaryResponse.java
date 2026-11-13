@@ -6,8 +6,11 @@ import java.time.LocalDateTime;
  * AI 平台沙箱清单行（BFF 透传 aiplatform）——北向 {@code GET /api/admin/aiplatform/workspaces}
  * 条目，与 aiplatform {@code BackofficeWorkspaceSummaryResponse} 字段逐字同构（issue #66）。
  *
- * <p>运营第一次能看见每台沙箱睡没睡、封没封、占多少存储——期望态与 docker 实态两列分示
- * （漂移一眼可见）。行内嵌项目引用（跳转项目详情的锚；无所属项目为 null）。</p>
+ * <p>运营第一次能看见每台沙箱睡没睡、封没封、占多少存储——期望态与实态两列分示
+ * （漂移一眼可见）。行内嵌项目引用（跳转项目详情的锚；无所属项目为 null）。实态列与卷大小
+ * 为<strong>采样快照</strong>（aiplatform #487，issue #126）：响应秒级稳定（不再请求时现场
+ * 探查），数值以 {@code sampledAt} 标注新鲜度；未采样（字段 null）≠ 探查失败（containerState=4
+ * 未知）≠ 无容器（=3）——宜呈现「未采样」占位而非「未知」。</p>
  *
  * @since 0.1.0
  */
@@ -37,17 +40,21 @@ public record AiplatformWorkspaceSummaryResponse(
         /** 期望态名 */
         String desiredStateName,
 
-        /** 容器实态（1=运行中 2=已停止 3=无容器 4=未知——docker 现场探查，不落库） */
+        /** 容器实态采样（1=运行中 2=已停止 3=无容器 4=未知——采样到探查失败）；未采样为 null
+         * （新工作区首个采样窗内，aiplatform #487 采样快照口径） */
         Integer containerState,
 
-        /** 容器实态名 */
+        /** 容器实态名（未采样为 null） */
         String containerStateName,
 
         /** 最近触碰（闲置计时输入） */
         LocalDateTime lastTouchAt,
 
-        /** 卷用量（字节；封存容缺/探查失败为 null） */
+        /** 卷用量采样（字节；封存按意图容缺/未采样/采样失败为 null） */
         Long volumeSizeBytes,
+
+        /** 实态列采样时刻（新鲜度标注，宜展示「采样于 X 分钟前」；未采样为 null） */
+        LocalDateTime sampledAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

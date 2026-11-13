@@ -1111,7 +1111,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         WORKSPACE_ID, "ws-" + WORKSPACE_ID,
                         1, "开发", 2, "就绪", 1, "运行", 3, "无容器",
                         LocalDateTime.of(2026, 9, 14, 22, 10, 0),
-                        2147483648L, null, null,
+                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0), null, null,
                         new AiplatformWorkspaceSummaryWireResponse.ProjectRef(
                                 PROJECT_ID, "英语学习助手", false))), 17, 2, 20));
         when(aiplatformClient.getWorkspace(eq(WORKSPACE_ID))).thenReturn(
@@ -2123,6 +2123,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                 1, "开发", 2, "就绪", null,
                 desiredState, desiredStateName, containerState, containerStateName,
                 LocalDateTime.of(2026, 9, 16, 9, 0, 0), 1073741824L,
+                LocalDateTime.of(2026, 9, 16, 9, 1, 0),
                 archivePath == null ? null : LocalDateTime.of(2026, 9, 16, 9, 0, 0),
                 archivePath, archiveSizeBytes,
                 LocalDateTime.of(2026, 9, 8, 10, 0, 0), LocalDateTime.of(2026, 9, 16, 9, 0, 0),
@@ -2715,8 +2716,9 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(row.path("desiredStateName").asText()).isEqualTo("运行");
         assertThat(row.path("containerState").asInt()).isEqualTo(3);
         assertThat(row.path("containerStateName").asText()).isEqualTo("无容器");
-        // 卷用量 Long（JSON string）+ 项目引用三字段（跳转项目详情的锚）
+        // 卷用量 Long（JSON string）+ 实态列采样时刻 sampledAt（#487 新鲜度标注）+ 项目引用三字段（跳转项目详情的锚）
         assertThat(row.path("volumeSizeBytes").asLong()).isEqualTo(2147483648L);
+        assertThat(row.path("sampledAt").asText()).isEqualTo("2026-09-14T22:11:00");
         assertThat(row.path("project").path("projectId").asText()).isEqualTo(PROJECT_ID);
         assertThat(row.path("project").path("name").asText()).isEqualTo("英语学习助手");
         assertThat(row.path("project").path("archived").asBoolean()).isFalse();
@@ -2741,6 +2743,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 封存包寻址键 + 包大小（Long JSON string）
         assertThat(data.path("archivePath").asText()).isEqualTo("workspace-archives/" + WORKSPACE_ID + ".tar.gz");
         assertThat(data.path("archiveSizeBytes").asLong()).isEqualTo(89128960L);
+        // 实态列采样快照（#487）：sampledAt 新鲜度标注在场（封存行 volumeSizeBytes 恒 null）
+        assertThat(data.path("sampledAt").asText()).isEqualTo("2026-09-16T09:01:00");
         // 中间件资源清单：kind Integer code（provider 出口无 *Name——忠实镜像）+ 连接串原文
         JsonNode pg = data.path("resources").get(0);
         assertThat(pg.path("kind").asInt()).isEqualTo(1);

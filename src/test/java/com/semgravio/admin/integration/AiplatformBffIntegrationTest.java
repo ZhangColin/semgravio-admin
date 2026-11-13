@@ -1919,7 +1919,7 @@ class AiplatformBffIntegrationTest {
                         "3829492009999999", "ws-3829492009999999",
                         1, "开发", 2, "就绪", 1, "运行", 3, "无容器",
                         LocalDateTime.of(2026, 9, 14, 22, 10, 0),
-                        2147483648L, null, null,
+                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0), null, null,
                         new AiplatformWorkspaceSummaryWireResponse.ProjectRef(
                                 "3829492007654321", "英语学习助手", false))), 17, 2, 20));
 
@@ -1943,6 +1943,7 @@ class AiplatformBffIntegrationTest {
         assertThat(drift.containerState()).isEqualTo(3);
         assertThat(drift.containerStateName()).isEqualTo("无容器");
         assertThat(drift.volumeSizeBytes()).isEqualTo(2147483648L);
+        assertThat(drift.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 14, 22, 11, 0));
         assertThat(drift.project().projectId()).isEqualTo("3829492007654321");
         assertThat(drift.project().archived()).isFalse();
     }
@@ -1956,6 +1957,7 @@ class AiplatformBffIntegrationTest {
                         "3829492007777777", "ws-3829492007777777", "net-3829492007777777",
                         1, "开发", 2, "就绪", null, 3, "封存", 3, "无容器",
                         LocalDateTime.of(2026, 9, 13, 18, 0, 0), null,
+                        LocalDateTime.of(2026, 9, 13, 18, 1, 0),
                         LocalDateTime.of(2026, 9, 13, 18, 0, 0),
                         "workspace-archives/3829492007777777.tar.gz", 89128960L,
                         LocalDateTime.of(2026, 9, 8, 10, 0, 0),
@@ -1974,6 +1976,7 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.desiredStateName()).isEqualTo("封存");
         assertThat(detail.archivePath()).isEqualTo("workspace-archives/3829492007777777.tar.gz");
         assertThat(detail.archiveSizeBytes()).isEqualTo(89128960L);
+        assertThat(detail.sampledAt()).isEqualTo(LocalDateTime.of(2026, 9, 13, 18, 1, 0));
         assertThat(detail.resources()).hasSize(1);
         assertThat(detail.resources().get(0).kind()).isEqualTo(1);
         assertThat(detail.resources().get(0).internalUrl()).startsWith("postgresql://");
@@ -1989,6 +1992,7 @@ class AiplatformBffIntegrationTest {
                         "3829492009999999", "ws-3829492009999999", "net-3829492009999999",
                         1, "开发", 2, "就绪", null, 1, "运行", 1, "运行中",
                         LocalDateTime.of(2026, 9, 16, 9, 0, 0), 1073741824L,
+                        LocalDateTime.of(2026, 9, 16, 9, 1, 0),
                         null, null, null,
                         LocalDateTime.of(2026, 9, 8, 10, 0, 0),
                         LocalDateTime.of(2026, 9, 16, 9, 0, 0),

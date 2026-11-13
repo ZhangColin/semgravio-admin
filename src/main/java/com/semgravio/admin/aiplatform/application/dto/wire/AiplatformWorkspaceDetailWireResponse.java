@@ -11,6 +11,11 @@ import java.util.List;
  *
  * <p>全量如实呈现，无脱敏字段（机机签名面）——{@code internalUrl} 连接串原文透传，BFF 不解读。</p>
  *
+ * <p>实态列为<strong>采样快照</strong>（aiplatform #487，issue #126）：{@code containerState}/
+ * {@code volumeSizeBytes} 由扫描轮采样落库（约 5 分钟新鲜度），{@code sampledAt} 标注采样时刻；
+ * 未采样三字段（containerState/containerStateName/volumeSizeBytes）全 null；封存行 volumeSizeBytes
+ * 恒 null。四干预动作回执的实态列是动作前采样帧（下轮采样刷新）——动作后立即轮询看到旧实态属预期。</p>
+ *
  * @since 0.1.0
  */
 public record AiplatformWorkspaceDetailWireResponse(
@@ -45,17 +50,21 @@ public record AiplatformWorkspaceDetailWireResponse(
         /** 期望态名（provider 出口提供） */
         String desiredStateName,
 
-        /** 容器实态（1=运行中 2=已停止 3=无容器 4=未知——现场探查、封存容缺） */
+        /** 容器实态采样（code）：1=运行中 2=已停止 3=无容器 4=未知（采样到探查失败）；
+         * 未采样为 null（aiplatform #487 采样快照口径） */
         Integer containerState,
 
-        /** 容器实态名（provider 出口提供） */
+        /** 实态名（provider 出口提供；未采样为 null） */
         String containerStateName,
 
         /** 最近触碰 */
         LocalDateTime lastTouchAt,
 
-        /** 卷用量（字节；封存容缺/探查失败为 null） */
+        /** 卷用量采样（字节；封存按意图容缺/未采样/采样失败为 null） */
         Long volumeSizeBytes,
+
+        /** 采样时刻（新鲜度标注；未采样为 null） */
+        LocalDateTime sampledAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,
