@@ -113,6 +113,8 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFilesWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceOverviewWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceSweepWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleOpenWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformTimeBandRuleRewindowWireResponse;
@@ -198,7 +200,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  * 〔通道/档位分权〕）+「数据标注」域四码
  * （{@code sediment-draft:read|activate|reject|relabel}——issue #124：标注队列/详情两读
  * 端点复用 read、三键各一码，读写不串、三写码互不串——激活权/拒绝权/分诊权独立授受，
- * 连知识域既有 material:read 也不放行）+「时段规则」四码
+ * 连知识域既有 material:read 也不放行）+「资源面」两码
+ * （{@code resource:read|sweep}——issue #128 镜像 aiplatform #489：大盘读口一码、
+ * 手动清扫动刀写码一码——观测权与动刀权分权〔ADR-0045 动刀类走 admin 手动＋留痕〕，
+ * 逐项处置报告北向形状＋操作者透传断言＋WSP_002 信封透传）+「时段规则」四码
  * （{@code time-band-rule:read|open|rewindow|deactivate}——issue #130 镜像 aiplatform
  * #497／ADR-0044 峰谷 1/4：清单读口一码、开行/原子改窗/停用三写口各一码〔对称单价表域
  * 读写分权、调窗权/停用权独立授受〕——一单 N 窗口＝一个版本、改窗回执 closed/opened
@@ -218,7 +223,10 @@ import cn.dev33.satoken.config.SaTokenConfig;
  *
  * <p><strong>操作者身份透传契约</strong>（issue #66 断言必带；#69 素材域、#70 订单域、#81 技能域同款必带）：订单三写
  * 操作（报价落痕价目行、取消/归档落痕订单行）、沙箱四干预动作、
- * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）、时段规则三写口（issue #130——provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL）从 {@code RequestContext} 读 operator 审计，admin 不在 body 塞
+ * 单价表改价/停用、素材停用/启用、技能四写口（#82 增指派整包替换，同款必带）、资源面手动清扫
+ * （issue #128——provider 落 append-only 留痕行＋报告 JSON 落档，缺头落空 NULL）、时段规则
+ * 三写口（issue #130——provider 落痕开新版本/改窗新行/停用被关行，缺头落空 NULL）从
+ * {@code RequestContext} 读 operator 审计，admin 不在 body 塞
  * 身份——框架 cartisan-openapi 自动从 {@code RequestContext} 带 {@code X-User-Id/X-User-Name}
  * 出站 header。本测试在 mocked {@link AiplatformClient} 边界用 {@code doAnswer} 在调用瞬间抓取
  * {@link RequestContext#getUserId()} / {@link RequestContext#getUserName()}，断言其 == 登录治理
@@ -502,6 +510,13 @@ class AiplatformRbacEnforcementIntegrationTest {
     private static final String SEDIMENT_DRAFT_REJECT_BODY =
             "{\"reason\":\"与已激活知识「排课冲突案例」内容重叠，无增量价值\"}";
     private static final String SEDIMENT_DRAFT_RELABEL_BODY = "{\"kind\":\"MODULE\"}";
+    // 「资源面」（issue #128——aiplatform #489 资源回收通道观测与手动处置面：resources/overview
+    // 大盘＋resources/sweep 手动清扫，回执逐项处置报告）
+    private static final String RESOURCE_READ_PERMISSION = "admin:aiplatform:resource:read";
+    private static final String RESOURCE_SWEEP_PERMISSION = "admin:aiplatform:resource:sweep";
+    private static final String RESOURCES_ENDPOINT = "/api/admin/aiplatform/resources";
+    private static final String RESOURCES_OVERVIEW_ENDPOINT = RESOURCES_ENDPOINT + "/overview";
+    private static final String RESOURCES_SWEEP_ENDPOINT = RESOURCES_ENDPOINT + "/sweep";
     // 「时段规则」（issue #130——aiplatform #497／ADR-0044 峰谷 1/4：time-band-rules
     // 清单/开行/原子改窗/停用四端点，一单 N 窗口＝一个版本，改窗回执 closed/opened 双段）
     private static final String TIME_BAND_RULE_READ_PERMISSION = "admin:aiplatform:time-band-rule:read";
@@ -514,7 +529,6 @@ class AiplatformRbacEnforcementIntegrationTest {
             TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/rewindow";
     private static final String TIME_BAND_RULE_DEACTIVATE_ENDPOINT =
             TIME_BAND_RULES_ENDPOINT + "/" + TIME_BAND_RULE_ID + "/deactivate";
-
 
     private final AdminUserManagementAppService userAppService;
     private final RoleManagementAppService roleAppService;
@@ -556,6 +570,7 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String usernameWithModelTierWrite;
     private String usernameWithTierDeleteOnly;
     private String usernameWithSedimentDraftWrite;
+    private String usernameWithResourceSweep;
     private String usernameWithTimeBandRuleWrite;
     private String usernameWithReclaim;
 
@@ -597,6 +612,8 @@ class AiplatformRbacEnforcementIntegrationTest {
     private String modelTierWriteUserNickname;
     private Long sedimentDraftWriteUserId;
     private String sedimentDraftWriteUserNickname;
+    private Long resourceSweepUserId;
+    private String resourceSweepUserNickname;
     private Long timeBandRuleWriteUserId;
     private String timeBandRuleWriteUserNickname;
     private Long reclaimUserId;
@@ -653,6 +670,7 @@ class AiplatformRbacEnforcementIntegrationTest {
         usernameWithModelTierWrite = "aiplatwr" + suffix;
         usernameWithTierDeleteOnly = "aiplatdel" + suffix;
         usernameWithSedimentDraftWrite = "aiplasdwrt" + suffix;
+        usernameWithResourceSweep = "aiplarswp" + suffix;
         usernameWithTimeBandRuleWrite = "aiplatbrw" + suffix;
         usernameWithReclaim = "aiplarcl" + suffix;
 
@@ -667,7 +685,8 @@ class AiplatformRbacEnforcementIntegrationTest {
                         SKILL_DRAFT_READ_PERMISSION, CONTRACT_READ_PERMISSION,
                         PAYMENT_READ_PERMISSION, PRODUCTION_READ_PERMISSION,
                         MODEL_PROVIDER_READ_PERMISSION, MODEL_TIER_READ_PERMISSION,
-                        SEDIMENT_DRAFT_READ_PERMISSION, TIME_BAND_RULE_READ_PERMISSION)));
+                        SEDIMENT_DRAFT_READ_PERMISSION, RESOURCE_READ_PERMISSION,
+                        TIME_BAND_RULE_READ_PERMISSION)));
 
         Long userWithReadId = userAppService.create(
                 new CreateAdminUserCommand(usernameWithReadPermission, PASSWORD, "只读运营_" + suffix, null, null, null));
@@ -1042,6 +1061,21 @@ class AiplatformRbacEnforcementIntegrationTest {
                         sedimentDraftWriteUserNickname, null, null, null));
         userAppService.assignRoles(sedimentDraftWriteUserId,
                 new AssignRolesCommand(List.of(sedimentDraftWriteRoleId)));
+
+        // 「资源面」清扫写码专用运营（resource:sweep，无读码——观测权与动刀权分权，issue #128
+        // 动刀类最小授权照 ADR-0045）——操作者透传断言用其 id/昵称（provider 落 append-only
+        // 留痕行＋报告 JSON 落档，缺头落空 NULL 不拦）
+        Long resourceSweepRoleId = roleAppService.create(
+                new CreateRoleCommand("AI平台资源清扫_" + suffix, "AIPLARSWP_" + suffix,
+                        "AI 平台资源面手动清扫权限", 120, null));
+        roleAppService.assignPermissions(resourceSweepRoleId,
+                new AssignPermissionsCommand(List.of(RESOURCE_SWEEP_PERMISSION)));
+        resourceSweepUserNickname = "资源治理运营_" + suffix;
+        resourceSweepUserId = userAppService.create(
+                new CreateAdminUserCommand(usernameWithResourceSweep, PASSWORD,
+                        resourceSweepUserNickname, null, null, null));
+        userAppService.assignRoles(resourceSweepUserId,
+                new AssignRolesCommand(List.of(resourceSweepRoleId)));
 
         // 「时段规则」三写码专用运营（time-band-rule:open/rewindow/deactivate，无读码——
         // 调窗权/停用权最小授权，issue #130 对称单价表域读写分权先例）——操作者透传断言用其
@@ -1804,6 +1838,39 @@ class AiplatformRbacEnforcementIntegrationTest {
                     null, null, null, null);
         }).when(aiplatformClient).relabelSedimentDraft(
                 eq(SEDIMENT_DRAFT_ID), any(AiplatformSedimentDraftRelabelWireRequest.class));
+        // 「资源面」mock（issue #128，aiplatform #489）：大盘读口＝采样帧全量面（主机盘/docker
+        // 四类/无主计数/失联计数/sampledAt/最近清扫留痕直读）＋清扫写口回执＝逐项处置报告
+        //（SWEPT/SKIPPED 两类原因代表面）＋抓取 RequestContext（操作者透传契约证据——provider
+        // 落 append-only 留痕行＋报告 JSON 落档，缺头落空 NULL 不拦）
+        when(aiplatformClient.getResourceOverview()).thenReturn(new AiplatformResourceOverviewWireResponse(
+                new AiplatformResourceOverviewWireResponse.HostFace(
+                        "/var/lib/docker", 494384795648L, 301989888000L, 192394907648L),
+                new AiplatformResourceOverviewWireResponse.DockerFace(
+                        12L, 4442639553L, 8L, 2147483648L,
+                        9L, 12884901888L, 20L, 3221225472L),
+                new AiplatformResourceOverviewWireResponse.OrphanFace(1L, 1L),
+                2L,
+                LocalDateTime.of(2026, 11, 13, 10, 30, 0),
+                new AiplatformResourceOverviewWireResponse.LastSweep(
+                        LocalDateTime.of(2026, 11, 13, 9, 0, 0),
+                        "700101", "运维·老张", true, 1, 1, 3, 0)));
+        doAnswer(inv -> {
+            capture.run();
+            return new AiplatformResourceSweepWireResponse(
+                    LocalDateTime.of(2026, 11, 13, 9, 5, 0),
+                    String.valueOf(resourceSweepUserId), resourceSweepUserNickname,
+                    true, LocalDateTime.of(2026, 11, 13, 8, 55, 0),
+                    1, 0, 2, 0,
+                    List.of(
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "CONTAINER", "ws-3829492007654321", "SWEPT", null,
+                                    LocalDateTime.of(2026, 11, 13, 8, 40, 0)),
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "CONTAINER", "ws-730101", "SKIPPED", "REGISTERED", null),
+                            new AiplatformResourceSweepWireResponse.SweepItem(
+                                    "VOLUME", "vol-ws-3829492007654999", "SKIPPED", "GRACE_WINDOW",
+                                    LocalDateTime.of(2026, 11, 13, 9, 1, 0))));
+        }).when(aiplatformClient).sweepResources();
         // 「时段规则」mock（issue #130，aiplatform #497）：清单＝现行峰段两行＋历史谷段一行
         // （分页回显 provider 原值）＋开行/改窗/停用回执（改窗 closed/opened 双段、被关行保留
         // 原操作者）＋三写口抓取 RequestContext（操作者透传契约证据——provider 落痕新行/被关行，
@@ -4988,6 +5055,142 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(root.path("code").asInt()).isEqualTo(2012);
         assertThat(root.path("message").asText())
                 .isEqualTo("目标类别在途草稿已满 3 条——先审结该类别在途草稿再改标签");
+        assertThat(root.path("data").isNull()).isTrue();
+    }
+
+    // ========== 「资源面」（resource:read 读面 / :sweep 写面，issue #128 镜像 aiplatform #489）· 权限三态 + 北向形状 + 操作者透传 ==========
+
+    @Test
+    @DisplayName("非超管且拥有 resource:read → 资源大盘 200，六面齐备＋null≠零两态＋失联计数＋最近清扫留痕直读")
+    void given_nonSuperAdminWithResourceRead_when_overview_then_200AndSixFacesMirrored() throws Exception {
+        String token = login(usernameWithReadPermission);
+        ResponseEntity<String> response = getWithToken(RESOURCES_OVERVIEW_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+
+        // 主机盘面：锚路径＋三字节（北向出口 Long→JSON string）＋docker 四类＋无主计数
+        JsonNode host = data.path("host");
+        assertThat(host.path("path").asText()).isEqualTo("/var/lib/docker");
+        assertThat(host.path("totalBytes").asText()).isEqualTo("494384795648");
+        assertThat(host.path("usableBytes").asText()).isEqualTo("301989888000");
+        assertThat(host.path("usedBytes").asText()).isEqualTo("192394907648");
+        JsonNode docker = data.path("docker");
+        assertThat(docker.path("imageCount").asText()).isEqualTo("12");
+        assertThat(docker.path("imageSizeBytes").asText()).isEqualTo("4442639553");
+        assertThat(docker.path("containerCount").asText()).isEqualTo("8");
+        assertThat(docker.path("containerSizeBytes").asText()).isEqualTo("2147483648");
+        assertThat(docker.path("volumeCount").asText()).isEqualTo("9");
+        assertThat(docker.path("volumeSizeBytes").asText()).isEqualTo("12884901888");
+        assertThat(docker.path("buildCacheCount").asText()).isEqualTo("20");
+        assertThat(docker.path("buildCacheSizeBytes").asText()).isEqualTo("3221225472");
+        assertThat(data.path("orphans").path("containerCount").asText()).isEqualTo("1");
+        assertThat(data.path("orphans").path("volumeCount").asText()).isEqualTo("1");
+        // lostWorkspaceCount primitive long 北向出 JSON string（全局 Long→ToStringSerializer
+        // 覆盖包装与 primitive 同源——asLong 对齐出口口径）
+        assertThat(data.path("lostWorkspaceCount").asText()).isEqualTo("2");
+        assertThat(data.path("lostWorkspaceCount").asLong()).isEqualTo(2L);
+        assertThat(data.path("sampledAt").asText()).isEqualTo("2026-11-13T10:30:00");
+        // 最近手动清扫留痕直读（收编结果面）
+        JsonNode lastSweep = data.path("lastSweep");
+        assertThat(lastSweep.path("sweptAt").asText()).isEqualTo("2026-11-13T09:00:00");
+        assertThat(lastSweep.path("operatorId").asText()).isEqualTo("700101");
+        assertThat(lastSweep.path("operatorName").asText()).isEqualTo("运维·老张");
+        assertThat(lastSweep.path("registryReachable").asBoolean()).isTrue();
+        assertThat(lastSweep.path("sweptContainers").asInt()).isEqualTo(1);
+        assertThat(lastSweep.path("sweptVolumes").asInt()).isEqualTo(1);
+        assertThat(lastSweep.path("skippedCount").asInt()).isEqualTo(3);
+        assertThat(lastSweep.path("failedCount").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("非超管且拥有 resource:sweep → 手动清扫 200，逐项处置报告＋计数面＋操作者回显且 RequestContext 透传")
+    void given_nonSuperAdminWithResourceSweep_when_sweep_then_200ItemizedReportAndRequestContextCarriesOperator()
+            throws Exception {
+        String token = login(usernameWithResourceSweep);
+        ResponseEntity<String> response = postWithToken(RESOURCES_SWEEP_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = objectMapper.readTree(response.getBody()).path("data");
+        assertThat(data.path("sweptAt").asText()).isEqualTo("2026-11-13T09:05:00");
+        // 操作者两列＝透传头落痕回显（本次登录的资源治理运营）
+        assertThat(data.path("operatorId").asText()).isEqualTo(String.valueOf(resourceSweepUserId));
+        assertThat(data.path("operatorName").asText()).isEqualTo(resourceSweepUserNickname);
+        assertThat(data.path("registryReachable").asBoolean()).isTrue();
+        assertThat(data.path("graceLine").asText()).isEqualTo("2026-11-13T08:55:00");
+        // 计数面一源＝域报告
+        assertThat(data.path("sweptContainers").asInt()).isEqualTo(1);
+        assertThat(data.path("sweptVolumes").asInt()).isZero();
+        assertThat(data.path("skippedCount").asInt()).isEqualTo(2);
+        assertThat(data.path("failedCount").asInt()).isZero();
+        // 逐项处置三行：SWEPT（skipReason null）/SKIPPED REGISTERED（在册不动）/SKIPPED GRACE_WINDOW
+        assertThat(data.path("items").size()).isEqualTo(3);
+        JsonNode swept = data.path("items").get(0);
+        assertThat(swept.path("kind").asText()).isEqualTo("CONTAINER");
+        assertThat(swept.path("identifier").asText()).isEqualTo("ws-3829492007654321");
+        assertThat(swept.path("disposition").asText()).isEqualTo("SWEPT");
+        assertThat(swept.path("skipReason").isNull()).isTrue();
+        assertThat(swept.path("resourceCreatedAt").asText()).isEqualTo("2026-11-13T08:40:00");
+        JsonNode registered = data.path("items").get(1);
+        assertThat(registered.path("disposition").asText()).isEqualTo("SKIPPED");
+        assertThat(registered.path("skipReason").asText()).isEqualTo("REGISTERED");
+        assertThat(registered.path("resourceCreatedAt").isNull()).isTrue();
+        JsonNode grace = data.path("items").get(2);
+        assertThat(grace.path("kind").asText()).isEqualTo("VOLUME");
+        assertThat(grace.path("skipReason").asText()).isEqualTo("GRACE_WINDOW");
+
+        // 操作者身份不经 body——经 RequestContext 抵达出站调用点（OpenApiClient 据此带
+        // X-User-Id/X-User-Name 出站头，provider 落留痕行＋报告 JSON 落档，缺头落空 NULL
+        // ——issue #128 断言必带）：== 登录资源治理运营的 id/昵称
+        assertThat(capturedOperatorId.get()).isEqualTo(resourceSweepUserId);
+        assertThat(capturedOperatorName.get()).isEqualTo(resourceSweepUserNickname);
+    }
+
+    @Test
+    @DisplayName("读写两码不串：无 resource:read → 大盘 403（仅有 sweep 写码）；仅有 read → 清扫 403")
+    void given_readCodesOnly_when_resourceEndpoints_then_403OnTheOtherSide() {
+        // 清扫写码专用运营（无 resource:read）→ 大盘读口 403：观测权与动刀权分权
+        String sweeper = login(usernameWithResourceSweep);
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, sweeper).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // resource:read（无 sweep 写码）→ 清扫写口 403：只读角色不得动刀
+        String reader = login(usernameWithReadPermission);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, reader).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("非超管且缺少权限 → 资源面两端点 403；未登录 → 401（含清扫 POST）")
+    void given_noPermissionOrUnauthenticated_when_resourceEndpoints_then_403Or401() {
+        String token = login(usernameWithoutPermission);
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, token).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(getWithToken(RESOURCES_OVERVIEW_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(postWithToken(RESOURCES_SWEEP_ENDPOINT, null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("清扫下游 WSP_002（docker CLI 失败）→ 北向 HTTP 500 + 信封 code=1002 + message 原文（不映射）")
+    void given_wsp002FromDownstream_when_sweep_then_errorEnvelopePassedThrough() throws Exception {
+        when(aiplatformClient.sweepResources()).thenThrow(
+                AiplatformUpstreamException.from(new OpenApiClientException(500,
+                        "{\"code\":1002,\"message\":\"docker CLI 调用失败（docker system df 非零退出）\","
+                                + "\"data\":null}")));
+
+        String token = login(usernameWithResourceSweep);
+        ResponseEntity<String> response = postWithToken(RESOURCES_SWEEP_ENDPOINT, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        JsonNode root = objectMapper.readTree(response.getBody());
+        // 信封 code＝数字业务码 1002（WSP_002＝域码 1×1000＋2），而非映射后的 500——前端比对业务码的分支活
+        assertThat(root.path("code").asInt()).isEqualTo(1002);
+        assertThat(root.path("message").asText())
+                .isEqualTo("docker CLI 调用失败（docker system df 非零退出）");
         assertThat(root.path("data").isNull()).isTrue();
     }
 

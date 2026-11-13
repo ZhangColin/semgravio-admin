@@ -13,6 +13,7 @@ import com.semgravio.admin.aiplatform.application.AiplatformPaymentAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProductionAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformPriceEntryAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformProjectAppService;
+import com.semgravio.admin.aiplatform.application.AiplatformResourceAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSkillAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformSedimentDraftAppService;
 import com.semgravio.admin.aiplatform.application.AiplatformTimeBandRuleAppService;
@@ -48,6 +49,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * {@code AiplatformProductionClientContractTest}（#107 生产承接域）/
  * {@code AiplatformModelProviderClientContractTest}（#110 模型供应商域——spec #101 B 批）/
  * {@code AiplatformModelTierClientContractTest}（#111 模型档位域——spec #101 B 批 B2）/
+ * {@code AiplatformResourceClientContractTest}（issue #128「资源面」——aiplatform #489
+ * 资源大盘＋手动清扫）/
  * {@code AiplatformTimeBandRuleClientContractTest}（issue #130「时段规则」——aiplatform
  * #497 清单/开行/原子改窗/停用四端点，改窗回执 closed/opened 双段）复用；
  * 后续域 {@code *ContractTest} 沿用本脚手架扩展（各域 AppService 重载）。</p>
@@ -320,7 +323,7 @@ final class AiplatformWireTestSupport {
     /**
      * 一键回收版（issue #129，aiplatform #490——项目级/工作区级 reclaim 同形回执、均走
      * {@code post} 无请求体），按真实 {@link TypeReference} 反序列化；post 的 wireBodySink
-     * 原样记 null（钉死回收无请求体契约——同沙箱动作先例）；返回项目域 AppService
+     * 原样记 null（钉死回收无请求体契约——同沙箱动作/手动清扫先例）；返回项目域 AppService
      * （项目级 reclaim 经其出口）。
      */
     static AiplatformProjectAppService reclaimProjectAppServiceWithStubTransport(
@@ -985,6 +988,62 @@ final class AiplatformWireTestSupport {
             }
         };
         return new AiplatformSedimentDraftAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 「资源面」版（issue #128，aiplatform #489——resources/overview 大盘读口走 {@code get}、
+     * resources/sweep 手动清扫走 {@code post} 无请求体），均按真实 {@code TypeReference}
+     * 反序列化；post 的 wireBodySink 原样记 null（钉死清扫无请求体契约——同重试归档先例）。
+     */
+    static AiplatformResourceAppService resourceAppServiceWithStubTransport(
+            String envelopeBody, String[] wireUrlSink, String[] wireBodySink) {
+        ObjectMapper mapper = bootDefaultMapper();
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, mapper) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                try {
+                    wireBodySink[0] = body == null ? null : mapper.writeValueAsString(body);
+                    return mapper.readValue(envelopeBody, typeReference);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        return new AiplatformResourceAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
+    }
+
+    /**
+     * 「资源面」版 {@link #accountAppServiceWithErrorTransport}——{@code get} 与 {@code post}
+     * 都始终抛 {@link OpenApiClientException}（框架对 ≥400 的行为复刻：sweep 的 WSP_002
+     * 与读口错误信封同形）。
+     */
+    static AiplatformResourceAppService resourceAppServiceWithErrorTransport(
+            int statusCode, String errorBody, String[] wireUrlSink) {
+        OpenApiClient stubTransport = new OpenApiClient(new CartisanOpenapiProperties(), null, bootDefaultMapper()) {
+            @Override
+            public <T> T get(String url, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+
+            @Override
+            public <T> T post(String url, Object body, TypeReference<T> typeReference) {
+                wireUrlSink[0] = url;
+                throw new OpenApiClientException(statusCode, errorBody);
+            }
+        };
+        return new AiplatformResourceAppService(new AiplatformClient(stubTransport, "http://stub-aiplatform"));
     }
 
     /**

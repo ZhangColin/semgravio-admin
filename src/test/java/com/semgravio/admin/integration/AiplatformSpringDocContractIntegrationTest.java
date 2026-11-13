@@ -2110,6 +2110,88 @@ class AiplatformSpringDocContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("swagger 契约：「资源面」两端点 @Operation 描述镜像 provider（#128，null＝缺测≠0＝真零/在册≠无主/ADR-0045 准绳/逐项处置三因/WSP_002 数字码在场）")
+    void given_resourceEndpoints_when_readOperations_then_descriptionsMirrorProvider() throws Exception {
+        JsonNode paths = apiDocs().path("paths");
+
+        // 资源大盘：六面齐备＋null≠零两态呈现红线＋失联计数出口（在册≠无主，出口＝一键回收）
+        // ＋ADR-0045 准绳（可回收口径不进本面）＋最近清扫收编结果面
+        JsonNode overview = paths.path("/api/admin/aiplatform/resources/overview").path("get");
+        assertThat(overview.isMissingNode()).as("api-docs 应含资源大盘端点").isFalse();
+        assertThat(overview.path("summary").asText(""))
+                .contains("资源大盘")
+                .contains("主机盘");
+        assertThat(overview.path("description").asText(""))
+                .contains("null＝缺测")
+                .contains("0＝真零")
+                .contains("采样中")
+                .contains("在册≠无主")
+                .contains("一键回收 reclaim")
+                .contains("ADR-0045")
+                .contains("永不进本面")
+                .contains("纯读库零 docker 调用")
+                .contains("lastSweep")
+                .contains("sampledAt");
+
+        // 手动清扫：同准绳（保留集/宽限线/点名删非 prune）＋逐项处置三因＋registryReachable
+        // false 一刀未动＋操作者透传头缺头落空＋无请求体＋WSP_002 数字码
+        JsonNode sweep = paths.path("/api/admin/aiplatform/resources/sweep").path("post");
+        assertThat(sweep.isMissingNode()).as("api-docs 应含手动清扫端点").isFalse();
+        assertThat(sweep.path("summary").asText(""))
+                .contains("手动清扫")
+                .contains("逐项处置报告");
+        assertThat(sweep.path("description").asText(""))
+                .contains("同一实现同一准绳")
+                .contains("保留集＝")
+                .contains("宽限线")
+                .contains("点名删非 prune")
+                .contains("REGISTERED")
+                .contains("GRACE_WINDOW")
+                .contains("TIMESTAMP_UNREADABLE")
+                .contains("一刀未动")
+                .contains("如实呈报不重试")
+                .contains("落空 NULL")
+                .contains("无请求体")
+                .contains("WSP_002").contains("1002");
+
+        // 大盘 schema 自描述：失联计数出口＋在册≠无主；docker/orphans 为嵌套 record（$ref 形）
+        // ——语义自描述在 @Operation 与标量字段上钉死，此处钉 ref 在场即契约未漂移
+        assertThat(property("AiplatformResourceOverviewResponse", "lostWorkspaceCount")
+                .path("description").asText(""))
+                .contains("在册失联")
+                .contains("一键回收 reclaim")
+                .contains("在册≠无主");
+        assertThat(property("AiplatformResourceOverviewResponse", "docker").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "orphans").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "host").isMissingNode()).isFalse();
+        assertThat(property("AiplatformResourceOverviewResponse", "lastSweep").isMissingNode()).isFalse();
+
+        // 清扫回执 schema 自描述：registryReachable 一刀未动、逐项处置行三因＋SWEPT/FAILED
+        // skipReason 为 null、宽限线窗口保护语义
+        assertThat(property("AiplatformResourceSweepResponse", "registryReachable")
+                .path("description").asText(""))
+                .contains("一刀未动")
+                .contains("不重试");
+        assertThat(property("AiplatformResourceSweepResponse", "graceLine")
+                .path("description").asText(""))
+                .contains("宽限线")
+                .contains("10 分钟");
+        assertThat(property("AiplatformResourceSweepResponse", "items")
+                .path("description").asText(""))
+                .contains("逐项处置");
+        assertThat(property("SweepItem", "skipReason")
+                .path("description").asText(""))
+                .contains("REGISTERED")
+                .contains("GRACE_WINDOW")
+                .contains("TIMESTAMP_UNREADABLE")
+                .contains("SWEPT/FAILED 为 null");
+        assertThat(property("SweepItem", "resourceCreatedAt")
+                .path("description").asText(""))
+                .contains("在册项未起 inspect")
+                .contains("恒 null");
+    }
+
+    @Test
     @DisplayName("swagger 契约：「时段规则」四端点 @Operation 描述镜像 provider（#130，窗不跨午夜 METER_013/一单 N 窗口＝一个版本/closed opened 双段/band 1=峰 2=谷/dayMask Mon=1…Sun=64/缺头落空/METER_015/016/008 数字码在场）")
     void given_timeBandRuleEndpoints_when_operations_then_descriptionsMirrorProvider() throws Exception {
         JsonNode paths = apiDocs().path("paths");

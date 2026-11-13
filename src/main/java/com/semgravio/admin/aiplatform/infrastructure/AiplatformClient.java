@@ -87,6 +87,8 @@ import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectFile
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectListWireRequest;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformProjectSummaryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformReclaimWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceOverviewWireResponse;
+import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformResourceSweepWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryRepriceWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnitPriceEntryWireResponse;
 import com.semgravio.admin.aiplatform.application.dto.wire.AiplatformUnpricedUsageWireResponse;
@@ -123,7 +125,9 @@ import org.springframework.stereotype.Component;
  * （#110 第十一域——spec #101 B 批 B1，aiplatform #367/#368 模型通道维护＋远端清单
  * 拉取）与模型档位域（#111 第十二域——spec #101 B 批 B2，aiplatform #367 档位语义键
  * CRUD＋留痕）与沉淀草稿「数据标注」域（issue #124——aiplatform #464 数据飞轮采集层
- * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）与「时段规则」域（issue #130——
+ * 人审口：标注队列＋激活/拒绝/改标签三键，知识域第二面）与「资源面」（issue #128——
+ * aiplatform #489 #473/ADR-0045 资源回收通道的观测与手动处置面：resources/overview
+ * 大盘＋resources/sweep 手动清扫，回执逐项处置报告）与「时段规则」域（issue #130——
  * aiplatform #497／ADR-0044 峰谷 1/4 后台时段规则面：time-band-rules 清单/开行/原子
  * 改窗/停用四端点，一单 N 窗口＝一个版本，回执改窗 closed/opened 双段）共用本客户端——同一
  * downstream、同一签名身份，各域只加方法。</p>
@@ -312,6 +316,14 @@ public class AiplatformClient {
             new TypeReference<>() {};
 
     private static final TypeReference<ApiResponse<AiplatformSedimentDraftDetailWireResponse>> SEDIMENT_DRAFT_DETAIL_TYPEREF =
+            new TypeReference<>() {};
+
+    // 资源面（#489 资源大盘＋手动清扫，issue #128）：overview 为 ApiResponse<BackofficeResourceOverviewResponse>
+    // 单对象信封；sweep 回执同为单对象信封（逐项处置报告＋计数面——无请求体 POST）
+    private static final TypeReference<ApiResponse<AiplatformResourceOverviewWireResponse>> RESOURCE_OVERVIEW_TYPEREF =
+            new TypeReference<>() {};
+
+    private static final TypeReference<ApiResponse<AiplatformResourceSweepWireResponse>> RESOURCE_SWEEP_TYPEREF =
             new TypeReference<>() {};
 
     // 「时段规则」域（#497 时段规则表与机机写口，issue #130）：清单 data 为 PageResponse（page 1-based、
@@ -2575,6 +2587,70 @@ public class AiplatformClient {
         try {
             ApiResponse<AiplatformSedimentDraftDetailWireResponse> resp =
                     openApiClient.post(url, command, SEDIMENT_DRAFT_DETAIL_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 资源大盘（透传 aiplatform，「资源面」读口，issue #128——镜像 aiplatform #489
+     * #473/ADR-0045 资源回收通道的观测面）——主机磁盘（平台进程所在文件系统，hostPath
+     * ＝df 对账锚）＋docker 四类用量（镜像/容器/本地卷/build cache 计数与体量——体量
+     * 十进制单位换算与 docker 显示同基）＋无主资源计数（ADR-0045 准绳——docker 侧
+     * ws-&lt;id&gt;/vol-ws-&lt;id&gt; 对注册表全量求差；docker system df「可回收」口径
+     * 永不进本面）＋在册失联计数（#488 只标记待裁决，出口＝一键回收——在册≠无主）＋
+     * 最近一次手动清扫（收编结果面）。<strong>纯读库零 docker 调用、秒级返回</strong>
+     * （#487 治超时口径延伸）；未采样各面如实 null（null＝缺测≠0＝真零，两态必须可分）、
+     * sampledAt 新鲜度标注。无查询参数、无路径参数。
+     *
+     * <p>对接 aiplatform {@code GET /api/backoffice/resources/overview}（#489）：返回
+     * {@code ApiResponse<BackofficeResourceOverviewResponse>}；机机签名五头 HMAC 类级
+     * 强制（无签名 401 由 provider 裁决）。错误信封原样透传（不做映射）。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（不做映射）
+     */
+    public AiplatformResourceOverviewWireResponse getResourceOverview() {
+        String url = baseUrl + "/api/backoffice/resources/overview";
+        log.debug("AiplatformClient.getResourceOverview: {}", url);
+        try {
+            ApiResponse<AiplatformResourceOverviewWireResponse> resp =
+                    openApiClient.get(url, RESOURCE_OVERVIEW_TYPEREF);
+            return resp.data();
+        } catch (OpenApiClientException e) {
+            throw AiplatformUpstreamException.from(e);
+        }
+    }
+
+    /**
+     * 手动清扫（透传 aiplatform，「资源面」写口，issue #128——镜像 aiplatform #489
+     * #473 故事 8：按需对账不等扫描轮）——触发一次无主收编，<strong>复用扫描轮自动收编
+     * 同一实现同一准绳</strong>（保留集＝注册表全量编号——在册一律不动〔休眠保卷是用户
+     * 数据 ADR-0016〕、宽限线＝触发时刻减 10 分钟〔新建「资源已建、记录未落」窗口保护〕、
+     * 点名删非 prune——docker system df「可回收」不作判定、volume prune 永不进任何
+     * 通道）。回执＝逐项处置报告：收编了什么（SWEPT）、跳过什么为什么（SKIPPED：
+     * REGISTERED＝在册/GRACE_WINDOW＝宽限窗内/TIMESTAMP_UNREADABLE＝时刻解析不出）、
+     * 删除未成什么（FAILED——下轮扫描再收）；库不可达（registryReachable=false）一刀
+     * 未动如实呈报（准绳无从构成绝不按「全部无主」动手，不重试）。手动清扫不受休眠总
+     * 开关静默（管理员显式动作，ADR-0045 动刀类走 admin 手动＋留痕）。
+     *
+     * <p>对接 aiplatform {@code POST /api/backoffice/resources/sweep}（#489）：<strong>无
+     * 请求体</strong>（框架 {@code OpenApiClient.post} 对 null body 发空 body，provider 端
+     * 只读透传头——同沙箱四动作/重试归档先例），返回
+     * {@code ApiResponse<BackofficeResourceSweepResponse>}。操作者身份经框架自动带
+     * {@code X-User-Id/X-User-Name} 头（RequestContext→provider 落 append-only 留痕行
+     * ＋报告 JSON 全量落档，缺头落空 NULL——照沙箱动作面口径，provider 不落强制守卫）。
+     * docker CLI 自身失败 500 WSP_002（数字业务码 1002——未执行完的清扫不留痕不定格）
+     * 原样透传。</p>
+     *
+     * @throws AiplatformUpstreamException aiplatform 错误信封透传（500 WSP_002 等，不做映射）
+     */
+    public AiplatformResourceSweepWireResponse sweepResources() {
+        String url = baseUrl + "/api/backoffice/resources/sweep";
+        log.debug("AiplatformClient.sweepResources: {}", url);
+        try {
+            ApiResponse<AiplatformResourceSweepWireResponse> resp =
+                    openApiClient.post(url, null, RESOURCE_SWEEP_TYPEREF);
             return resp.data();
         } catch (OpenApiClientException e) {
             throw AiplatformUpstreamException.from(e);
