@@ -49,12 +49,15 @@ public record AiplatformProjectCostDetailResponse(
 ) {
 
     /** 未配价标注项（tokenKind Integer code + tokenKindName，1=输入 … 5=推理 6=按张——按张档
-     * 未配价同公式进清单；档位用量汇总走全局 unpriced 端点，此处无计数）。 */
+     * 未配价同公式进清单；档位用量汇总走全局 unpriced 端点，此处无计数）；band/bandName 随附
+     * #499（ADR-0044 读时归段）：1=峰 2=谷，null＝不区分时段。 */
     public record UnpricedTier(
             String provider,
             String model,
             Integer tokenKind,
-            String tokenKindName
+            String tokenKindName,
+            Integer band,
+            String bandName
     ) {
     }
 

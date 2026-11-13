@@ -1422,14 +1422,17 @@ class AiplatformRbacEnforcementIntegrationTest {
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
                         List.of(new AiplatformCostOverviewWireResponse.AgentKindUsage(
                                 "naming", null,
-                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0)))));
+                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0))),
+                        List.of(new AiplatformCostOverviewWireResponse.ModelBandCost(
+                                "anthropic", "claude-fable-5", 1, "峰",
+                                Map.of("CNY", new BigDecimal("3.0"))))));
         when(aiplatformClient.getUnpricedUsage(eq(new AiplatformCostWindowWireRequest(costFrom, costTo))))
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         costFrom, costTo,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700),
+                                "openai", "gpt-5.2", 1, "输入", null, null, 700),
                                 new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                        "imgprov", "qwen-image", 6, "按张", 3))));
+                                        "imgprov", "qwen-image", 6, "按张", null, null, 3))));
         when(aiplatformClient.listProjectCosts(any(), anyInt(), anyInt())).thenReturn(new PageResponse<>(List.of(
                 new AiplatformProjectCostWireResponse(
                         PROJECT_ID,
@@ -1446,7 +1449,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800),
                         Map.of("CNY", new BigDecimal("12.3456")),
                         List.of(new AiplatformProjectCostDetailWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入")),
+                                "openai", "gpt-5.2", 1, "输入", null, null)),
                         List.of(new AiplatformProjectCostDetailWireResponse.ModelUsage(
                                 "anthropic", "claude-fable-5",
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),

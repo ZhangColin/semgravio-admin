@@ -25,12 +25,17 @@ public record AiplatformUnpricedUsageResponse(
 ) {
 
     /** 未配价档位项（tokenKind Integer code + tokenKindName；1=输入 2=输出 3=缓存读 4=缓存写
-     * 5=推理 6=按张——按张档未配价同公式进警示清单，tokens 对该档＝张数）。 */
+     * 5=推理 6=按张——按张档未配价同公式进警示清单，tokens 对该档＝张数）；band/bandName
+     * 随附 #499（ADR-0044 读时归段）：1=峰 2=谷，null＝不区分时段——通道无生效规则行/按张档
+     * 不受带影响；峰行有谷行无时谷段分量按 band=2 单列进缺价面（不伪装 0）——消费端按 band
+     * 分组成「峰缺价/谷缺价」。 */
     public record UnpricedTier(
             String provider,
             String model,
             Integer tokenKind,
             String tokenKindName,
+            Integer band,
+            String bandName,
             long tokens
     ) {
     }

@@ -2058,7 +2058,10 @@ class AiplatformBffIntegrationTest {
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
                         List.of(new AiplatformCostOverviewWireResponse.AgentKindUsage(
                                 "naming", null,
-                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0)))));
+                                new AiplatformTokenUsageWireResponse(1000, 200, 0, 0, 0))),
+                        List.of(new AiplatformCostOverviewWireResponse.ModelBandCost(
+                                "anthropic", "claude-fable-5", 1, "峰",
+                                Map.of("CNY", new BigDecimal("3.0"))))));
 
         AiplatformCostOverviewResponse overview = costAppService.overview(new AiplatformCostQuery(from, to));
 
@@ -2076,6 +2079,14 @@ class AiplatformBffIntegrationTest {
         assertThat(overview.byModel().get(0).tokens().cacheRead()).isEqualTo(300L);
         assertThat(overview.byAgentKind().get(0).agentKind()).isEqualTo("naming");
         assertThat(overview.byAgentKind().get(0).agentKindName()).isNull();
+
+        // byModelCost（#499 峰谷维度）：分模型金额按带拆逐字段映射——band Integer code + bandName
+        // 随行 + 币种分桶透传；null＝不区分时段分量（按张行恒落此桶）
+        assertThat(overview.byModelCost()).hasSize(1);
+        assertThat(overview.byModelCost().get(0).band()).isEqualTo(1);
+        assertThat(overview.byModelCost().get(0).bandName()).isEqualTo("峰");
+        assertThat(overview.byModelCost().get(0).cost())
+                .containsEntry("CNY", new BigDecimal("3.0"));
     }
 
     // ========== unpriced 警示 · 档位映射 ==========
@@ -2088,9 +2099,9 @@ class AiplatformBffIntegrationTest {
                 .thenReturn(new AiplatformUnpricedUsageWireResponse(
                         from, to,
                         List.of(new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入", 700),
+                                "openai", "gpt-5.2", 1, "输入", null, null, 700),
                                 new AiplatformUnpricedUsageWireResponse.UnpricedTier(
-                                        "imgprov", "qwen-image", 6, "按张", 3))));
+                                        "imgprov", "qwen-image", 6, "按张", null, null, 3))));
 
         AiplatformUnpricedUsageResponse unpriced = costAppService.unpriced(new AiplatformCostQuery(from, to));
 
@@ -2103,6 +2114,11 @@ class AiplatformBffIntegrationTest {
         assertThat(unpriced.items().get(1).tokenKind()).isEqualTo(6);
         assertThat(unpriced.items().get(1).tokenKindName()).isEqualTo("按张");
         assertThat(unpriced.items().get(1).tokens()).isEqualTo(3L);
+        // band/bandName 两列随行如实映射（#499：null＝不区分时段——通道无生效规则行/按张档不受带影响）
+        assertThat(unpriced.items().get(0).band()).isNull();
+        assertThat(unpriced.items().get(0).bandName()).isNull();
+        assertThat(unpriced.items().get(1).band()).isNull();
+        assertThat(unpriced.items().get(1).bandName()).isNull();
     }
 
     // ========== 项目成本清单 · query→wire + 分页 1-based 透传 ==========
@@ -2153,7 +2169,7 @@ class AiplatformBffIntegrationTest {
                         new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800),
                         Map.of("CNY", new BigDecimal("12.3456")),
                         List.of(new AiplatformProjectCostDetailWireResponse.UnpricedTier(
-                                "openai", "gpt-5.2", 1, "输入")),
+                                "openai", "gpt-5.2", 1, "输入", null, null)),
                         List.of(new AiplatformProjectCostDetailWireResponse.ModelUsage(
                                 "anthropic", "claude-fable-5",
                                 new AiplatformTokenUsageWireResponse(3000, 1000, 300, 0, 800))),
@@ -2170,6 +2186,9 @@ class AiplatformBffIntegrationTest {
         assertThat(detail.cost()).containsEntry("CNY", new BigDecimal("12.3456"));
         assertThat(detail.unpriced().get(0).tokenKind()).isEqualTo(1);
         assertThat(detail.unpriced().get(0).tokenKindName()).isEqualTo("输入");
+        // band/bandName 两列随行如实映射（#499：null＝不区分时段）
+        assertThat(detail.unpriced().get(0).band()).isNull();
+        assertThat(detail.unpriced().get(0).bandName()).isNull();
         assertThat(detail.byModel().get(0).provider()).isEqualTo("anthropic");
         assertThat(detail.byAgentKind().get(0).agentKind()).isEqualTo("executor");
         assertThat(detail.byAgentKind().get(0).agentKindName()).isEqualTo("执行智能体");
