@@ -19,6 +19,10 @@ import java.time.LocalDateTime;
  * containerStateName/volumeSizeBytes 三字段全 null（未采样 ≠ 探查失败 containerState=4 ≠
  * 无容器 containerState=3）；封存行 volumeSizeBytes 恒 null（卷已删，看 sealedAt/archiveSizeBytes）。</p>
  *
+ * <p>{@code lostAt}（aiplatform #488，issue #127）为在册失联判定时刻——注册行在而项目行已删、
+ * 物理资源仍在的静止现场（销毁中途吞错）；首标即定、复扫不覆盖。只标记待人工裁决，机器不当无主
+ * 资源自动清（在册≠无主，ADR-0016/ADR-0045）；空壳行（物理已空）由平台扫描轮自动卫生删行。</p>
+ *
  * @since 0.1.0
  */
 public record AiplatformWorkspaceSummaryWireResponse(
@@ -62,6 +66,10 @@ public record AiplatformWorkspaceSummaryWireResponse(
 
         /** 采样时刻（新鲜度标注；未采样为 null） */
         LocalDateTime sampledAt,
+
+        /** 在册失联判定时刻（aiplatform #488，issue #127）：项目行已删而物理资源仍在的静止现场
+         * 标记——只标记待人工裁决（处置出口＝一键回收），首标即定、复扫不翻新；未失联为 null */
+        LocalDateTime lostAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

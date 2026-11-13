@@ -43,7 +43,8 @@ public class AiplatformWorkspaceAppService {
      * 沙箱清单（两维过滤，透传 aiplatform）——期望态/实态分示发现漂移：desired（1=运行 2=休眠
      * 3=封存）/actual（1=运行中 2=已停止 3=无容器 4=未知）均单选、可组合、可缺省；新沙箱在前
      * （provider 定死 TSID 倒序）。实态列与卷大小为采样快照（aiplatform #487，issue #126）：
-     * 扫描轮采样落库约 5 分钟新鲜度，sampledAt 标注采样时刻——未采样三字段全 null。
+     * 扫描轮采样落库约 5 分钟新鲜度，sampledAt 标注采样时刻——未采样三字段全 null。另带在册失联
+     * 标记 lostAt（aiplatform #488，issue #127，纯透传不改语义）：非 null＝项目行已删而物理资源仍在。
      */
     public PageResponse<AiplatformWorkspaceSummaryResponse> list(AiplatformWorkspaceQuery query, int page, int size) {
         PageResponse<AiplatformWorkspaceSummaryWireResponse> wirePage = aiplatformClient.listWorkspaces(
@@ -103,7 +104,7 @@ public class AiplatformWorkspaceAppService {
                 wire.kind(), wire.kindName(), wire.status(), wire.statusName(),
                 wire.desiredState(), wire.desiredStateName(),
                 wire.containerState(), wire.containerStateName(),
-                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(),
+                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(), wire.lostAt(),
                 wire.sealedAt(), wire.archiveSizeBytes(),
                 wire.project() == null ? null : toProjectRef(wire.project()));
     }
@@ -114,7 +115,7 @@ public class AiplatformWorkspaceAppService {
                 wire.kind(), wire.kindName(), wire.status(), wire.statusName(), wire.provisionError(),
                 wire.desiredState(), wire.desiredStateName(),
                 wire.containerState(), wire.containerStateName(),
-                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(), wire.sealedAt(),
+                wire.lastTouchAt(), wire.volumeSizeBytes(), wire.sampledAt(), wire.lostAt(), wire.sealedAt(),
                 wire.archivePath(), wire.archiveSizeBytes(), wire.createdAt(), wire.updatedAt(),
                 wire.resources() == null ? null : wire.resources().stream()
                         .map(AiplatformWorkspaceAppService::toMiddlewareResource)

@@ -1404,7 +1404,9 @@ public class AiplatformClient {
      * （1=运行 2=休眠 3=封存，DB 意图侧）、{@code actual} 容器实态（1=运行中 2=已停止 3=无容器
      * 4=未知——按最近采样帧内存过滤，total 如实＝筛后计数；{@code actual=3} 即捞「期望运行而实态已亡」
      * 漂移清单）。实态列（containerState/volumeSizeBytes）为扫描轮采样快照（sampledAt 新鲜度标注，
-     * 未采样全 null）——响应秒级稳定零 docker 调用。过滤参数绑定失败 400 WSP_014（数字业务码 1014）
+     * 未采样全 null）——响应秒级稳定零 docker 调用。另带在册失联标记 {@code lostAt}（可空，
+     * aiplatform #488，issue #127）：非 null＝项目行已删而物理资源仍在，只标记待人工裁决。
+     * 过滤参数绑定失败 400 WSP_014（数字业务码 1014）
      * 原样透传。</p>
      *
      * <p>page 1-based 直传零换算（同订单/项目），provider clamp（page≥1、size∈[1,100]）行为透传。</p>

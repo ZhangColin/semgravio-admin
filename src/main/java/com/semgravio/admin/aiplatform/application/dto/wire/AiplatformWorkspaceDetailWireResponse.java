@@ -16,6 +16,8 @@ import java.util.List;
  * 未采样三字段（containerState/containerStateName/volumeSizeBytes）全 null；封存行 volumeSizeBytes
  * 恒 null。四干预动作回执的实态列是动作前采样帧（下轮采样刷新）——动作后立即轮询看到旧实态属预期。</p>
  *
+ * <p>{@code lostAt}（aiplatform #488，issue #127）同清单口径：在册失联判定时刻，未失联为 null。</p>
+ *
  * @since 0.1.0
  */
 public record AiplatformWorkspaceDetailWireResponse(
@@ -65,6 +67,10 @@ public record AiplatformWorkspaceDetailWireResponse(
 
         /** 采样时刻（新鲜度标注；未采样为 null） */
         LocalDateTime sampledAt,
+
+        /** 在册失联判定时刻（aiplatform #488，issue #127）：项目行已删而物理资源仍在的静止现场
+         * 标记——只标记待人工裁决（处置出口＝一键回收），首标即定、复扫不翻新；未失联为 null */
+        LocalDateTime lostAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

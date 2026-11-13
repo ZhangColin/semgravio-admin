@@ -1111,7 +1111,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                         WORKSPACE_ID, "ws-" + WORKSPACE_ID,
                         1, "开发", 2, "就绪", 1, "运行", 3, "无容器",
                         LocalDateTime.of(2026, 9, 14, 22, 10, 0),
-                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0), null, null,
+                        2147483648L, LocalDateTime.of(2026, 9, 14, 22, 11, 0), null, null, null,
                         new AiplatformWorkspaceSummaryWireResponse.ProjectRef(
                                 PROJECT_ID, "英语学习助手", false))), 17, 2, 20));
         when(aiplatformClient.getWorkspace(eq(WORKSPACE_ID))).thenReturn(
@@ -2124,6 +2124,7 @@ class AiplatformRbacEnforcementIntegrationTest {
                 desiredState, desiredStateName, containerState, containerStateName,
                 LocalDateTime.of(2026, 9, 16, 9, 0, 0), 1073741824L,
                 LocalDateTime.of(2026, 9, 16, 9, 1, 0),
+                null,
                 archivePath == null ? null : LocalDateTime.of(2026, 9, 16, 9, 0, 0),
                 archivePath, archiveSizeBytes,
                 LocalDateTime.of(2026, 9, 8, 10, 0, 0), LocalDateTime.of(2026, 9, 16, 9, 0, 0),
@@ -2725,6 +2726,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         // 未封存字段如实出 JSON null（全局 Jackson 含 null）
         assertThat(row.path("sealedAt").isNull()).isTrue();
         assertThat(row.path("archiveSizeBytes").isNull()).isTrue();
+        // 未失联字段如实出 JSON null（#488 在册失联标记增量列，issue #127——失联行此列非 null 为判定时刻）
+        assertThat(row.path("lostAt").isNull()).isTrue();
     }
 
     @Test
@@ -2745,6 +2748,8 @@ class AiplatformRbacEnforcementIntegrationTest {
         assertThat(data.path("archiveSizeBytes").asLong()).isEqualTo(89128960L);
         // 实态列采样快照（#487）：sampledAt 新鲜度标注在场（封存行 volumeSizeBytes 恒 null）
         assertThat(data.path("sampledAt").asText()).isEqualTo("2026-09-16T09:01:00");
+        // 未失联字段如实出 JSON null（#488 在册失联标记增量列，issue #127）
+        assertThat(data.path("lostAt").isNull()).isTrue();
         // 中间件资源清单：kind Integer code（provider 出口无 *Name——忠实镜像）+ 连接串原文
         JsonNode pg = data.path("resources").get(0);
         assertThat(pg.path("kind").asInt()).isEqualTo(1);

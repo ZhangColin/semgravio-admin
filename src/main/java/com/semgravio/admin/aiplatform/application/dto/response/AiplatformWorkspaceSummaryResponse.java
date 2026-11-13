@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
  * （漂移一眼可见）。行内嵌项目引用（跳转项目详情的锚；无所属项目为 null）。实态列与卷大小
  * 为<strong>采样快照</strong>（aiplatform #487，issue #126）：响应秒级稳定（不再请求时现场
  * 探查），数值以 {@code sampledAt} 标注新鲜度；未采样（字段 null）≠ 探查失败（containerState=4
- * 未知）≠ 无容器（=3）——宜呈现「未采样」占位而非「未知」。</p>
+ * 未知）≠ 无容器（=3）——宜呈现「未采样」占位而非「未知」。另带在册失联标记 {@code lostAt}
+ * （aiplatform #488，issue #127）：非 null＝注册行在而项目行已删、物理资源仍在——「失联多久」
+ * 以此为锚，处置出口＝工作区一键回收（人工裁决后动作），机器不当无主资源自动清。</p>
  *
  * @since 0.1.0
  */
@@ -55,6 +57,10 @@ public record AiplatformWorkspaceSummaryResponse(
 
         /** 实态列采样时刻（新鲜度标注，宜展示「采样于 X 分钟前」；未采样为 null） */
         LocalDateTime sampledAt,
+
+        /** 在册失联判定时刻（aiplatform #488，issue #127——项目行已删而物理资源仍在的静止现场，
+         * 「失联多久」以此为锚；处置出口＝一键回收人工裁决，机器不自动清）；未失联为 null */
+        LocalDateTime lostAt,
 
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,

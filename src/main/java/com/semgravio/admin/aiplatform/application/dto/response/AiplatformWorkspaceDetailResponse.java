@@ -59,6 +59,10 @@ public record AiplatformWorkspaceDetailResponse(
         /** 实态列采样时刻（新鲜度标注；未采样为 null） */
         LocalDateTime sampledAt,
 
+        /** 在册失联判定时刻（aiplatform #488，issue #127——项目行已删而物理资源仍在的静止现场，
+         * 处置出口＝一键回收人工裁决，机器不自动清）；未失联为 null */
+        LocalDateTime lostAt,
+
         /** 封存时刻（未封存为 null） */
         LocalDateTime sealedAt,
 
